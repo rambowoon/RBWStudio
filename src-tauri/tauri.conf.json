@@ -1,0 +1,54 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "RBWStudio",
+  "version": "1.0.0",
+  "identifier": "com.rbwstudio.app",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "RBWStudio - Portable Web Server Manager",
+        "width": 1440,
+        "height": 880,
+        "minWidth": 1080,
+        "minHeight": 680,
+        "resizable": true,
+        "maximizable": true,
+        "decorations": false,
+        "transparent": false,
+        "center": true
+      },
+      {
+        "label": "tray",
+        "url": "tray.html",
+        "title": "RBWStudio Menu",
+        "width": 270,
+        "height": 435,
+        "resizable": false,
+        "maximizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ]
+  }
+}
+

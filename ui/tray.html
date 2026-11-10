@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RBWStudio Tray</title>
+  <style>
+    :root {
+      --bg: #12151C;
+      --card: #181C26;
+      --border: #262D3D;
+      --text: #F3F4F6;
+      --text-muted: #8E99AE;
+      --green: #10B981;
+      --green-soft: rgba(16, 185, 129, 0.15);
+      --red: #EF4444;
+      --red-soft: rgba(239, 68, 68, 0.15);
+      --primary: #6366F1;
+      --primary-soft: rgba(99, 102, 241, 0.16);
+    }
+    [data-theme="light"] {
+      --bg: #FFFFFF;
+      --card: #F9FAFB;
+      --border: #E5E7EB;
+      --text: #111827;
+      --text-muted: #6B7280;
+      --green: #059669;
+      --green-soft: #ECFDF5;
+      --red: #DC2626;
+      --red-soft: #FEF2F2;
+      --primary: #4F46E5;
+      --primary-soft: #EEF2FF;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+    }
+    .tray-card {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+      overflow: hidden;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .header img {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+    }
+    .title { font-weight: 700; font-size: 13.5px; }
+    .subtitle { font-size: 11px; color: var(--text-muted); }
+
+    .section-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 10px 14px 4px;
+    }
+    .svc-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      transition: background 0.15s;
+    }
+    .svc-item:hover { background: var(--card); }
+    .svc-left {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: all 0.2s;
+    }
+    .dot.running {
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+    }
+    .svc-name { font-weight: 500; }
+    .svc-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .svc-badge.running {
+      background: var(--green-soft);
+      color: var(--green);
+      border-color: transparent;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 6px 0;
+    }
+
+    .action-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 14px;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-size: 12.5px;
+      text-align: left;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .action-btn:hover { background: var(--card); }
+    .action-btn.danger { color: var(--red); }
+    .action-btn.danger:hover { background: var(--red-soft); }
+    .action-btn.success { color: var(--green); }
+    .action-btn.success:hover { background: var(--green-soft); }
+    .action-btn svg { flex-shrink: 0; }
+  </style>
+</head>
+<body>
+  <div class="tray-card">
+  <div class="header">
+    <img src="logo.png" alt="RBWStudio" />
+    <div>
+      <div class="title">RBWStudio</div>
+      <div class="subtitle">Local Development Server</div>
+    </div>
+  </div>
+
+  <div class="section-title">Dịch vụ hệ thống</div>
+
+  <div class="svc-item">
+    <div class="svc-left">
+      <span class="dot" id="dotWeb"></span>
+      <span class="svc-name" id="lblWeb">Apache</span>
+    </div>
+    <button class="svc-badge" id="btnWebToggle">Bật</button>
+  </div>
+
+  <div class="svc-item">
+    <div class="svc-left">
+      <span class="dot" id="dotPhp"></span>
+      <span class="svc-name" id="lblPhp">PHP FastCGI</span>
+    </div>
+    <button class="svc-badge" id="btnPhpToggle">Bật</button>
+  </div>
+
+  <div class="svc-item">
+    <div class="svc-left">
+      <span class="dot" id="dotMysql"></span>
+      <span class="svc-name" id="lblMysql">MySQL / MariaDB</span>
+    </div>
+    <button class="svc-badge" id="btnMysqlToggle">Bật</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <button class="action-btn success" id="btnStartAll">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    <span>Bật tất cả dịch vụ</span>
+  </button>
+
+  <button class="action-btn danger" id="btnStopAll">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+    <span>Dừng tất cả</span>
+  </button>
+
+  <div class="divider"></div>
+
+  <button class="action-btn" id="btnOpenDashboard">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+    <span>Mở giao diện chính</span>
+  </button>
+
+  <button class="action-btn" id="btnOpenPma">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="9" x2="9" y2="21"/></svg>
+    <span>Mở phpMyAdmin</span>
+  </button>
+
+  <button class="action-btn" id="btnOpenLocalhost">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+    <span>Mở Localhost</span>
+  </button>
+
+  <button class="action-btn danger" id="btnQuitApp">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+    <span>Thoát ứng dụng</span>
+  </button>
+  </div>
+
+  <script>
+    const tauriInvoke = window.__TAURI__?.core?.invoke || (async () => {});
+    const tauriWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+
+    async function updateStatus() {
+      try {
+        const st = await tauriInvoke("get_service_status");
+        if (!st) return;
+        const isNginx = (st.webServerType || "Apache").toLowerCase() === "nginx";
+        document.getElementById("lblWeb").textContent = isNginx ? "Nginx" : "Apache";
+        document.getElementById("lblPhp").textContent = st.activePhp ? "PHP " + st.activePhp : "PHP FastCGI";
+
+        renderBadge("dotWeb", "btnWebToggle", st.webRunning);
+        renderBadge("dotPhp", "btnPhpToggle", st.phpRunning);
+        renderBadge("dotMysql", "btnMysqlToggle", st.mysqlRunning);
+      } catch(_) {}
+    }
+
+    function renderBadge(dotId, btnId, running) {
+      const dot = document.getElementById(dotId);
+      const btn = document.getElementById(btnId);
+      if (dot) dot.classList.toggle("running", !!running);
+      if (btn) {
+        btn.classList.toggle("running", !!running);
+        btn.textContent = running ? "Chạy" : "Bật";
+      }
+    }
+
+    document.getElementById("btnWebToggle").addEventListener("click", async () => {
+      await tauriInvoke("toggle_service", { serviceName: "web", version: "" });
+      updateStatus();
+    });
+    document.getElementById("btnPhpToggle").addEventListener("click", async () => {
+      await tauriInvoke("toggle_service", { serviceName: "php", version: "" });
+      updateStatus();
+    });
+    document.getElementById("btnMysqlToggle").addEventListener("click", async () => {
+      await tauriInvoke("toggle_service", { serviceName: "mysql", version: "" });
+      updateStatus();
+    });
+
+    document.getElementById("btnStartAll").addEventListener("click", async () => {
+      await tauriInvoke("start_all_services");
+      updateStatus();
+    });
+    document.getElementById("btnStopAll").addEventListener("click", async () => {
+      await tauriInvoke("stop_all_services");
+      updateStatus();
+    });
+
+    document.getElementById("btnOpenDashboard").addEventListener("click", async () => {
+      await tauriInvoke("show_main_window");
+      tauriWindow?.hide();
+    });
+
+    document.getElementById("btnOpenPma").addEventListener("click", async () => {
+      const st = await tauriInvoke("get_service_status");
+      await tauriInvoke("open_browser", { url: "http://localhost/phpmyadmin/" });
+      tauriWindow?.hide();
+    });
+
+    document.getElementById("btnOpenLocalhost").addEventListener("click", async () => {
+      await tauriInvoke("open_browser", { url: "http://localhost" });
+      tauriWindow?.hide();
+    });
+
+    document.getElementById("btnQuitApp").addEventListener("click", async () => {
+      await tauriInvoke("stop_all_services");
+      await tauriInvoke("exit_app");
+    });
+
+    window.addEventListener("blur", () => {
+      tauriWindow?.hide();
+    });
+
+    window.addEventListener("DOMContentLoaded", () => {
+      const card = document.querySelector(".tray-card");
+      if (card) {
+        const h = card.getBoundingClientRect().height;
+        if (h > 100) {
+          tauriInvoke("resize_tray_window", { height: Math.ceil(h) });
+        }
+      }
+    });
+
+    // Sync theme from localStorage
+    const savedTheme = localStorage.getItem("rbw_theme") || "dark";
+    document.documentElement.setAttribute("data-theme", savedTheme);
+
+    updateStatus();
+    setInterval(updateStatus, 2000);
+  </script>
+</body>
+</html>

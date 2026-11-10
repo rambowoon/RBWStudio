@@ -1,0 +1,37 @@
+# ==========================================
+# RBWStudio .gitignore
+# ==========================================
+
+# --- Rust & Tauri build outputs (tự sinh) ---
+/src-tauri/target/
+**/target/
+Cargo.lock.bak
+
+# --- Compiled Executables & Binaries (tự sinh) ---
+*.exe
+*.dll
+*.pdb
+
+# --- Server runtimes & Third-party packages (tự tải / trích xuất) ---
+/bin/
+/phpmyadmin/
+
+# --- Web root & User projects (dự án web riêng biệt) ---
+/www/
+
+# --- Runtime caches, logs, temp & data (tự sinh trong quá trình chạy) ---
+/data/
+/downloads/
+/tmp/
+/ssl/
+/config/rbwmanager/backups/
+/config/rbwmanager/logs/
+/config/rbwmanager/temp_conv/
+/config/rbwmanager/data/
+
+# --- OS & Editor artifacts ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

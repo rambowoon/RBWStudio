@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RBWStudio</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ============ HEADER ============ -->
+  <header class="app-header" data-tauri-drag-region>
+    <div class="brand" data-tauri-drag-region>
+      <img src="logo.png" alt="RBWStudio" class="brand-logo-img" data-tauri-drag-region />
+      <div class="brand-text" data-tauri-drag-region>
+        <span class="brand-title" data-tauri-drag-region>RBWStudio</span>
+        <span class="brand-sub" id="osBadge" data-tauri-drag-region>v1.0.0</span>
+      </div>
+    </div>
+
+    <div class="header-center" data-tauri-drag-region>
+      <div class="status-pill" data-tauri-drag-region>
+        <span class="status-dot" id="headerSyncDot"></span>
+        <span id="headerStatusText" data-tauri-drag-region>Sẵn sàng</span>
+      </div>
+    </div>
+
+    <div class="header-right" data-tauri-drag-region>
+      <button class="hbtn" id="btnToggleTheme" title="Chuyển giao diện Sáng / Tối"><span id="themeIcon"></span></button>
+      <span class="hdivider"></span>
+      <button class="hbtn" id="btnMinimize" title="Thu nhỏ"><i data-icon="minus" data-size="15"></i></button>
+      <button class="hbtn" id="btnMaximize" title="Phóng to / Khôi phục cửa sổ"><i data-icon="square" data-size="13"></i></button>
+      <button class="hbtn" id="btnClose" title="Thu xuống khay hệ thống"><i data-icon="x" data-size="15"></i></button>
+      <button class="hbtn hbtn-close" id="btnExitApp" title="Thoát hoàn toàn ứng dụng"><i data-icon="power" data-size="14"></i></button>
+    </div>
+  </header>
+
+  <div class="app-body">
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar">
+      <nav class="nav">
+        <div class="nav-label">Tổng quan</div>
+        <button class="nav-item active" data-tab="dashboard"><i data-icon="dashboard"></i><span>Dịch vụ</span></button>
+        <button class="nav-item" data-tab="sites"><i data-icon="globe"></i><span>Dự án</span><span class="nav-count" id="sitesCountBadge">0</span></button>
+        <button class="nav-item" data-tab="mail"><i data-icon="mail"></i><span>Mail Sandbox</span><span class="nav-count nav-count-alert" id="unreadMailBadge" hidden>0</span></button>
+
+        <div class="nav-label">Công cụ</div>
+        <button class="nav-item" data-tab="store"><i data-icon="package"></i><span>Kho tải phần mềm</span></button>
+        <button class="nav-item" data-tab="settings"><i data-icon="settings"></i><span>Cài đặt chung</span></button>
+
+        <div class="nav-label">Hệ thống</div>
+        <button class="nav-item" data-tab="pro"><i data-icon="crown"></i><span>RBW Pro</span></button>
+        <button class="nav-item" data-tab="about"><i data-icon="refresh"></i><span>Cập nhật</span></button>
+      </nav>
+
+      <div class="sb-widget">
+        <div class="sb-widget-head">
+          <span>Trạng thái</span>
+          <span class="sb-count" id="sbRunningCount">0/3</span>
+        </div>
+        <div class="sb-svc"><span class="sb-dot" id="sbDotWeb"></span><span id="sbLblWeb">Apache</span></div>
+        <div class="sb-svc"><span class="sb-dot" id="sbDotPhp"></span><span>PHP FastCGI</span></div>
+        <div class="sb-svc"><span class="sb-dot" id="sbDotMysql"></span><span>MySQL / MariaDB</span></div>
+        <div class="sb-actions">
+          <button class="btn btn-sm btn-success" id="sbStartAll"><i data-icon="play" data-size="12"></i>Start</button>
+          <button class="btn btn-sm btn-ghost" id="sbStopAll"><i data-icon="square" data-size="12"></i>Stop</button>
+        </div>
+        <button class="btn btn-sm btn-danger-ghost" id="sbExitApp" style="width:100%;margin-top:6px"><i data-icon="power" data-size="12"></i>Thoát ứng dụng</button>
+      </div>
+    </aside>
+
+    <!-- ============ CONTENT ============ -->
+    <main class="content">
+
+      <!-- DASHBOARD -->
+      <section class="tab-panel active" id="tab-dashboard">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Dịch vụ</h1>
+            <p class="page-sub">Bật / tắt Web Server, PHP FastCGI và Cơ sở dữ liệu chỉ với một chạm</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-ghost btn-sm" id="btnRefreshServices"><i data-icon="refresh" data-size="14"></i>Làm mới</button>
+          </div>
+        </div>
+
+        <div class="svc-grid">
+          <div class="svc-card" id="svcCardWeb">
+            <div class="svc-top">
+              <div class="tile tile-indigo"><i data-icon="server" data-size="18"></i></div>
+              <button class="switch" id="btnToggleWeb" role="switch" aria-checked="false"><span class="knob"></span></button>
+            </div>
+            <div>
+              <div class="svc-name" id="lblWebServerName">Apache Server</div>
+              <div class="svc-meta">
+                <span class="pill pill-muted" id="pillWeb"><span class="pill-dot"></span>Đã dừng</span>
+                <span class="svc-port" id="lblWebPortSub">Port 80</span>
+              </div>
+            </div>
+            <div class="svc-bottom">
+              <select class="select" id="selWebVersion"></select>
+              <button class="icon-btn" id="btnConfigWeb" title="Chỉnh sửa cấu hình"><i data-icon="sliders" data-size="15"></i></button>
+            </div>
+          </div>
+
+          <div class="svc-card" id="svcCardPhp">
+            <div class="svc-top">
+              <div class="tile tile-violet"><i data-icon="code" data-size="18"></i></div>
+              <button class="switch" id="btnTogglePhp" role="switch" aria-checked="false"><span class="knob"></span></button>
+            </div>
+            <div>
+              <div class="svc-name">PHP FastCGI</div>
+              <div class="svc-meta">
+                <span class="pill pill-muted" id="pillPhp"><span class="pill-dot"></span>Đã dừng</span>
+                <span class="svc-port" id="lblPhpPortSub">Port 9000</span>
+              </div>
+            </div>
+            <div class="svc-bottom">
+              <select class="select" id="selPhpVersion"></select>
+              <button class="icon-btn" id="btnConfigPhp" title="Chỉnh sửa php.ini"><i data-icon="sliders" data-size="15"></i></button>
+            </div>
+          </div>
+
+          <div class="svc-card" id="svcCardMysql">
+            <div class="svc-top">
+              <div class="tile tile-amber"><i data-icon="database" data-size="18"></i></div>
+              <button class="switch" id="btnToggleMysql" role="switch" aria-checked="false"><span class="knob"></span></button>
+            </div>
+            <div>
+              <div class="svc-name">MySQL / MariaDB</div>
+              <div class="svc-meta">
+                <span class="pill pill-muted" id="pillMysql"><span class="pill-dot"></span>Đã dừng</span>
+                <span class="svc-port" id="lblMysqlPortSub">Port 3306</span>
+              </div>
+            </div>
+            <div class="svc-bottom">
+              <select class="select" id="selMysqlVersion"></select>
+              <button class="icon-btn" id="btnConfigMysql" title="Chỉnh sửa my.ini"><i data-icon="sliders" data-size="15"></i></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">Thao tác nhanh</div>
+        <div class="quick-grid">
+          <button class="quick-btn" id="btnStartAll">
+            <span class="tile sm tile-green"><i data-icon="play" data-size="15"></i></span>
+            <span class="quick-text"><b>Start All</b><small>Bật toàn bộ dịch vụ</small></span>
+          </button>
+          <button class="quick-btn" id="btnStopAll">
+            <span class="tile sm tile-rose"><i data-icon="power" data-size="15"></i></span>
+            <span class="quick-text"><b>Stop All</b><small>Dừng toàn bộ</small></span>
+          </button>
+          <button class="quick-btn" id="btnOpenPhpMyAdmin">
+            <span class="tile sm tile-amber"><i data-icon="table" data-size="15"></i></span>
+            <span class="quick-text"><b>phpMyAdmin</b><small>Quản trị CSDL</small></span>
+          </button>
+          <button class="quick-btn" id="btnOpenLocalhost">
+            <span class="tile sm tile-sky"><i data-icon="external" data-size="15"></i></span>
+            <span class="quick-text"><b>Localhost</b><small>Mở trình duyệt</small></span>
+          </button>
+        </div>
+
+        <div class="card root-card">
+          <span class="tile tile-sky"><i data-icon="folder" data-size="18"></i></span>
+          <div class="root-info">
+            <div class="root-label">Document Root</div>
+            <div class="root-path" id="lblWwwRootPath">./www</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="btnOpenWwwFolder"><i data-icon="folder" data-size="14"></i>Mở thư mục</button>
+        </div>
+      </section>
+
+      <!-- SITES -->
+      <section class="tab-panel" id="tab-sites">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Dự án</h1>
+            <p class="page-sub">Chọn phiên bản PHP, bật SSL, tên miền ảo và Deploy Demo cho từng dự án</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-ghost btn-sm" id="btnChangeSitesRoot"><i data-icon="folder" data-size="14"></i>Đổi thư mục gốc</button>
+            <button class="icon-btn" id="btnRefreshSites" title="Làm mới"><i data-icon="refresh" data-size="15"></i></button>
+          </div>
+        </div>
+
+        <div class="search-box">
+          <i data-icon="search" data-size="15"></i>
+          <input type="text" id="txtSearchSites" placeholder="Tìm theo tên dự án hoặc tên miền..." />
+        </div>
+
+        <div class="sites-list" id="sitesListContainer"></div>
+      </section>
+
+      <!-- MAIL -->
+      <section class="tab-panel" id="tab-mail">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Mail Sandbox</h1>
+            <p class="page-sub">Bắt mọi email gửi từ ứng dụng local qua SMTP <code class="code-inline">127.0.0.1:1025</code></p>
+          </div>
+          <div class="page-actions">
+            <button class="icon-btn" id="btnRefreshMail" title="Làm mới"><i data-icon="refresh" data-size="15"></i></button>
+            <button class="btn btn-sm btn-danger-ghost" id="btnClearAllMail"><i data-icon="trash" data-size="14"></i>Xóa tất cả</button>
+          </div>
+        </div>
+
+        <div class="mail-layout">
+          <div class="mail-list" id="mailListBox"></div>
+          <div class="mail-view">
+            <div class="mail-view-head">
+              <div class="mail-view-info">
+                <div class="mail-view-subject" id="mailPreviewSubject">Chưa chọn email</div>
+                <div class="mail-view-meta" id="mailPreviewMeta"></div>
+              </div>
+              <div class="mail-view-actions" id="mailPreviewActions" hidden>
+                <button class="icon-btn" id="btnOpenMailBrowser" title="Mở bằng trình duyệt"><i data-icon="external" data-size="15"></i></button>
+                <button class="icon-btn is-danger" id="btnDeleteCurrentMail" title="Xóa email"><i data-icon="trash" data-size="15"></i></button>
+              </div>
+            </div>
+            <div class="empty-state" id="mailEmptyState">
+              <i data-icon="inbox" data-size="38"></i>
+              <p>Chọn một email để xem nội dung</p>
+              <small>Cấu hình SMTP Host 127.0.0.1, Port 1025 trong dự án của bạn</small>
+            </div>
+            <iframe class="mail-iframe" id="mailPreviewIframe" sandbox="" hidden></iframe>
+          </div>
+        </div>
+      </section>
+
+      <!-- STORE -->
+      <section class="tab-panel" id="tab-store">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title" id="storeCategoryTitle">Kho tải phần mềm</h1>
+            <p class="page-sub" id="storeSyncSubtitle">Tải bản chính chủ, tự động giải nén và cấu hình sẵn sàng sử dụng</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-ghost btn-sm" id="btnSyncOnlineStore"><i data-icon="refresh" data-size="14"></i>Quét bản mới nhất</button>
+          </div>
+        </div>
+
+        <div class="segmented" id="storeTabs">
+          <button class="seg-btn active" data-cat="php"><i data-icon="code" data-size="13"></i>PHP</button>
+          <button class="seg-btn" data-cat="nodejs"><i data-icon="hexagon" data-size="13"></i>Node.js</button>
+          <button class="seg-btn" data-cat="apache"><i data-icon="feather" data-size="13"></i>Apache</button>
+          <button class="seg-btn" data-cat="nginx"><i data-icon="zap" data-size="13"></i>Nginx</button>
+          <button class="seg-btn" data-cat="mysql"><i data-icon="database" data-size="13"></i>Database</button>
+          <button class="seg-btn" data-cat="phpmyadmin"><i data-icon="table" data-size="13"></i>phpMyAdmin</button>
+          <button class="seg-btn" data-cat="vcredist"><i data-icon="wrench" data-size="13"></i>VC++ Runtime</button>
+        </div>
+
+        <div class="store-grid" id="storeItemsContainer"></div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="tab-panel" id="tab-settings">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Cài đặt chung</h1>
+            <p class="page-sub">Cấu hình hệ thống và thông tin kết nối Deploy Demo Hosting</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-ghost btn-sm" id="btnDeployGuide"><i data-icon="help" data-size="14"></i>Hướng dẫn</button>
+            <button class="btn btn-primary btn-sm" id="btnSaveGeneral"><i data-icon="save" data-size="14"></i>Lưu cài đặt</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="tile sm tile-indigo"><i data-icon="settings" data-size="15"></i></span>
+            <div>
+              <div class="card-title">Hệ thống</div>
+              <div class="card-sub">Web server mặc định, cổng dịch vụ và hành vi khởi động</div>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="field">
+              <label>Web Server mặc định</label>
+              <select class="select" id="cfgDefaultWebServer">
+                <option value="Apache">Apache HTTP Server</option>
+                <option value="Nginx">Nginx Web Server</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Đuôi tên miền ảo (VHost Suffix)</label>
+              <input type="text" class="input" id="cfgVhostSuffix" placeholder=".local" />
+            </div>
+            <div class="field">
+              <label>Cổng Web (HTTP)</label>
+              <input type="number" class="input" id="cfgWebPort" value="80" />
+            </div>
+            <div class="field">
+              <label>Cổng MySQL / MariaDB</label>
+              <input type="number" class="input" id="cfgMysqlPort" value="3306" />
+            </div>
+            <div class="field">
+              <label>Cổng PHP FastCGI chính</label>
+              <input type="number" class="input" id="cfgPhpPort" value="9000" />
+            </div>
+            <div class="field">
+              <label>Phím tắt lấy mã màu</label>
+              <input type="text" class="input" id="cfgColorHotkey" value="Ctrl+Shift+C" />
+            </div>
+          </div>
+
+          <div class="toggle-list">
+            <label class="toggle-row">
+              <span><span class="toggle-title">Khởi động cùng hệ điều hành</span><span class="toggle-desc">Tự chạy RBWStudio khi đăng nhập</span></span>
+              <input type="checkbox" class="switch-input" id="cfgAutoStart" />
+            </label>
+            <label class="toggle-row">
+              <span><span class="toggle-title">Thu nhỏ xuống khay khi đóng</span><span class="toggle-desc">Dịch vụ vẫn chạy nền</span></span>
+              <input type="checkbox" class="switch-input" id="cfgMinimizeToTray" />
+            </label>
+            <label class="toggle-row">
+              <span><span class="toggle-title">Tối ưu php.ini tự động</span><span class="toggle-desc">Upload 2GB, memory 1GB, không timeout</span></span>
+              <input type="checkbox" class="switch-input" id="cfgAutoOptimizePhp" />
+            </label>
+            <label class="toggle-row">
+              <span><span class="toggle-title">Tự cấp quyền ghi file hosts</span><span class="toggle-desc">Dùng cho tên miền ảo (VHost)</span></span>
+              <input type="checkbox" class="switch-input" id="cfgAdminVhostMode" />
+            </label>
+          </div>
+        </div>
+
+        <!-- CARD 2: SERVER DEMO HOSTING MANAGER -->
+        <div class="card">
+          <div class="card-head" style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span class="tile sm tile-violet"><i data-icon="rocket" data-size="15"></i></span>
+              <div>
+                <div class="card-title">Quản lý Server Demo (Deploy Hosting)</div>
+                <div class="card-sub">Cấu hình danh sách các máy chủ demo để triển khai dự án 1-click (FTP / DirectAdmin)</div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-ghost btn-sm" id="btnQuickPasteServer"><i data-icon="copy" data-size="13"></i>Dán nhanh</button>
+              <button type="button" class="btn btn-primary btn-sm" id="btnAddDemoServer"><i data-icon="plus" data-size="13"></i>Thêm Server Demo</button>
+            </div>
+          </div>
+
+          <div id="demoServersContainer" style="display: flex; flex-direction: column; gap: 14px; margin-top: 14px;"></div>
+        </div>
+
+        <!-- CARD 3: CẤU HÌNH DỰ ÁN & PRO WORKSPACE -->
+        <div class="card">
+          <div class="card-head">
+            <span class="tile sm tile-amber"><i data-icon="folder" data-size="15"></i></span>
+            <div>
+              <div class="card-title">Cấu hình Dự án &amp; Khung Scaffolding (RBW Pro)</div>
+              <div class="card-sub">Thư mục mã nguồn mẫu, cơ sở dữ liệu mẫu, kho ảnh, font và khóa API AI</div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field">
+              <label>Thư mục mã nguồn mẫu (Source Path)</label>
+              <div class="input-group">
+                <input type="text" class="input" id="cfgSourcePath" placeholder="D:/RBWStack/www/source_laravel" />
+                <button class="icon-btn h34" type="button" id="btnBrowseSourcePath" title="Chọn thư mục"><i data-icon="folder" data-size="15"></i></button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Tên thư mục Source (Folder Name)</label>
+              <input type="text" class="input" id="cfgSourceFolderName" placeholder="source_laravel" />
+            </div>
+            <div class="field">
+              <label>Tên Database mẫu (Source DB Name)</label>
+              <input type="text" class="input" id="cfgSourceDbName" placeholder="source_nasani_2026" />
+            </div>
+            <div class="field">
+              <label>Đường dẫn Code Editor (VS Code / Antigravity)</label>
+              <div class="input-group">
+                <input type="text" class="input" id="cfgEditorPath" placeholder="C:\Users\...\Antigravity.exe" />
+                <button class="icon-btn h34" type="button" id="btnBrowseEditorPath" title="Chọn file"><i data-icon="folder" data-size="15"></i></button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Thư viện Font chữ Local (Font Library)</label>
+              <div class="input-group">
+                <input type="text" class="input" id="cfgFontSourcePath" placeholder="D:/RBWStack/www/font_library" />
+                <button class="icon-btn h34" type="button" id="btnBrowseFontSourcePath" title="Chọn thư mục"><i data-icon="folder" data-size="15"></i></button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Thư viện Ảnh Mẫu (Data Seed Images)</label>
+              <div class="input-group">
+                <input type="text" class="input" id="cfgImagesPoolPath" placeholder="D:/RBWStack/www/images" />
+                <button class="icon-btn h34" type="button" id="btnBrowseImagesPoolPath" title="Chọn thư mục"><i data-icon="folder" data-size="15"></i></button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Định dạng tên thư mục tháng (Mặc định khi đúc dự án)</label>
+              <select class="select" id="cfgMonthFolderFormat">
+                <option value="YYYY_MM">YYYY_MM (Ví dụ: 2026_09 — Chuẩn khuyến nghị)</option>
+                <option value="YYYY/thangMM">YYYY/thangMM (Ví dụ: 2026/thang09)</option>
+                <option value="thangMM">thangMM (Ví dụ: thang09)</option>
+                <option value="YYYY/YYtMM">YYYY/YYtMM (Ví dụ: 2026/26t09)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Google Gemini API Key (AI Model Checker)</label>
+              <div class="input-group">
+                <input type="password" class="input" id="cfgGeminiKey" placeholder="AIzaSy..." />
+                <button class="icon-btn h34" type="button" id="btnToggleGeminiPass" title="Hiện / Ẩn"><i data-icon="eye" data-size="15"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PRO SUITE (Full Authentic RBWManager Workspace) -->
+      <section class="tab-panel pro-fullbleed" id="tab-pro">
+        <iframe id="rbwProFrame" class="pro-manager-frame" src="pro/index.html" allow="clipboard-read; clipboard-write"></iframe>
+      </section>
+
+      <!-- UPDATE -->
+      <section class="tab-panel" id="tab-about">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Cập nhật</h1>
+            <p class="page-sub">Kiểm tra phiên bản mới nhất từ GitHub chính thức</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-primary btn-sm" id="btnCheckUpdate"><i data-icon="search" data-size="14"></i>Kiểm tra bản mới</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="update-row">
+            <span class="tile tile-indigo"><i data-icon="package" data-size="18"></i></span>
+            <div class="update-info">
+              <div class="update-ver">Phiên bản hiện tại <span id="lblCurrentVer">v1.0.0</span></div>
+              <div class="update-status" id="lblLatestVerStatus">Đang dùng kiến trúc Rust + Tauri v2.</div>
+            </div>
+            <button class="btn btn-success btn-sm" id="btnOpenReleaseUrl" hidden><i data-icon="download" data-size="14"></i>Tải bản cập nhật</button>
+          </div>
+          <div class="section-title sm">Nhật ký thay đổi</div>
+          <pre class="release-notes" id="txtReleaseNotes"></pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ============ MODALS ============ -->
+  <div class="modal-backdrop" id="modalConfigEditor">
+    <div class="modal-dialog lg">
+      <div class="modal-header">
+        <span id="cfgEditorTitle">Chỉnh sửa cấu hình</span>
+        <button class="icon-btn ghost" data-close="modalConfigEditor"><i data-icon="x" data-size="15"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="path-hint" id="cfgEditorPath"></div>
+        <textarea class="code-editor" id="cfgEditorTextarea" spellcheck="false"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-close="modalConfigEditor">Hủy</button>
+        <button class="btn btn-primary" id="btnSaveConfigFile"><i data-icon="save" data-size="14"></i>Lưu thay đổi</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modalVhost">
+    <div class="modal-dialog sm">
+      <div class="modal-header">
+        <span id="vhostModalTitle">Tên miền ảo</span>
+        <button class="icon-btn ghost" data-close="modalVhost"><i data-icon="x" data-size="15"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Tên miền cho dự án</label>
+          <input type="text" class="input" id="txtVhostDomain" placeholder="duan.local" />
+          <span class="hint">Tự động trỏ 127.0.0.1 trong file hosts và cập nhật APP_URL trong .env</span>
+        </div>
+      </div>
+      <div class="modal-footer between">
+        <button class="btn btn-danger-ghost" id="btnDisableVhost"><i data-icon="trash" data-size="14"></i>Gỡ VHost</button>
+        <div class="row-gap">
+          <button class="btn btn-ghost" data-close="modalVhost">Đóng</button>
+          <button class="btn btn-primary" id="btnSaveVhost"><i data-icon="globe" data-size="14"></i>Kích hoạt</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modalDeployDemo">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <span id="deployModalTitle">Deploy Demo</span>
+        <button class="icon-btn ghost" data-close="modalDeployDemo"><i data-icon="x" data-size="15"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="info-box">
+          <div><span class="muted">URL đích</span><b class="link-text" id="lblDeployTargetUrl"></b></div>
+          <div><span class="muted">Database</span><span><span id="lblDeployLocalDb"></span> → <b class="success-text" id="lblDeployTargetDb"></b></span></div>
+        </div>
+        <div class="toggle-list one">
+          <label class="toggle-row">
+            <span><span class="toggle-title">Sử dụng HTTPS (SSL)</span></span>
+            <input type="checkbox" class="switch-input" id="chkDeploySsl" checked />
+          </label>
+          <label class="toggle-row">
+            <span><span class="toggle-title">Chỉ cập nhật Database</span><span class="toggle-desc">Bỏ qua mã nguồn</span></span>
+            <input type="checkbox" class="switch-input" id="chkDeployDbOnly" />
+          </label>
+        </div>
+        <div class="field" id="grpCustomDbSuffix" style="display:none;margin-top:10px">
+          <label>Hậu tố Database / Mã hợp đồng</label>
+          <input type="text" class="input" id="txtCustomDbSuffix" placeholder="VD: hd2026" />
+        </div>
+        <div class="progress mt12"><div class="progress-fill" id="deployProgressBar"></div></div>
+        <div class="console-box" id="deployConsoleLog">Sẵn sàng...</div>
+      </div>
+      <div class="modal-footer between">
+        <button class="btn btn-danger-ghost" id="btnDeleteDemo"><i data-icon="trash" data-size="14"></i>Xóa Demo</button>
+        <div class="row-gap">
+          <button class="btn btn-ghost" id="btnLockDemo"><i data-icon="lock" data-size="14"></i>Khóa / Mở</button>
+          <button class="btn btn-primary" id="btnStartDeploy"><i data-icon="rocket" data-size="14"></i>Bắt đầu Deploy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modalFontInstaller">
+    <div class="modal-dialog lg">
+      <div class="modal-header">
+        <span id="fontModalTitle">Cài đặt Font chữ</span>
+        <button class="icon-btn ghost" data-close="modalFontInstaller"><i data-icon="x" data-size="15"></i></button>
+      </div>
+      <div class="modal-body font-layout">
+        <div class="font-col">
+          <div class="segmented sm">
+            <button class="seg-btn active" id="btnTabLocalFont"><i data-icon="folder" data-size="13"></i>Kho máy trạm</button>
+            <button class="seg-btn" id="btnTabGoogleFont"><i data-icon="globe" data-size="13"></i>Google Fonts</button>
+          </div>
+          <div class="search-box sm">
+            <i data-icon="search" data-size="14"></i>
+            <input type="text" id="txtSearchFonts" placeholder="Tìm bộ font..." />
+          </div>
+          <div class="list-box" id="fontFamilyListBox" style="height:220px"></div>
+          <div class="font-actions" id="localFontOptions">
+            <label class="check"><input type="checkbox" id="chkConvertWoff" checked />Nén TTF/OTF sang WOFF</label>
+            <button class="btn btn-sm btn-primary" id="btnInstallSelectedFont"><i data-icon="plus" data-size="13"></i>Cài vào dự án</button>
+          </div>
+          <div class="font-actions" id="googleFontOptions" style="display:none">
+            <select class="select select-sm" id="selGoogleFontMode">
+              <option value="selfhost">Tải WOFF2 về dự án</option>
+              <option value="import">Nhúng @import CDN</option>
+            </select>
+            <button class="btn btn-sm btn-primary" id="btnInstallGoogleFont"><i data-icon="plus" data-size="13"></i>Cài Google Font</button>
+          </div>
+        </div>
+        <div class="font-col">
+          <div class="col-title">Font đã cài trong dự án</div>
+          <div class="list-box" id="installedFontsList" style="height:120px"></div>
+          <div class="col-title">assets/css/fonts.css</div>
+          <textarea class="code-editor" id="txtFontsCssPreview" style="height:178px" readonly></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-close="modalFontInstaller">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modalDeployGuide">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <span>Hướng dẫn Deploy Demo Hosting</span>
+        <button class="icon-btn ghost" data-close="modalDeployGuide"><i data-icon="x" data-size="15"></i></button>
+      </div>
+      <div class="modal-body guide">
+        <div class="guide-step"><span class="step-num">1</span><div><b>Chuẩn bị thông tin hosting</b><p>Nhập IP/Host FTP, tài khoản và mật khẩu DirectAdmin trong <b>Cài đặt chung → Deploy Demo Hosting</b>. Đường dẫn mặc định: <code class="code-inline">/domains/{domain}/public_html</code>.</p></div></div>
+        <div class="guide-step"><span class="step-num">2</span><div><b>Nhấn nút Deploy trên dự án</b><p>RBWStudio đọc <code class="code-inline">.env</code> để lấy tên Database local và xuất <code class="code-inline">database.sql</code> bằng mysqldump.</p></div></div>
+        <div class="guide-step"><span class="step-num">3</span><div><b>Tự động tạo Database</b><p>Gọi API DirectAdmin tạo Database + User và cập nhật <code class="code-inline">APP_URL</code>, <code class="code-inline">DB_*</code> trong .env.</p></div></div>
+        <div class="guide-step"><span class="step-num">4</span><div><b>Upload & kích hoạt</b><p>Tải gói nén qua FTP, giải nén và nạp SQL tức thì qua <code class="code-inline">bridge.php</code>.</p></div></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" data-close="modalDeployGuide">Đã hiểu</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modalNodeConfig">
+    <div class="modal-dialog sm">
+      <div class="modal-header">
+        <span id="nodeCfgTitle">Cấu hình Node.js</span>
+        <button class="icon-btn ghost" data-close="modalNodeConfig"><i data-icon="x" data-size="15"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Lệnh khởi chạy</label>
+          <input type="text" class="input mono" id="txtNodeStartCmd" placeholder="npm run dev" />
+        </div>
+        <div class="toggle-list one" style="margin-top:12px">
+          <label class="toggle-row">
+            <span><span class="toggle-title">Tự chạy khi mở RBWStudio</span></span>
+            <input type="checkbox" class="switch-input" id="chkNodeAutostart" />
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-close="modalNodeConfig">Hủy</button>
+        <button class="btn btn-primary" id="btnSaveNodeConfig"><i data-icon="save" data-size="14"></i>Lưu</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="menu" id="ctxMenu"></div>
+  <div class="toast-stack" id="toastStack"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
