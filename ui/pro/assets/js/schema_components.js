@@ -1,4 +1,48 @@
 const SchemaComponents = {
+	FIELD_META: {
+		slug: { icon: "🔗", title: "Đường dẫn (Slug)" },
+		seo: { icon: "🔍", title: "Cấu hình SEO" },
+		schema: { icon: "📊", title: "Schema JSON-LD" },
+		copy: { icon: "📋", title: "Cho phép Copy" },
+		view: { icon: "👁️", title: "Lượt xem (View)" },
+		datePublish: { icon: "📅", title: "Ngày xuất bản" },
+		tags: { icon: "🏷️", title: "Thẻ Tags" },
+		comment: { icon: "💬", title: "Bình luận" },
+		code: { icon: "🔢", title: "Mã SP (Code)" },
+		regular_price: { icon: "💰", title: "Giá gốc" },
+		sale_price: { icon: "🔥", title: "Giá khuyến mãi" },
+		discount: { icon: "🏷️", title: "% Giảm giá" },
+		name: { icon: "✏️", title: "Tiêu đề (Name)" },
+		desc: { icon: "📄", title: "Mô tả ngắn" },
+		desc_cke: { icon: "✨", title: "Soạn thảo Mô tả (CKE)" },
+		content: { icon: "📝", title: "Nội dung chi tiết" },
+		content_cke: { icon: "✨", title: "Soạn thảo Nội dung (CKE)" },
+		show_images: { icon: "🖼️", title: "Sử dụng Hình ảnh" },
+		properties: { icon: "🧩", title: "Thuộc tính (Properties)" },
+		file: { icon: "📎", title: "Tập tin đính kèm" },
+		send_email: { icon: "✉️", title: "Gửi Email" },
+		amp: { icon: "⚡", title: "Trang AMP" },
+		title_main: { icon: "🏷️", title: "Tiêu đề Module chính" },
+		index: { icon: "🌐", title: "Loại trang danh sách" },
+		detail: { icon: "📄", title: "Loại trang chi tiết" },
+		title: { icon: "🔤", title: "Tiêu đề (Lang key)" },
+		bre: { icon: "🧭", title: "Breadcrumb key" },
+		controller: { icon: "⚙️", title: "Controller xử lý" },
+		method: { icon: "📡", title: "Phương thức HTTP" },
+		vi: { icon: "🇻🇳", title: "Slug Tiếng Việt" },
+		en: { icon: "🇬🇧", title: "Slug Tiếng Anh" },
+	},
+
+	getFieldMeta(fieldKey) {
+		const baseKey = fieldKey
+			.replace(/(_categories_cke|_brand_cke)$/, "_cke")
+			.replace(/(_categories|_brand|_photo)$/, "");
+		const found = this.FIELD_META[fieldKey] || this.FIELD_META[baseKey];
+		if (found) return found;
+		const cleanLabel = baseKey.replace(/_/g, " ").toUpperCase();
+		return { icon: "🔹", title: cleanLabel };
+	},
+
 	renderField(fieldKey, fieldValue, currentPath) {
 		const type = typeof fieldValue;
 		if (type === "boolean") {
@@ -13,26 +57,22 @@ const SchemaComponents = {
 
 	createToggle(fieldKey, value, path) {
 		const div = document.createElement("div");
-		div.className = "sb-field sb-field-toggle";
+		div.className = `sb-field sb-field-toggle ${value ? "is-checked" : ""}`;
 		const id = "field-" + path.join("-");
-		let label = fieldKey
-			.replace(/(_categories|_photo)$/, "")
-			.replace(/_/g, " ")
-			.toUpperCase();
-
-		let icon = "";
-		if (fieldKey.includes("comment")) icon = "💬 ";
-		if (fieldKey.includes("copy")) icon = "📋 ";
-		if (fieldKey.includes("tags")) icon = "🏷️ ";
-		if (fieldKey.includes("view")) icon = "👁️ ";
-		if (fieldKey.includes("slug")) icon = "🔗 ";
+		const meta = this.getFieldMeta(fieldKey);
 
 		div.innerHTML = `
-            <label class="sb-label" for="${id}">${icon}${label}</label>
-            <div style="display:flex; align-items:center; gap:8px;">
-                <button class="btn-del-opt" onclick="SchemaBuilder.deleteOption('${path.join(".")}')">×</button>
+            <label class="sb-label" for="${id}">
+                <span class="sb-field-icon">${meta.icon}</span>
+                <span class="sb-field-texts">
+                    <span class="sb-field-title">${meta.title}</span>
+                    <span class="sb-field-code">${fieldKey}</span>
+                </span>
+            </label>
+            <div class="sb-field-actions">
+                <button type="button" class="btn-del-opt" title="Xóa thuộc tính ${fieldKey}" onclick="SchemaBuilder.deleteOption('${path.join(".")}')">×</button>
                 <label class="sb-switch">
-                    <input type="checkbox" id="${id}" ${value ? "checked" : ""} onchange="SchemaBuilder.updateData('${path.join(".")}', this.checked)">
+                    <input type="checkbox" id="${id}" ${value ? "checked" : ""} onchange="this.closest('.sb-field-toggle')?.classList.toggle('is-checked', this.checked); SchemaBuilder.updateData('${path.join(".")}', this.checked)">
                     <span class="sb-slider"></span>
                 </label>
             </div>
@@ -42,21 +82,20 @@ const SchemaComponents = {
 
 	createInput(fieldKey, value, path) {
 		const div = document.createElement("div");
-		div.className = "sb-field";
-		div.style.flexDirection = "column";
-		div.style.alignItems = "flex-start";
+		div.className = "sb-field sb-field-input";
 		const id = "field-" + path.join("-");
-		let label = fieldKey
-			.replace(/(_categories|_photo)$/, "")
-			.replace(/_/g, " ")
-			.toUpperCase();
+		const meta = this.getFieldMeta(fieldKey);
 
 		div.innerHTML = `
-            <div style="display:flex; align-items:center; justify-content:space-between; width:100%; margin-bottom:5px;">
-                <label class="sb-label" style="font-size:0.65rem; color:var(--muted);">${label}</label>
-                <button class="btn-del-opt" onclick="SchemaBuilder.deleteOption('${path.join(".")}')">×</button>
+            <div class="sb-input-head">
+                <label class="sb-label" for="${id}">
+                    <span class="sb-field-icon-sm">${meta.icon}</span>
+                    <span class="sb-field-title">${meta.title}</span>
+                    <span class="sb-field-code">${fieldKey}</span>
+                </label>
+                <button type="button" class="btn-del-opt" title="Xóa thuộc tính ${fieldKey}" onclick="SchemaBuilder.deleteOption('${path.join(".")}')">×</button>
             </div>
-            <input type="text" id="${id}" class="form-control" style="width:100%; height:35px; font-size:0.85rem;" value="${value}" onchange="SchemaBuilder.updateData('${path.join(".")}', this.value)">
+            <input type="text" id="${id}" class="form-control sb-text-input" value="${value}" onchange="SchemaBuilder.updateData('${path.join(".")}', this.value)">
         `;
 		return div;
 	},
@@ -108,33 +147,41 @@ const SchemaComponents = {
 			return this.createOptions2Editor(key, data, path);
 		}
 
+		const nestedTitles = {
+			website: "🌐 Cấu hình Website & Định tuyến",
+			type: "📑 Loại hiển thị (Object / Article)",
+			route: "🛣️ Cấu hình Route",
+			slugs: "🔗 Đường dẫn đa ngôn ngữ (Slugs)",
+		};
+		const displayNestedTitle = nestedTitles[key] || `📁 ${key.toUpperCase()}`;
+
 		const div = document.createElement("div");
-		div.className = "sb-nested";
-		div.innerHTML = `<div class="sb-section-title" style="justify-content:space-between; align-items:center;">
-            <span>${key.toUpperCase()}</span>
-            <button class="btn-del-opt" onclick="SchemaBuilder.deleteOption('${path.join(".")}')">×</button>
-        </div>`;
+		div.className = `sb-nested sb-nested-${key}`;
+
+		const headEl = document.createElement("div");
+		headEl.className = "sb-nested-head";
+		headEl.innerHTML = `<span class="sb-nested-title">${displayNestedTitle}</span>`;
+
+		const headActions = document.createElement("div");
+		headActions.className = "sb-nested-actions";
 
 		if (key === "website") {
-			const btnGroup = document.createElement("div");
-			btnGroup.style.display = "flex";
-			btnGroup.style.gap = "5px";
-			btnGroup.style.marginBottom = "10px";
-
 			if (data.amp === undefined) {
 				const btnAmp = document.createElement("button");
-				btnAmp.className = "btn btn-ghost btn-sm";
+				btnAmp.type = "button";
+				btnAmp.className = "btn btn-ghost btn-sm sb-quick-add-btn";
 				btnAmp.innerText = "+ AMP";
 				btnAmp.onclick = () => {
 					SchemaBuilder.updateData(path.join(".") + ".amp", true);
 					SchemaBuilder.renderForm();
 				};
-				btnGroup.appendChild(btnAmp);
+				headActions.appendChild(btnAmp);
 			}
 
 			if (data.route === undefined) {
 				const btnRoute = document.createElement("button");
-				btnRoute.className = "btn btn-ghost btn-sm";
+				btnRoute.type = "button";
+				btnRoute.className = "btn btn-ghost btn-sm sb-quick-add-btn";
 				btnRoute.innerText = "+ Route";
 				btnRoute.onclick = () => {
 					SchemaBuilder.updateData(path.join(".") + ".route", {
@@ -145,13 +192,20 @@ const SchemaComponents = {
 					});
 					SchemaBuilder.renderForm();
 				};
-				btnGroup.appendChild(btnRoute);
-			}
-
-			if (btnGroup.children.length > 0) {
-				div.appendChild(btnGroup);
+				headActions.appendChild(btnRoute);
 			}
 		}
+
+		const delBtn = document.createElement("button");
+		delBtn.type = "button";
+		delBtn.className = "btn-del-opt";
+		delBtn.title = `Xóa mục ${key}`;
+		delBtn.innerText = "×";
+		delBtn.onclick = () => SchemaBuilder.deleteOption(path.join("."));
+		headActions.appendChild(delBtn);
+
+		headEl.appendChild(headActions);
+		div.appendChild(headEl);
 
 		const subGrid = document.createElement("div");
 		subGrid.className = "sb-grid";
@@ -160,8 +214,8 @@ const SchemaComponents = {
 
 		if (key === "website") {
 			subNested.style.display = "grid";
-			subNested.style.gridTemplateColumns = "1fr 1fr";
-			subNested.style.gap = "15px";
+			subNested.style.gridTemplateColumns = "repeat(auto-fit, minmax(260px, 1fr))";
+			subNested.style.gap = "12px";
 			subNested.style.alignItems = "start";
 		}
 
@@ -669,14 +723,11 @@ const SchemaComponents = {
 			if (typeof gVal !== "object" || gVal === null) return;
 
 			const box = document.createElement("div");
-			box.style.border = "1px solid rgba(16, 185, 129, 0.2)";
-			box.style.background = "rgba(0,0,0,0.1)";
-			box.style.borderRadius = "10px";
-			box.style.padding = "15px";
+			box.className = "sb-album-box";
 
-			box.innerHTML = `<div style="color:var(--success); font-weight:bold; font-size:0.75rem; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
-                <span style="display:flex; align-items:center; gap:8px;">🖼️ Album: <code style="color:var(--primary); background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;">${gKey}</code></span>
-                <button class="btn-del-opt" onclick="SchemaBuilder.deleteOption('${path.join(".")}.${gKey}')">×</button>
+			box.innerHTML = `<div class="sb-album-head">
+                <span style="display:flex; align-items:center; gap:8px;">🖼️ Album: <code class="sb-code-pill">${gKey}</code></span>
+                <button type="button" class="btn-del-opt" onclick="SchemaBuilder.deleteOption('${path.join(".")}.${gKey}')">×</button>
             </div>`;
 
 			// Integrate Image Dimension Editor with Sync logic
@@ -763,22 +814,18 @@ const SchemaComponents = {
 
 	createCategoryManager(key, data, path) {
 		const div = document.createElement("div");
-		div.className = "sb-nested";
-		div.style.background = "rgba(168, 85, 247, 0.05)";
-		div.style.padding = "20px";
-		div.style.borderRadius = "15px";
-		div.style.border = "2px solid #a855f7";
+		div.className = "sb-nested sb-cat-manager";
 
-		div.innerHTML = `<div class="sb-section-title" style="font-size:1rem; color:#a855f7; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; font-weight:bold;">
-            <span>📂 QUẢN LÝ DANH MỤC (VER 2.1)</span>
+		div.innerHTML = `<div class="sb-nested-head">
+            <span class="sb-nested-title" style="color:#8b5cf6;">📂 QUẢN LÝ PHÂN CẤP DANH MỤC</span>
         </div>`;
 
 		let levels = [
-			{ id: "list", name: "danhmuccap1", color: "#a855f7" },
-			{ id: "cat", name: "danhmuccap2", color: "#8b5cf6" },
-			{ id: "item", name: "danhmuccap3", color: "#7c3aed" },
-			{ id: "sub", name: "danhmuccap4", color: "#6d28d9" },
-			{ id: "brand", name: "danhmuchang", color: "#ec4899" },
+			{ id: "list", name: "Danh mục cấp 1 (list)", color: "#8b5cf6" },
+			{ id: "cat", name: "Danh mục cấp 2 (cat)", color: "#7c3aed" },
+			{ id: "item", name: "Danh mục cấp 3 (item)", color: "#6d28d9" },
+			{ id: "sub", name: "Danh mục cấp 4 (sub)", color: "#5b21b6" },
+			{ id: "brand", name: "Danh mục Hãng (brand)", color: "#ec4899" },
 		];
 
 		if (
@@ -792,7 +839,7 @@ const SchemaComponents = {
 		const container = document.createElement("div");
 		container.style.display = "flex";
 		container.style.flexDirection = "column";
-		container.style.gap = "20px";
+		container.style.gap = "16px";
 
 		levels.forEach((lv) => {
 			const isBrand = lv.id === "brand";
@@ -802,17 +849,15 @@ const SchemaComponents = {
 			if (!lvData || typeof lvData !== "object") return;
 
 			const box = document.createElement("div");
-			box.style.border = `1px solid ${lv.color}`;
-			box.style.background = "rgba(0,0,0,0.2)";
-			box.style.borderRadius = "10px";
-			box.style.padding = "15px";
+			box.className = "sb-cat-level-box";
+			box.style.borderColor = lv.color;
 
 			const delPath = isBrand
 				? `${path[0]}.brand`
 				: `${path.join(".")}.${lv.id}`;
-			box.innerHTML = `<div style="color:${lv.color}; font-weight:bold; font-size:0.8rem; margin-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:10px; display:flex; justify-content:space-between;">
+			box.innerHTML = `<div class="sb-cat-level-head" style="color:${lv.color};">
                 <span>📂 ${lv.name}</span>
-                <button class="btn-del-opt" onclick="SchemaBuilder.deleteOption('${delPath}')">×</button>
+                <button type="button" class="btn-del-opt" onclick="SchemaBuilder.deleteOption('${delPath}')">×</button>
             </div>`;
 
 			const standardGrid = document.createElement("div");

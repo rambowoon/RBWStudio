@@ -70,19 +70,30 @@ const SchemaBuilder = {
 		if (!this.currentData) return;
 
 		const allKeys = Object.keys(this.currentData);
+		const editableKeys = allKeys.filter((k) => {
+			if (k === "brand" || k === "default") return false;
+			if (
+				this.currentFile &&
+				this.currentFile.includes("news") &&
+				k === "hinh-thuc-thanh-toan"
+			)
+				return false;
+			return true;
+		});
 
-		// --- Render Module Toolbar (Only Thêm Mới) ---
+		if (
+			!this.currentActiveModule ||
+			(this.currentActiveModule !== "__ALL__" &&
+				!editableKeys.includes(this.currentActiveModule))
+		) {
+			this.currentActiveModule = editableKeys[0] || null;
+		}
+
+		// --- Render Module Toolbar (Thêm Mới Type) ---
 		const toolbar = document.createElement("div");
-		toolbar.style.display = "flex";
-		toolbar.style.padding = "15px";
-		toolbar.style.background = "rgba(255,255,255,0.02)";
-		toolbar.style.border = "1px solid var(--border)";
-		toolbar.style.borderRadius = "12px";
-		toolbar.style.marginBottom = "20px";
-		toolbar.style.alignItems = "center";
-		toolbar.style.justifyContent = "space-between";
+		toolbar.className = "sb-create-toolbar";
 
-		let presetOptions = '<option value="">-- Trống --</option>';
+		let presetOptions = '<option value="">-- Trống (Mặc định) --</option>';
 		if (this.presets) {
 			for (const [groupKey, groupData] of Object.entries(this.presets)) {
 				presetOptions += `<optgroup label="Module mẫu: ${groupKey.toUpperCase()}">`;
@@ -92,64 +103,91 @@ const SchemaBuilder = {
 				presetOptions += `</optgroup>`;
 			}
 		}
-		if (allKeys.length > 0) {
-			presetOptions += `<optgroup label="Copy từ file hiện tại">`;
-			presetOptions += allKeys
+		if (editableKeys.length > 0) {
+			presetOptions += `<optgroup label="Nhân bản từ Type hiện có">`;
+			presetOptions += editableKeys
 				.map((k) => `<option value="clone:${k}">Copy: ${k}</option>`)
 				.join("");
 			presetOptions += `</optgroup>`;
 		}
 
 		toolbar.innerHTML = `
-            <div style="display:flex; align-items:center; gap:10px; width:100%; flex-wrap:wrap;">
-                <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:300px;">
-                    <select id="sb-type-preset" class="form-control" style="flex:1; font-size:0.8rem; height:38px;" title="Chọn khuôn mẫu Module">
+            <div class="sb-create-toolbar-head">
+                <span class="sb-create-toolbar-title">➕ Thêm Type / Module mới</span>
+                <span class="sb-create-toolbar-hint">Chọn khuôn mẫu có sẵn hoặc tạo mới từ đầu</span>
+            </div>
+            <div class="sb-create-toolbar-grid">
+                <div class="sb-create-field">
+                    <label>Khuôn mẫu (Preset)</label>
+                    <select id="sb-type-preset" class="form-control" title="Chọn khuôn mẫu Module">
                         ${presetOptions}
                     </select>
-                    <input type="text" id="sb-type-new" class="form-control" style="flex:1; height:38px;" placeholder="Type (vd: tin-tuc)">
                 </div>
-                <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:300px;">
-                    <input type="text" id="sb-type-title" class="form-control" style="flex:1; height:38px;" placeholder="Tiêu đề (vd: Tin tức)">
-                    <button class="btn btn-primary" id="sb-type-add" style="height:38px; padding:0 20px; white-space:nowrap; font-weight:bold;">✨ Tạo Type</button>
+                <div class="sb-create-field">
+                    <label>Mã Type (Key)</label>
+                    <input type="text" id="sb-type-new" class="form-control" placeholder="vd: tin-tuc, san-pham">
+                </div>
+                <div class="sb-create-field">
+                    <label>Tiêu đề hiển thị</label>
+                    <input type="text" id="sb-type-title" class="form-control" placeholder="vd: Tin tức, Sản phẩm">
+                </div>
+                <div class="sb-create-action">
+                    <button class="btn btn-primary" id="sb-type-add">✨ Tạo Type</button>
                 </div>
             </div>
         `;
 
 		container.appendChild(toolbar);
 
-		// --- Render Quick Summary List ---
-		const summary = document.createElement("div");
-		summary.style.cssText = `
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 25px;
-            padding: 10px 15px;
-            background: rgba(var(--primary-rgb), 0.05);
-            border: 1px dashed var(--primary);
-            border-radius: 8px;
-            flex-wrap: wrap;
-        `;
+		// --- Render Quick Type Switcher Tabs ---
+		if (editableKeys.length > 0) {
+			const summary = document.createElement("div");
+			summary.className = "sb-type-switcher";
 
-		const typeTags = allKeys
-			.map(
-				(k) => `
-            <span style="background:var(--primary); color:#000; padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:bold; cursor:pointer;" 
-                  onclick="document.getElementById('sb-section-${k}').scrollIntoView({behavior:'smooth'})">
-                ${k}
-            </span>`,
-			)
-			.join("");
+			const typeTabsHtml = editableKeys
+				.map((k) => {
+					const isActive =
+						this.currentActiveModule === k ||
+						(this.currentActiveModule === "__ALL__" && false);
+					const subTitle =
+						this.currentData[k] && this.currentData[k].title_main
+							? this.currentData[k].title_main
+							: "";
+					return `
+                    <button type="button" class="sb-type-tab ${isActive ? "active" : ""}" data-type-key="${k}" title="${subTitle ? `${subTitle} (${k})` : k}">
+                        <span class="sb-type-tab-icon">📦</span>
+                        <span class="sb-type-tab-key">${k}</span>
+                        ${subTitle && subTitle.toLowerCase() !== k.toLowerCase() ? `<span class="sb-type-tab-name">${subTitle}</span>` : ""}
+                    </button>`;
+				})
+				.join("");
 
-		summary.innerHTML = `
-            <div style="font-size:0.8rem; color:var(--primary); font-weight:bold; white-space:nowrap;">
-                📊 Đã có ${allKeys.length} Type:
-            </div>
-            <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                ${typeTags}
-            </div>
-        `;
-		container.appendChild(summary);
+			const showAllBtn =
+				editableKeys.length > 1
+					? `<button type="button" class="sb-type-tab sb-type-tab-all ${this.currentActiveModule === "__ALL__" ? "active" : ""}" data-type-key="__ALL__">
+                        <span>📑 Xem tất cả (${editableKeys.length})</span>
+                       </button>`
+					: "";
+
+			summary.innerHTML = `
+                <div class="sb-type-switcher-label">
+                    <span>📚 Đã có <b>${editableKeys.length}</b> Type:</span>
+                </div>
+                <div class="sb-type-switcher-list">
+                    ${typeTabsHtml}
+                    ${showAllBtn}
+                </div>
+            `;
+
+			summary.querySelectorAll(".sb-type-tab").forEach((btn) => {
+				btn.onclick = () => {
+					this.currentActiveModule = btn.dataset.typeKey;
+					this.renderForm();
+				};
+			});
+
+			container.appendChild(summary);
+		}
 
 		// Bind Toolbar Events
 		toolbar.querySelector("#sb-type-add").onclick = () => {
@@ -294,11 +332,12 @@ const SchemaBuilder = {
 				}
 			}
 
+			this.currentActiveModule = val;
 			this.syncLabels(); // Ensure sub-titles like gallery/website reflect the new title
 			this.renderForm();
 		};
 
-		if (allKeys.length === 0) {
+		if (editableKeys.length === 0) {
 			const blankState = document.createElement("div");
 			blankState.style.padding = "50px";
 			blankState.style.textAlign = "center";
@@ -486,17 +525,30 @@ const SchemaBuilder = {
 			);
 			const value = this.currentData[key];
 
+			if (
+				this.currentActiveModule &&
+				this.currentActiveModule !== "__ALL__" &&
+				key !== this.currentActiveModule
+			) {
+				continue;
+			}
+
 			const section = document.createElement("div");
 			section.className = "sb-section";
 			section.id = `sb-section-${key}`;
-			section.style.marginBottom = "30px";
-			section.style.border = "1px solid rgba(255,255,255,0.05)";
+			const typeTitle = value.title_main ? ` — ${value.title_main}` : "";
 			section.innerHTML = `
-                <div class="sb-section-title" style="justify-content: space-between; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:15px; margin-bottom:15px;">
-                    <span style="font-size:1.1rem; color:var(--primary);">📦 Type: ${key}</span>
-                    <div style="display:flex; gap:10px;">
-                        <button class="btn btn-ghost btn-sm" onclick="SchemaBuilder.showPresetMenu(event, '${key}')">⚡ Áp dụng Presets</button>
-                        <button class="btn btn-danger btn-sm" onclick="UI.confirm('Bạn có chắc chắn muốn xóa toàn bộ Type này?').then(res => { if(res) { delete SchemaBuilder.currentData['${key}']; SchemaBuilder.renderForm(); } })">🗑️ Xóa Type</button>
+                <div class="sb-section-header">
+                    <div class="sb-section-heading">
+                        <span class="sb-section-icon">📦</span>
+                        <div>
+                            <div class="sb-section-key">Type: <code>${key}</code><span>${typeTitle}</span></div>
+                            <div class="sb-section-sub">Cấu hình các trường dữ liệu, SEO, hình ảnh và phân cấp danh mục</div>
+                        </div>
+                    </div>
+                    <div class="sb-section-actions">
+                        <button class="btn btn-ghost btn-sm sb-preset-btn" onclick="SchemaBuilder.showPresetMenu(event, '${key}')">⚡ Áp dụng Presets</button>
+                        <button class="btn btn-danger btn-sm sb-delete-type-btn" onclick="UI.confirm('Bạn có chắc chắn muốn xóa toàn bộ Type này?').then(res => { if(res) { delete SchemaBuilder.currentData['${key}']; SchemaBuilder.renderForm(); } })">🗑️ Xóa Type</button>
                     </div>
                 </div>
             `;
@@ -735,19 +787,14 @@ const SchemaBuilder = {
 	createGroupWrapper(title, type, modKey) {
 		const div = document.createElement("div");
 		div.className = `sb-group-box sb-group-${type}`;
-		div.style.marginBottom = "20px";
-		div.style.padding = "15px";
-		div.style.background = "rgba(255,255,255,0.02)";
-		div.style.border = "1px solid var(--border)";
-		div.style.borderRadius = "12px";
 
 		div.innerHTML = `
-            <div style="font-size:0.75rem; font-weight:800; color:var(--muted); text-transform:uppercase; margin-bottom:15px; letter-spacing:0.5px; display:flex; align-items:center; justify-content:space-between;">
-                <div style="display:flex; align-items:center; gap:8px;">${title}</div>
-                ${type === "standard" ? `<button class="btn btn-ghost btn-sm" style="padding:2px 8px; font-size:1rem; line-height:1;" onclick="SchemaBuilder.promptAddOption(event, '${modKey}', '${type}')">+</button>` : ""}
+            <div class="sb-group-head">
+                <div class="sb-group-title">${title}</div>
+                ${type === "standard" ? `<button class="btn btn-ghost btn-sm sb-add-opt-btn" onclick="SchemaBuilder.promptAddOption(event, '${modKey}', '${type}')">+ Thêm trường</button>` : ""}
             </div>
             <div class="sb-grid"></div>
-            <div class="sb-nested-container" style="margin-top:10px;"></div>
+            <div class="sb-nested-container"></div>
         `;
 		return div;
 	},
