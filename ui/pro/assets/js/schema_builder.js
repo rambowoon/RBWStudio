@@ -1773,7 +1773,7 @@ const SchemaBuilder = {
                 ${keys
 					.map(
 						(k, index) => `
-                    <div class="sb-structure-item" draggable="true" data-key="${k}" data-index="${index}">
+                    <div class="sb-structure-item" data-key="${k}" data-index="${index}">
                         <div style="display:flex; align-items:center; gap:10px;">
                             <div class="sb-drag-handle" title="Kéo để sắp xếp">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
@@ -1800,96 +1800,40 @@ const SchemaBuilder = {
 		const container = document.getElementById("sb-structure-items");
 		if (!container) return;
 
-		const items = container.querySelectorAll(".sb-structure-item");
-		let isDragging = false;
 		let dragSource = null;
+		let isDragging = false;
 		let startY = 0;
+		let currentTarget = null;
+		let currentPlaceBefore = true;
+
+		const getItems = () => container.querySelectorAll(".sb-structure-item");
 
 		const clearHighlights = () => {
-			items.forEach((i) => {
+			getItems().forEach((i) => {
 				i.classList.remove("dragging", "drag-over-top", "drag-over-bottom");
 			});
 		};
-
-		// --- 1. HTML5 Native Drag & Drop ---
-		items.forEach((item) => {
-			item.addEventListener("dragstart", (e) => {
-				dragSource = item;
-				item.classList.add("dragging");
-				e.dataTransfer.effectAllowed = "move";
-				try {
-					e.dataTransfer.setData("text/plain", item.dataset.key);
-				} catch (_) {}
-			});
-
-			item.addEventListener("dragend", () => {
-				clearHighlights();
-				dragSource = null;
-			});
-
-			item.addEventListener("dragover", (e) => {
-				e.preventDefault();
-				e.dataTransfer.dropEffect = "move";
-				if (!dragSource || dragSource === item) return;
-
-				const rect = item.getBoundingClientRect();
-				const midY = rect.top + rect.height / 2;
-				if (e.clientY < midY) {
-					item.classList.add("drag-over-top");
-					item.classList.remove("drag-over-bottom");
-				} else {
-					item.classList.add("drag-over-bottom");
-					item.classList.remove("drag-over-top");
-				}
-			});
-
-			item.addEventListener("dragleave", (e) => {
-				if (!item.contains(e.relatedTarget)) {
-					item.classList.remove("drag-over-top", "drag-over-bottom");
-				}
-			});
-
-			item.addEventListener("drop", (e) => {
-				e.preventDefault();
-				e.stopPropagation();
-				if (!dragSource || dragSource === item) {
-					clearHighlights();
-					return;
-				}
-
-				const sourceKey = dragSource.dataset.key;
-				const targetKey = item.dataset.key;
-				const rect = item.getBoundingClientRect();
-				const placeBefore = e.clientY < rect.top + rect.height / 2;
-				clearHighlights();
-				dragSource = null;
-
-				SchemaBuilder.reorderModules(sourceKey, targetKey, placeBefore);
-			});
-		});
-
-		// --- 2. Pointer Events Drag & Drop (100% tin cậy trên WebView2/Desktop) ---
-		let currentTarget = null;
-		let currentPlaceBefore = true;
 
 		const onPointerMove = (e) => {
 			if (!dragSource) return;
 
 			const dist = Math.abs(e.clientY - startY);
-			if (!isDragging && dist > 4) {
+			if (!isDragging && dist > 3) {
 				isDragging = true;
 				dragSource.classList.add("dragging");
+				dragSource.style.pointerEvents = "none"; // Tránh cản trở elementFromPoint nhận diện item đích
 				document.body.style.userSelect = "none";
 				document.body.style.cursor = "grabbing";
 			}
 
 			if (!isDragging) return;
 
+			// Xóa highlight cũ
+			getItems().forEach((i) => i.classList.remove("drag-over-top", "drag-over-bottom"));
+
 			// Tìm phần tử bên dưới con trỏ
 			const elem = document.elementFromPoint(e.clientX, e.clientY);
 			const targetItem = elem ? elem.closest("#sb-structure-items .sb-structure-item") : null;
-
-			items.forEach((i) => i.classList.remove("drag-over-top", "drag-over-bottom"));
 
 			if (targetItem && targetItem !== dragSource) {
 				const rect = targetItem.getBoundingClientRect();
@@ -1912,6 +1856,10 @@ const SchemaBuilder = {
 			document.body.style.userSelect = "";
 			document.body.style.cursor = "";
 
+			if (dragSource) {
+				dragSource.style.pointerEvents = "";
+			}
+
 			if (isDragging && dragSource && currentTarget && dragSource !== currentTarget) {
 				const sourceKey = dragSource.dataset.key;
 				const targetKey = currentTarget.dataset.key;
@@ -1929,9 +1877,9 @@ const SchemaBuilder = {
 			}
 		};
 
-		items.forEach((item) => {
-			item.addEventListener("pointerdown", (e) => {
-				// Không bắt sự kiện khi click vào nút ↑ hoặc ↓
+		getItems().forEach((item) => {
+			item.onpointerdown = (e) => {
+				// Không kích hoạt khi bấm nút mũi tên hoặc không phải chuột trái
 				if (e.target.closest("button") || e.button !== 0) return;
 
 				dragSource = item;
@@ -1942,7 +1890,7 @@ const SchemaBuilder = {
 				window.addEventListener("pointermove", onPointerMove);
 				window.addEventListener("pointerup", onPointerUp);
 				window.addEventListener("pointercancel", onPointerUp);
-			});
+			};
 		});
 	},
 

@@ -16,8 +16,11 @@ const SchemaComponents = {
 		div.className = `sb-field sb-field-toggle ${value ? "is-checked" : ""}`;
 		const id = "field-" + path.join("-");
 		let label = fieldKey
-			.replace(/(_categories|_photo)$/, "")
+			.replace(/_categories/gi, "")
+			.replace(/_brand/gi, "")
+			.replace(/_photo/gi, "")
 			.replace(/_/g, " ")
+			.trim()
 			.toUpperCase();
 
 		let icon = "";
@@ -48,8 +51,11 @@ const SchemaComponents = {
 		div.className = "sb-field sb-field-input";
 		const id = "field-" + path.join("-");
 		let label = fieldKey
-			.replace(/(_categories|_photo)$/, "")
+			.replace(/_categories/gi, "")
+			.replace(/_brand/gi, "")
+			.replace(/_photo/gi, "")
 			.replace(/_/g, " ")
+			.trim()
 			.toUpperCase();
 
 		div.innerHTML = `
