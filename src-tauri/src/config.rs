@@ -36,7 +36,7 @@ impl Default for AppSettings {
             vhost_suffix: ".local".to_string(),
             mysql_port: 3306,
             php_cgi_port: 9000,
-            color_picker_enabled: false,
+            color_picker_enabled: true,
             color_picker_hotkey: "Ctrl+Shift+C".to_string(),
             active_php_version: String::new(),
             active_apache_version: String::new(),
@@ -140,38 +140,31 @@ pub fn ensure_directories() {
 }
 
 pub fn load_app_settings() -> AppSettings {
-    let path = get_data_file_path("app_settings.json");
-    if path.exists() {
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(settings) = serde_json::from_str::<AppSettings>(&content) {
-                return settings;
-            }
+    if let Some(content) = crate::db::get_setting("app_settings.json") {
+        if let Ok(settings) = serde_json::from_str::<AppSettings>(&content) {
+            return settings;
         }
     }
     AppSettings::default()
 }
 
 pub fn save_app_settings(settings: &AppSettings) -> Result<(), String> {
-    let path = get_data_file_path("app_settings.json");
-    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    fs::write(path, json).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string(settings).map_err(|e| e.to_string())?;
+    crate::db::set_setting("app_settings.json", &json).map_err(|e| e.to_string())?;
     set_os_auto_start(settings.auto_start);
     Ok(())
 }
 
 pub fn load_demo_config() -> DemoGlobalConfig {
-    let path = get_data_file_path("demo_global_config.json");
-    if path.exists() {
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(mut cfg) = serde_json::from_str::<DemoGlobalConfig>(&content) {
-                if cfg.ftp_root_path.is_empty() {
-                    cfg.ftp_root_path = default_ftp_root();
-                }
-                if cfg.da_port.is_empty() {
-                    cfg.da_port = default_da_port();
-                }
-                return cfg;
+    if let Some(content) = crate::db::get_setting("demo_global_config.json") {
+        if let Ok(mut cfg) = serde_json::from_str::<DemoGlobalConfig>(&content) {
+            if cfg.ftp_root_path.is_empty() {
+                cfg.ftp_root_path = default_ftp_root();
             }
+            if cfg.da_port.is_empty() {
+                cfg.da_port = default_da_port();
+            }
+            return cfg;
         }
     }
     DemoGlobalConfig {
@@ -181,18 +174,19 @@ pub fn load_demo_config() -> DemoGlobalConfig {
     }
 }
 
+pub fn save_demo_config_file_only(cfg: &DemoGlobalConfig) -> Result<(), String> {
+    let json_str = serde_json::to_string(cfg).map_err(|e| e.to_string())?;
+    crate::db::set_setting("demo_global_config.json", &json_str).map_err(|e| e.to_string())
+}
+
 pub fn save_demo_config(cfg: &DemoGlobalConfig) -> Result<(), String> {
-    let path = get_data_file_path("demo_global_config.json");
-    let json_str = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
-    let _ = fs::write(path, &json_str);
+    save_demo_config_file_only(cfg)?;
 
-    // Đồng bộ tức thời sang RBW Pro manager data
-    let pro_dir = get_base_dir().join("config").join("rbwmanager").join("data");
-    let _ = fs::create_dir_all(&pro_dir);
-    let pro_demo_path = pro_dir.join("demo_config.json");
-    let pro_settings_path = pro_dir.join("settings.json");
+    // Đồng bộ sang pro_settings trong SQLite nhưng giữ nguyên demo_list và các cấu hình Pro khác
+    let mut map = crate::db::get_json_setting("pro_settings")
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
 
-    let mut map = serde_json::Map::new();
     map.insert("ftp_host".to_string(), serde_json::Value::String(cfg.ftp_host.clone()));
     map.insert("ftp_user".to_string(), serde_json::Value::String(cfg.ftp_user.clone()));
     map.insert("ftp_pass".to_string(), serde_json::Value::String(cfg.ftp_pass.clone()));
@@ -201,78 +195,90 @@ pub fn save_demo_config(cfg: &DemoGlobalConfig) -> Result<(), String> {
     map.insert("da_user".to_string(), serde_json::Value::String(cfg.da_user.clone()));
     map.insert("da_port".to_string(), serde_json::Value::String(cfg.da_port.clone()));
     map.insert("db_naming_mode".to_string(), serde_json::json!(cfg.db_naming_mode));
-    map.insert("default_demo_id".to_string(), serde_json::json!("default"));
-    map.insert("demo_list".to_string(), serde_json::json!([
-        {
-            "id": "default",
-            "name": if !cfg.web_domain.is_empty() { format!("Server Demo ({})", cfg.web_domain) } else { "Server Demo Chính".to_string() },
-            "ftp_host": cfg.ftp_host,
-            "web_domain": cfg.web_domain,
-            "da_user": cfg.da_user,
-            "da_port": cfg.da_port,
-            "ftp_user": cfg.ftp_user,
-            "ftp_pass": cfg.ftp_pass,
-            "ftp_root": cfg.ftp_root_path,
-            "db_naming_mode": cfg.db_naming_mode
-        }
-    ]));
-
-    if let Ok(s) = serde_json::to_string_pretty(&serde_json::Value::Object(map)) {
-        let _ = fs::write(pro_demo_path, &s);
-        let _ = fs::write(pro_settings_path, &s);
+    if !cfg.font_folder_path.is_empty() {
+        map.insert("font_source_path".to_string(), serde_json::Value::String(cfg.font_folder_path.clone()));
     }
 
+    let has_demo_list = map
+        .get("demo_list")
+        .and_then(|v| v.as_array())
+        .map(|a| !a.is_empty())
+        .unwrap_or(false);
+    if !has_demo_list {
+        map.insert("default_demo_id".to_string(), serde_json::json!("default"));
+        map.insert("demo_list".to_string(), serde_json::json!([
+            {
+                "id": "default",
+                "name": if !cfg.web_domain.is_empty() { cfg.web_domain.clone() } else { "Server Demo Chính".to_string() },
+                "ftp_host": cfg.ftp_host,
+                "web_domain": cfg.web_domain,
+                "da_user": cfg.da_user,
+                "da_port": cfg.da_port,
+                "ftp_user": cfg.ftp_user,
+                "ftp_pass": cfg.ftp_pass,
+                "ftp_root": cfg.ftp_root_path,
+                "db_naming_mode": cfg.db_naming_mode
+            }
+        ]));
+    }
+
+    let _ = crate::db::set_json_setting("pro_settings", &serde_json::Value::Object(map));
     Ok(())
 }
 
 pub fn load_string_map(filename: &str) -> HashMap<String, String> {
-    let path = get_data_file_path(filename);
-    if path.exists() {
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&content) {
-                return map;
-            }
+    let mut map = if let Some(content) = crate::db::get_setting(filename) {
+        serde_json::from_str::<HashMap<String, String>>(&content).unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
+
+    if filename == "sites.json" {
+        for (k, v) in crate::db::get_all_projects_php_map() {
+            map.entry(k).or_insert(v);
+        }
+    } else if filename == "sites_vhosts.json" {
+        for (k, v) in crate::db::get_all_vhosts_map() {
+            map.entry(k).or_insert(v);
         }
     }
-    HashMap::new()
+    map
 }
 
 pub fn save_string_map(filename: &str, map: &HashMap<String, String>) -> Result<(), String> {
-    let path = get_data_file_path(filename);
-    let json = serde_json::to_string_pretty(map).map_err(|e| e.to_string())?;
-    fs::write(path, json).map_err(|e| e.to_string())
+    let json = serde_json::to_string(map).map_err(|e| e.to_string())?;
+    crate::db::set_setting(filename, &json).map_err(|e| e.to_string())
 }
 
 pub fn load_bool_map(filename: &str) -> HashMap<String, bool> {
-    let path = get_data_file_path(filename);
-    if path.exists() {
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(map) = serde_json::from_str::<HashMap<String, bool>>(&content) {
-                return map;
-            }
+    let mut map = if let Some(content) = crate::db::get_setting(filename) {
+        serde_json::from_str::<HashMap<String, bool>>(&content).unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
+
+    if filename == "ssl.json" {
+        for (k, v) in crate::db::get_all_ssl_map() {
+            map.entry(k).or_insert(v);
         }
     }
-    HashMap::new()
+    map
 }
 
 pub fn save_bool_map(filename: &str, map: &HashMap<String, bool>) -> Result<(), String> {
-    let path = get_data_file_path(filename);
-    let json = serde_json::to_string_pretty(map).map_err(|e| e.to_string())?;
-    fs::write(path, json).map_err(|e| e.to_string())
+    let json = serde_json::to_string(map).map_err(|e| e.to_string())?;
+    crate::db::set_setting(filename, &json).map_err(|e| e.to_string())
 }
 
 pub fn load_text_file(filename: &str) -> String {
-    let path = get_data_file_path(filename);
-    if path.exists() {
-        fs::read_to_string(&path).unwrap_or_default().trim().to_string()
-    } else {
-        String::new()
-    }
+    crate::db::get_setting(filename)
+        .unwrap_or_default()
+        .trim()
+        .to_string()
 }
 
 pub fn save_text_file(filename: &str, content: &str) -> Result<(), String> {
-    let path = get_data_file_path(filename);
-    fs::write(path, content.trim()).map_err(|e| e.to_string())
+    crate::db::set_setting(filename, content.trim()).map_err(|e| e.to_string())
 }
 
 pub fn get_sites_root_dir() -> PathBuf {
@@ -288,6 +294,41 @@ pub fn get_sites_root_dir() -> PathBuf {
         let _ = fs::create_dir_all(&www);
     }
     www
+}
+
+pub fn is_month_or_cat_folder(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    if lower.len() == 7 && lower.chars().nth(4) == Some('_') {
+        let (y, m) = lower.split_at(4);
+        let m_num = &m[1..];
+        return y.chars().all(|c| c.is_ascii_digit()) && m_num.chars().all(|c| c.is_ascii_digit());
+    }
+    if lower.starts_with("thang") {
+        let rest = &lower[5..];
+        return !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit());
+    }
+    false
+}
+
+pub fn get_www_base_dir() -> PathBuf {
+    let configured = get_sites_root_dir();
+    let default_www = get_base_dir().join("www");
+
+    if configured.starts_with(&default_www) && default_www.is_dir() {
+        return default_www;
+    }
+
+    if let Some(folder_name) = configured.file_name().and_then(|s| s.to_str()) {
+        if is_month_or_cat_folder(folder_name) {
+            if let Some(parent) = configured.parent() {
+                if parent.is_dir() {
+                    return parent.to_path_buf();
+                }
+            }
+        }
+    }
+
+    configured
 }
 
 pub fn set_os_auto_start(enabled: bool) {

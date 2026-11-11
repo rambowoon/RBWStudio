@@ -348,13 +348,10 @@ pub fn install_local_font_to_project(
 }
 
 pub fn fetch_google_fonts_list() -> Vec<GoogleFontItem> {
-    let cache_path = config::get_data_file_path("google_fonts_cache.json");
-    if cache_path.exists() {
-        if let Ok(content) = fs::read_to_string(&cache_path) {
-            if let Ok(list) = serde_json::from_str::<Vec<GoogleFontItem>>(&content) {
-                if !list.is_empty() {
-                    return list;
-                }
+    if let Some(content) = crate::db::get_setting("google_fonts_cache.json") {
+        if let Ok(list) = serde_json::from_str::<Vec<GoogleFontItem>>(&content) {
+            if !list.is_empty() {
+                return list;
             }
         }
     }
@@ -405,7 +402,7 @@ pub fn fetch_google_fonts_list() -> Vec<GoogleFontItem> {
                         }
                         if !out.is_empty() {
                             if let Ok(json) = serde_json::to_string(&out) {
-                                let _ = fs::write(&cache_path, json);
+                                let _ = crate::db::set_setting("google_fonts_cache.json", &json);
                             }
                             return out;
                         }

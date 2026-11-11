@@ -68,11 +68,51 @@ header {
 }
 
 .project-master-tabs {
-    display: flex !important;
-    flex-wrap: wrap;
-    gap: 6px;
+    display: inline-flex !important;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 4px;
     margin-top: 0;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
+    padding: 5px 6px;
+    background: rgba(15, 23, 42, 0.45);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.project-master-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.project-master-tabs .project-tab-btn {
+    padding: 6px 11px !important;
+    font-size: 0.79rem !important;
+    font-weight: 600 !important;
+    border-radius: 7px !important;
+    white-space: nowrap !important;
+    line-height: 1.25 !important;
+    height: 31px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    border: 1px solid transparent !important;
+    background: transparent !important;
+}
+
+.project-master-tabs .project-tab-btn:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: #fff !important;
+}
+
+.project-tabs-divider {
+    width: 1px;
+    height: 18px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 0 3px;
+    flex-shrink: 0;
 }
 
 /* ==========================================================================
@@ -193,8 +233,8 @@ html[data-mode="light"] #stat-total-projects {
 
 /* Category Sidebar / Months */
 html[data-mode="light"] .category-sidebar-nav {
-    background: #FFFFFF !important;
-    border-right: 1px solid #E2E8F0 !important;
+    background: transparent !important;
+    border-right: none !important;
 }
 
 html[data-mode="light"] .category-item {
@@ -295,6 +335,46 @@ html[data-mode="light"] .item-card-icon {
     color: var(--primary) !important;
 }
 
+/* Giữ nguyên màu border & icon theo trạng thái dự án ở Light Mode */
+html[data-mode="light"] .item-card.card-status-demo {
+    border: 1px solid rgba(16, 185, 129, 0.45) !important;
+}
+html[data-mode="light"] .item-card.card-status-demo:hover {
+    border-color: rgba(16, 185, 129, 0.85) !important;
+    background: #FFFFFF !important;
+}
+html[data-mode="light"] .item-card.card-status-demo .item-card-icon {
+    background: rgba(16, 185, 129, 0.12) !important;
+    border: 1px solid rgba(16, 185, 129, 0.38) !important;
+    color: #059669 !important;
+}
+
+html[data-mode="light"] .item-card.card-status-prod {
+    border: 1px solid rgba(217, 70, 239, 0.45) !important;
+}
+html[data-mode="light"] .item-card.card-status-prod:hover {
+    border-color: rgba(217, 70, 239, 0.85) !important;
+    background: #FFFFFF !important;
+}
+html[data-mode="light"] .item-card.card-status-prod .item-card-icon {
+    background: rgba(217, 70, 239, 0.12) !important;
+    border: 1px solid rgba(217, 70, 239, 0.38) !important;
+    color: #c026d3 !important;
+}
+
+html[data-mode="light"] .item-card.card-status-pending {
+    border: 1px solid rgba(249, 115, 22, 0.45) !important;
+}
+html[data-mode="light"] .item-card.card-status-pending:hover {
+    border-color: rgba(249, 115, 22, 0.85) !important;
+    background: #FFFFFF !important;
+}
+html[data-mode="light"] .item-card.card-status-pending .item-card-icon {
+    background: rgba(249, 115, 22, 0.12) !important;
+    border: 1px solid rgba(249, 115, 22, 0.38) !important;
+    color: #ea580c !important;
+}
+
 html[data-mode="light"] .item-card-thumb-wrap {
     background: #F8FAFC !important;
     border: 1px solid #E2E8F0 !important;
@@ -375,14 +455,24 @@ html[data-mode="light"] .view-toggle-btn.active {
 }
 
 /* Master Tabs in Project Detail */
-html[data-mode="light"] .project-master-tabs .tab {
+html[data-mode="light"] .project-master-tabs {
     background: #FFFFFF !important;
-    color: #334155 !important;
     border: 1px solid #CBD5E1 !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+}
+
+html[data-mode="light"] .project-tabs-divider {
+    background: #E2E8F0 !important;
+}
+
+html[data-mode="light"] .project-master-tabs .tab {
+    background: transparent !important;
+    color: #334155 !important;
+    border: 1px solid transparent !important;
     font-weight: 600 !important;
 }
 
-html[data-mode="light"] .project-master-tabs .tab:hover {
+html[data-mode="light"] .project-master-tabs .tab:hover:not(.active) {
     background: #F1F5F9 !important;
     color: #0F172A !important;
 }
@@ -865,6 +955,16 @@ html[data-mode="light"] textarea:focus {
     outline: none !important;
 }
 
+html[data-mode="light"] .project-search-wrap input,
+html[data-mode="light"] .project-search-wrap input:focus {
+    background-color: transparent !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    outline: none !important;
+}
+
 html[data-mode="light"] label {
     color: #334155 !important;
     font-weight: 600 !important;
@@ -971,4 +1071,81 @@ html[data-mode="light"] .sc-env-btn:not(.active),
 html[data-mode="light"] .fm-env-btn:not(.active) {
     background: transparent !important;
     color: #475569 !important;
+}
+
+/* Giữ lại độ tương phản cao cho badge Trạng thái & PHP ở Light Mode */
+html[data-mode="light"] .badge-ok,
+html[data-mode="light"] .badge-env.badge-env-demo {
+    background: #ECFDF5 !important;
+    color: #047857 !important;
+    border-color: rgba(5, 150, 105, 0.35) !important;
+}
+
+html[data-mode="light"] .badge-prod,
+html[data-mode="light"] .badge-env.badge-env-prod {
+    background: #FDF2F8 !important;
+    color: #A21CAF !important;
+    border-color: rgba(192, 38, 211, 0.35) !important;
+}
+
+html[data-mode="light"] .badge-pending {
+    background: #FFF7ED !important;
+    color: #C2410C !important;
+    border-color: rgba(234, 88, 12, 0.35) !important;
+}
+
+html[data-mode="light"] .badge-php.php-v84,
+html[data-mode="light"] .system-php-header-badge.php-v84 {
+    background: #ECFEFF !important;
+    color: #0E7490 !important;
+    border-color: rgba(8, 145, 178, 0.38) !important;
+}
+html[data-mode="light"] .badge-php.php-v84 .badge-php-dot {
+    background: #0891B2 !important;
+    box-shadow: none !important;
+}
+
+html[data-mode="light"] .badge-php.php-v83,
+html[data-mode="light"] .system-php-header-badge.php-v83 {
+    background: #FAF5FF !important;
+    color: #7E22CE !important;
+    border-color: rgba(126, 34, 206, 0.35) !important;
+}
+html[data-mode="light"] .badge-php.php-v83 .badge-php-dot {
+    background: #7E22CE !important;
+    box-shadow: none !important;
+}
+
+html[data-mode="light"] .badge-php.php-v74,
+html[data-mode="light"] .system-php-header-badge.php-v74 {
+    background: #FFFBEB !important;
+    color: #B45309 !important;
+    border-color: rgba(180, 83, 9, 0.35) !important;
+}
+html[data-mode="light"] .badge-php.php-v74 .badge-php-dot {
+    background: #B45309 !important;
+    box-shadow: none !important;
+}
+
+html[data-mode="light"] .badge-php.php-v8x,
+html[data-mode="light"] .system-php-header-badge.php-v8x {
+    background: #F0F9FF !important;
+    color: #0369A1 !important;
+    border-color: rgba(3, 105, 161, 0.35) !important;
+}
+html[data-mode="light"] .badge-php.php-v8x .badge-php-dot {
+    background: #0369A1 !important;
+    box-shadow: none !important;
+}
+
+html[data-mode="light"] .badge-php.php-v-default {
+    background: #F1F5F9 !important;
+    color: #475569 !important;
+    border-color: #CBD5E1 !important;
+}
+
+html[data-mode="light"] .project-search-wrap input,
+html[data-mode="light"] .project-search-wrap input:focus {
+    background: transparent !important;
+    border: none !important;
 }

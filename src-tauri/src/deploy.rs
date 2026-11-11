@@ -168,6 +168,7 @@ pub fn run_deploy_demo(
                 false,
                 false,
             );
+            let _ = crate::rbw_pro_backend::ensure_mysql_running();
             if let Err(e) = dump_local_database(&init.local_db_name, &sql_path, ssl_enabled, &demo_cfg.web_domain, &site_name) {
                 emit_log(&app, &format!("⚠️ Cảnh báo xuất DB: {}", e), 20, false, false);
             } else {
@@ -597,6 +598,7 @@ pub fn ftp_upload_file(
             "-s",
             "-S",
             "--ftp-create-dirs",
+            "--disable-epsv",
             "-u",
             &format!("{}:{}", cfg.ftp_user, cfg.ftp_pass),
             "-T",

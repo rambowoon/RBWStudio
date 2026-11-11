@@ -172,7 +172,7 @@ pub fn get_service_status() -> ServiceStatus {
         node_versions,
         phpmyadmin_installed: is_phpmyadmin_installed(),
         cloudflared_installed: is_cloudflared_installed(),
-        www_root: config::get_sites_root_dir().to_string_lossy().to_string(),
+        www_root: config::get_www_base_dir().to_string_lossy().to_string(),
     }
 }
 
@@ -221,6 +221,149 @@ pub fn get_site_php_port(php_version: &str, settings: &AppSettings) -> u16 {
     settings.php_cgi_port
 }
 
+fn extract_php_major_minor(php_dir: &Path) -> Option<(String, String)> {
+    let dir_name = php_dir.file_name()?.to_string_lossy();
+    let rest = dir_name.strip_prefix("php-").unwrap_or(&dir_name);
+    let mut parts = rest.split('.');
+    let major = parts.next()?.trim();
+    let minor = parts.next()?.trim();
+    if major.chars().all(|c| c.is_ascii_digit()) && minor.chars().all(|c| c.is_ascii_digit()) {
+        Some((major.to_string(), minor.to_string()))
+    } else {
+        None
+    }
+}
+
+fn ioncube_zip_name_for_php(major: &str, minor: &str) -> Option<&'static str> {
+    #[cfg(target_os = "windows")]
+    {
+        match (major, minor) {
+            ("5", "6") => Some("ioncube_loaders_win_vc11_x86-64.zip"),
+            ("7", "0") | ("7", "1") => Some("ioncube_loaders_win_vc14_x86-64.zip"),
+            ("7", "2") | ("7", "3") | ("7", "4") => Some("ioncube_loaders_win_vc15_x86-64.zip"),
+            ("8", "1") | ("8", "2") | ("8", "3") => Some("ioncube_loaders_win_vc16_x86-64.zip"),
+            ("8", "4") | ("8", "5") | ("8", "6") => Some("ioncube_loaders_win_vc17_x86-64.zip"),
+            _ => None,
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (major, minor);
+        if cfg!(target_arch = "aarch64") {
+            Some("ioncube_loaders_mac_arm64.zip")
+        } else {
+            Some("ioncube_loaders_mac_x86-64.zip")
+        }
+    }
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        let _ = (major, minor);
+        Some("ioncube_loaders_lin_x86-64.zip")
+    }
+}
+
+fn ensure_ioncube_binary(php_dir: &Path, base: &Path) -> Option<PathBuf> {
+    let (major, minor) = extract_php_major_minor(php_dir)?;
+    #[cfg(target_os = "windows")]
+    let loader_name = format!("ioncube_loader_win_{}.{}.dll", major, minor);
+    #[cfg(target_os = "macos")]
+    let loader_name = format!("ioncube_loader_dar_{}.{}.so", major, minor);
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    let loader_name = format!("ioncube_loader_lin_{}.{}.so", major, minor);
+
+    let ext_dir = php_dir.join("ext");
+    let _ = fs::create_dir_all(&ext_dir);
+    let target_loader = ext_dir.join(&loader_name);
+    if target_loader.exists() {
+        return Some(target_loader);
+    }
+
+    let zip_name = ioncube_zip_name_for_php(&major, &minor)?;
+    let dl_dir = base.join("downloads");
+    let _ = fs::create_dir_all(&dl_dir);
+    let zip_path = dl_dir.join(zip_name);
+
+    if !zip_path.exists() {
+        let url = format!("https://downloads.ioncube.com/loader_downloads/{}", zip_name);
+        if let Ok(client) = reqwest::blocking::Client::builder()
+            .user_agent("RBWStudio/1.0")
+            .timeout(Duration::from_secs(20))
+            .build()
+        {
+            if let Ok(mut resp) = client.get(&url).send() {
+                if resp.status().is_success() {
+                    let tmp_part = dl_dir.join(format!("{}.part", zip_name));
+                    if let Ok(mut f) = fs::File::create(&tmp_part) {
+                        if std::io::copy(&mut resp, &mut f).is_ok() {
+                            let _ = fs::rename(&tmp_part, &zip_path);
+                        } else {
+                            let _ = fs::remove_file(&tmp_part);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !zip_path.exists() {
+        return None;
+    }
+
+    let file = fs::File::open(&zip_path).ok()?;
+    let mut archive = zip::ZipArchive::new(file).ok()?;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).ok()?;
+        let entry_name = entry.name().replace('\\', "/");
+        if entry_name.ends_with(&format!("/{}", loader_name)) || entry_name == loader_name {
+            let mut out = fs::File::create(&target_loader).ok()?;
+            std::io::copy(&mut entry, &mut out).ok()?;
+            return Some(target_loader);
+        }
+    }
+    None
+}
+
+fn ensure_ioncube_in_php_ini(php_dir: &Path, base: &Path, content: &mut String) -> bool {
+    let has_ioncube = content.lines().any(|line| {
+        let trimmed = line.trim();
+        !trimmed.starts_with(';')
+            && trimmed.to_ascii_lowercase().contains("zend_extension")
+            && trimmed.to_ascii_lowercase().contains("ioncube")
+    });
+    if has_ioncube {
+        return false;
+    }
+
+    let loader_path = match ensure_ioncube_binary(php_dir, base) {
+        Some(p) => p,
+        None => return false,
+    };
+
+    let loader_fwd = loader_path.to_string_lossy().replace('\\', "/");
+    let zend_line = format!("zend_extension = \"{}\"", loader_fwd);
+
+    if let Some(pos) = content.find("[PHP]") {
+        let after_section = pos + "[PHP]".len();
+        let rest = &content[after_section..];
+        let newline = if rest.starts_with("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let insert_pos = if rest.starts_with("\r\n") {
+            after_section + 2
+        } else if rest.starts_with('\n') {
+            after_section + 1
+        } else {
+            after_section
+        };
+        content.insert_str(insert_pos, &format!("{}{}", zend_line, newline));
+    } else {
+        *content = format!("{}\n{}", zend_line, content);
+    }
+    true
+}
+
 pub fn configure_php(php_dir: &Path) {
     let base = config::get_base_dir();
     let ini_path = php_dir.join("php.ini");
@@ -237,34 +380,43 @@ pub fn configure_php(php_dir: &Path) {
     }
 
     if let Ok(mut content) = fs::read_to_string(&ini_path) {
+        let mut ini_changed = false;
         let ext_dir = php_dir.join("ext").to_string_lossy().replace('\\', "/");
         let tmp_sessions = base.join("tmp/sessions").to_string_lossy().replace('\\', "/");
         let tmp_uploads = base.join("tmp/uploads").to_string_lossy().replace('\\', "/");
 
-        content = content.replace(";extension_dir = \"ext\"", &format!("extension_dir = \"{}\"", ext_dir));
-        let exts = [
-            "curl", "fileinfo", "gd", "gd2", "intl", "mbstring", "exif", "mysqli", "openssl",
-            "pdo_mysql", "pdo_sqlite", "soap", "sockets", "sodium", "sqlite3", "tidy", "xsl", "zip",
-        ];
-        for ext in exts {
-            content = content.replace(&format!(";extension={}", ext), &format!("extension={}", ext));
-            content = content.replace(&format!(";extension=php_{}.dll", ext), &format!("extension=php_{}.dll", ext));
-        }
-
-        let settings = config::load_app_settings();
-        let mut custom_block = format!(
-            "\n; RBWStack Auto Config\nextension_dir = \"{}\"\nsession.save_path = \"{}\"\nupload_tmp_dir = \"{}\"\nsendmail_from = \"admin@rbwstack.local\"\nSMTP = 127.0.0.1\nsmtp_port = 1025\ndisplay_errors = Off\nlog_errors = On\ndate.timezone = Asia/Ho_Chi_Minh\n",
-            ext_dir, tmp_sessions, tmp_uploads
-        );
-
-        if settings.auto_optimize_php {
-            custom_block.push_str(
-                "upload_max_filesize = 2048M\npost_max_size = 2048M\nmemory_limit = 1024M\nmax_execution_time = 0\nmax_input_time = -1\nmax_input_vars = 5000\nsession.gc_maxlifetime = 2592000\nsession.cookie_lifetime = 2592000\n",
-            );
-        }
-
         if !content.contains("; RBWStack Auto Config") {
+            content = content.replace(";extension_dir = \"ext\"", &format!("extension_dir = \"{}\"", ext_dir));
+            let exts = [
+                "curl", "fileinfo", "gd", "gd2", "intl", "mbstring", "exif", "mysqli", "openssl",
+                "pdo_mysql", "pdo_sqlite", "soap", "sockets", "sodium", "sqlite3", "tidy", "xsl", "zip",
+            ];
+            for ext in exts {
+                content = content.replace(&format!(";extension={}", ext), &format!("extension={}", ext));
+                content = content.replace(&format!(";extension=php_{}.dll", ext), &format!("extension=php_{}.dll", ext));
+            }
+
+            let settings = config::load_app_settings();
+            let mut custom_block = format!(
+                "\n; RBWStack Auto Config\nextension_dir = \"{}\"\nsession.save_path = \"{}\"\nupload_tmp_dir = \"{}\"\nsendmail_from = \"admin@rbwstack.local\"\nSMTP = 127.0.0.1\nsmtp_port = 1025\ndisplay_errors = Off\nlog_errors = On\ndate.timezone = Asia/Ho_Chi_Minh\n",
+                ext_dir, tmp_sessions, tmp_uploads
+            );
+
+            if settings.auto_optimize_php {
+                custom_block.push_str(
+                    "upload_max_filesize = 2048M\npost_max_size = 2048M\nmemory_limit = 1024M\nmax_execution_time = 0\nmax_input_time = -1\nmax_input_vars = 5000\nsession.gc_maxlifetime = 2592000\nsession.cookie_lifetime = 2592000\n",
+                );
+            }
+
             content.push_str(&custom_block);
+            ini_changed = true;
+        }
+
+        if ensure_ioncube_in_php_ini(php_dir, &base, &mut content) {
+            ini_changed = true;
+        }
+
+        if ini_changed {
             let _ = fs::write(&ini_path, content);
         }
     }
@@ -417,11 +569,14 @@ pub fn trust_ssl_certificate(crt_path: &Path) {
 pub fn generate_vhosts_configs(settings: &AppSettings) {
     let base = config::get_base_dir();
     let sites_root = config::get_sites_root_dir();
+    let www_base = config::get_www_base_dir();
     let root_project = config::load_text_file("root_project.txt");
     let doc_root = if !root_project.is_empty() && sites_root.join(&root_project).exists() {
         sites_root.join(&root_project)
+    } else if !root_project.is_empty() && www_base.join(&root_project).exists() {
+        www_base.join(&root_project)
     } else {
-        sites_root.clone()
+        www_base.clone()
     };
 
     let (localhost_crt, localhost_key) = ensure_ssl_cert("localhost");
@@ -433,7 +588,7 @@ pub fn generate_vhosts_configs(settings: &AppSettings) {
     let site_php_map = config::load_string_map("sites.json");
     let pma_dir = base.join("phpmyadmin").to_string_lossy().replace('\\', "/");
     let doc_root_str = doc_root.to_string_lossy().replace('\\', "/");
-    let sites_root_str = sites_root.to_string_lossy().replace('\\', "/");
+    let sites_root_str = www_base.to_string_lossy().replace('\\', "/");
 
     let php_versions = list_installed_versions("php");
     let active_php_ver = if !settings.active_php_version.is_empty() {
@@ -470,8 +625,11 @@ pub fn generate_vhosts_configs(settings: &AppSettings) {
             }
             let php_port = get_site_php_port(php_ver, settings);
             let mut paths_to_add = Vec::new();
-            paths_to_add.push((site_name.clone(), format!("{}/{}", sites_root_str, site_name)));
-            if let Ok(entries) = fs::read_dir(&sites_root) {
+            let direct_dir = www_base.join(site_name);
+            if direct_dir.is_dir() {
+                paths_to_add.push((site_name.clone(), direct_dir.to_string_lossy().replace('\\', "/")));
+            }
+            if let Ok(entries) = fs::read_dir(&www_base) {
                 for entry in entries.flatten() {
                     let ep = entry.path();
                     if ep.is_dir() {
@@ -480,10 +638,15 @@ pub fn generate_vhosts_configs(settings: &AppSettings) {
                             let month_name = entry.file_name().to_string_lossy().to_string();
                             let loc_uri = format!("{}/{}", month_name, site_name);
                             let fs_dir = sub_p.to_string_lossy().replace('\\', "/");
-                            paths_to_add.push((loc_uri, fs_dir));
+                            if !paths_to_add.iter().any(|(l, _)| l == &loc_uri) {
+                                paths_to_add.push((loc_uri, fs_dir));
+                            }
                         }
                     }
                 }
+            }
+            if paths_to_add.is_empty() {
+                paths_to_add.push((site_name.clone(), format!("{}/{}", sites_root_str, site_name)));
             }
 
             for (loc, fs_dir) in paths_to_add {
@@ -706,12 +869,12 @@ http {{
             }
             let php_port = get_site_php_port(php_ver, settings);
             let mut dirs_to_add = Vec::new();
-            let direct_dir = sites_root.join(site_name);
+            let direct_dir = www_base.join(site_name);
             if direct_dir.is_dir() {
                 dirs_to_add.push(direct_dir.to_string_lossy().replace('\\', "/"));
             }
             // Check if site exists inside any month subfolder (e.g. www/2026_05/source_nasani_2026)
-            if let Ok(entries) = fs::read_dir(&sites_root) {
+            if let Ok(entries) = fs::read_dir(&www_base) {
                 for entry in entries.flatten() {
                     let ep = entry.path();
                     if ep.is_dir() {

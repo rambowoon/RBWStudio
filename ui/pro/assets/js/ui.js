@@ -378,14 +378,10 @@ const UI = {
                     </div>
                     ${deadlineRowHtml}
                     <div class="item-card-footer">
-                        <div class="item-card-badges" style="display:flex; align-items:center; gap:6px; flex-wrap:nowrap; overflow:hidden;">
+                        <div class="item-card-badges" style="display:flex; align-items:center; justify-content:space-between; gap:6px; width:100%; flex-wrap:nowrap; overflow:hidden;">
                             <span class="badge ${badgeClass}">${badgeText}</span>
                             ${phpBadge}
                         </div>
-                        <button class="btn btn-primary ${isLockedDemo ? "btn-deploy-locked" : ""} btn-deploy-small" 
-                            onclick="event.stopPropagation(); ${isLockedDemo ? "UI.notify('Dự án này đang bị KHÓA!', 'error')" : `App.deployDemo('${safeName}', '${safeCat}')`}">
-                            🚀 Deploy
-                        </button>
                     </div>
                 </div>
             `;
@@ -1013,7 +1009,7 @@ const UI = {
             </button>
 
             <div class="menu-divider"></div>
-            <button class="action-menu-item" onclick="UI.closePortalMenu(); App.openConfig('${safeName}')">
+            <button class="action-menu-item" onclick="UI.closePortalMenu(); App.openConfig('${safeName}', '${safeCat}')">
                 <span class="menu-icon mi-cyan"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-2.82-1.17l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
                 Cấu hình
             </button>
@@ -1223,19 +1219,21 @@ const UI = {
 		if (modal) {
 			modal.style.display = "flex";
 			if (id === "deploy-modal") {
-				const title = document.getElementById("deploy-modal-title");
-				if (title) title.innerText = "Đang triển khai...";
-				document.getElementById("progress-fill").style.width = "0%";
-				document.getElementById("status-text").innerText =
-					"Chuẩn bị...";
-				document.getElementById("log-output").innerHTML = "";
-				document.getElementById("deploy-footer").style.display = "none";
+				if (!this._deployModalConfigured) {
+					this.setupDeployModal({});
+				}
+				this._deployModalConfigured = false;
 			}
 		}
 	},
 
 	hideModal(id) {
-		document.getElementById(id).style.display = "none";
+		if (id === "deploy-modal") {
+			this.stopDeployTimer();
+			this._deployModalConfigured = false;
+		}
+		const el = document.getElementById(id);
+		if (el) el.style.display = "none";
 	},
 
 	fillConfigForm(name, config) {
@@ -1256,6 +1254,59 @@ const UI = {
 		this.renderMasterActions(name, App.currentCategory, config, "");
 		this.renderMasterDeployedInfo(deployed, "");
 		this.renderMasterHistoryInfo(config.history, "");
+	},
+
+	_lastRenderedProject: null,
+
+	resetProjectSubTabs(name) {
+		if (this._lastRenderedProject === name) return;
+		this._lastRenderedProject = name;
+
+		if (typeof SchemaBuilder !== "undefined") {
+			SchemaBuilder.currentProject = name;
+			SchemaBuilder.currentFile = null;
+			SchemaBuilder.currentData = null;
+			const sbForm = document.getElementById("sb-form-container");
+			if (sbForm) sbForm.innerHTML = "";
+			const sbPrev = document.getElementById("sb-live-preview");
+			if (sbPrev) sbPrev.textContent = "";
+		}
+		if (typeof FontManager !== "undefined") {
+			const fPrev = document.getElementById("fonts-css-preview");
+			if (fPrev) fPrev.innerText = "/* Đang tải... */";
+			const fList = document.getElementById("installed-fonts-list");
+			if (fList) fList.innerHTML = "";
+		}
+		if (typeof WebpManager !== "undefined") {
+			const wList = document.getElementById("project-webp-images-list");
+			if (wList) wList.innerHTML = "";
+		}
+		if (typeof ImageTrimManager !== "undefined") {
+			ImageTrimManager.images = [];
+			if (ImageTrimManager.selected) ImageTrimManager.selected.clear();
+			const tGrid = document.getElementById("project-trim-images-grid");
+			if (tGrid) tGrid.innerHTML = "";
+		}
+		if (typeof AutoMediaManager !== "undefined") {
+			AutoMediaManager.currentProject = name;
+			const amCont = document.getElementById("auto-media-groups-container");
+			if (amCont) amCont.innerHTML = "";
+		}
+		if (typeof SeedManager !== "undefined") {
+			SeedManager.currentProject = name;
+			SeedManager.selectedImages = {};
+			SeedManager.subTypes = {};
+			SeedManager.allImages = [];
+		}
+		if (typeof FileManager !== "undefined") {
+			FileManager.lastProject = null;
+			FileManager.treeCache = {};
+			FileManager.rawFiles = [];
+		}
+		if (typeof SyncCenter !== "undefined") {
+			SyncCenter.lastProject = null;
+			SyncCenter.lastData = null;
+		}
 	},
 
 	fillProjectDetailForm(name, config, category) {
@@ -1906,20 +1957,229 @@ const UI = {
 		this.showModal("project-detail-modal");
 	},
 
-	updateDeployStatus(status, progress, logText = null) {
-		document.getElementById("progress-fill").style.width = `${progress}%`;
-		document.getElementById("status-text").innerText = status;
+	_deployTimerInterval: null,
+	_deployStepCount: 0,
+	_deployCurrentStep: 0,
+	_deployModalConfigured: false,
 
-		// Cập nhật tiêu đề modal nếu trạng thái là kết thúc
+	formatDuration(totalSec) {
+		const mins = String(Math.floor(totalSec / 60)).padStart(2, "0");
+		const secs = String(totalSec % 60).padStart(2, "0");
+		return `⏱️ ${mins}:${secs}`;
+	},
+
+	startDeployTimer() {
+		this.stopDeployTimer();
+		const timerEl = document.getElementById("deploy-timer");
+		let sec = 0;
+		if (timerEl) timerEl.innerText = "⏱️ 00:00";
+		this._deployTimerInterval = setInterval(() => {
+			sec++;
+			if (timerEl) timerEl.innerText = this.formatDuration(sec);
+		}, 1000);
+	},
+
+	stopDeployTimer() {
+		if (this._deployTimerInterval) {
+			clearInterval(this._deployTimerInterval);
+			this._deployTimerInterval = null;
+		}
+		const spinnerEl = document.getElementById("deploy-status-spinner");
+		if (spinnerEl) spinnerEl.style.display = "none";
+	},
+
+	setupDeployModal(opts = {}) {
+		this._deployModalConfigured = true;
+		const {
+			icon = "🚀",
+			title = "Đang triển khai...",
+			project = "",
+			category = "",
+			targetDesc = "Đang xử lý...",
+			steps = null,
+		} = opts;
+
+		const iconEl = document.getElementById("deploy-modal-icon");
 		const titleEl = document.getElementById("deploy-modal-title");
-		if (titleEl && (status === "Thành công!" || status.includes("Lỗi"))) {
-			titleEl.innerText = status;
+		const projEl = document.getElementById("deploy-project-name");
+		const catEl = document.getElementById("deploy-category-badge");
+		const descEl = document.getElementById("deploy-target-desc");
+		const stepsBox = document.getElementById("deploy-steps-box");
+		const bannerEl = document.getElementById("deploy-result-banner");
+		const detailsEl = document.getElementById("deploy-log-details");
+		const logEl = document.getElementById("log-output");
+		const spinnerEl = document.getElementById("deploy-status-spinner");
+		const fillEl = document.getElementById("progress-fill");
+		const statusEl = document.getElementById("status-text");
+		const footerEl = document.getElementById("deploy-footer");
+
+		if (iconEl) iconEl.innerText = icon;
+		if (titleEl) titleEl.innerText = title;
+		if (projEl) projEl.innerText = project || "--";
+		if (catEl) {
+			catEl.innerText = category || "Mặc định";
+			catEl.style.display = category ? "inline-flex" : "none";
+		}
+		if (descEl) descEl.innerText = targetDesc;
+		if (bannerEl) {
+			bannerEl.style.display = "none";
+			bannerEl.innerHTML = "";
+		}
+		if (detailsEl) detailsEl.open = false;
+		if (logEl) logEl.innerHTML = "";
+		if (spinnerEl) spinnerEl.style.display = "inline-block";
+		if (fillEl) {
+			fillEl.style.width = "10%";
+			fillEl.style.background = "linear-gradient(90deg, #00d2d3, #10b981)";
+		}
+		if (statusEl) {
+			statusEl.innerText = "Đang chuẩn bị...";
+			statusEl.style.color = "var(--primary)";
+		}
+		if (footerEl) footerEl.style.display = "none";
+
+		const stepList = Array.isArray(steps) && steps.length > 0
+			? steps
+			: [
+					{ title: "1. Khởi tạo tác vụ", sub: targetDesc },
+					{ title: "2. Thực thi xử lý trên hệ thống", sub: "Đang chạy tiến trình nền..." },
+					{ title: "3. Hoàn tất & cập nhật trạng thái", sub: "Lưu cấu hình và làm mới dữ liệu" },
+			  ];
+
+		this._deployStepCount = stepList.length;
+		this._deployCurrentStep = 1;
+
+		if (stepsBox) {
+			stepsBox.innerHTML = stepList
+				.map(
+					(s, idx) => `
+                <div id="deploy-step-${idx + 1}" class="shot-step" style="display:flex; align-items:center; gap:10px; color:${idx === 0 ? "#38bdf8" : "var(--muted)"}; opacity:${idx === 0 ? "1" : "0.55"}; transition:all .25s">
+                    <span class="shot-step-icon" style="width:22px; text-align:center; flex-shrink:0">${
+						idx === 0
+							? '<span class="spinner-small" style="width:13px; height:13px; border:2px solid rgba(255,255,255,0.2); border-top-color:#38bdf8; border-radius:50%; animation:spin 0.8s linear infinite; display:inline-block;"></span>'
+							: "⚪"
+					}</span>
+                    <div style="flex:1; min-width:0">
+                        <div style="font-weight:600" class="shot-step-title">${s.title}</div>
+                        <div style="font-size:0.75rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap" class="shot-step-sub">${s.sub || ""}</div>
+                    </div>
+                </div>`,
+				)
+				.join("");
 		}
 
-		if (logText) {
-			const log = document.getElementById("log-output");
-			log.innerHTML += `${logText}<br>`;
-			log.scrollTop = log.scrollHeight;
+		this.startDeployTimer();
+	},
+
+	setDeployStep(stepNum, state, subText = null) {
+		const stepEl = document.getElementById(`deploy-step-${stepNum}`);
+		if (!stepEl) return;
+		const iconEl = stepEl.querySelector(".shot-step-icon");
+		const subEl = stepEl.querySelector(".shot-step-sub");
+		if (subText && subEl) {
+			subEl.innerText = subText;
+		}
+		if (state === "active") {
+			stepEl.style.opacity = "1";
+			stepEl.style.color = "#38bdf8";
+			if (iconEl) {
+				iconEl.innerHTML =
+					'<span class="spinner-small" style="width:13px; height:13px; border:2px solid rgba(255,255,255,0.2); border-top-color:#38bdf8; border-radius:50%; animation:spin 0.8s linear infinite; display:inline-block;"></span>';
+			}
+		} else if (state === "done") {
+			stepEl.style.opacity = "1";
+			stepEl.style.color = "#34d399";
+			if (iconEl) iconEl.innerHTML = "✅";
+		} else if (state === "error") {
+			stepEl.style.opacity = "1";
+			stepEl.style.color = "#f87171";
+			if (iconEl) iconEl.innerHTML = "❌";
+		} else {
+			stepEl.style.opacity = "0.55";
+			stepEl.style.color = "var(--muted)";
+			if (iconEl) iconEl.innerHTML = "⚪";
+		}
+	},
+
+	updateDeployStatus(status, progress, logText = null, stepNum = null) {
+		const fillEl = document.getElementById("progress-fill");
+		const statusEl = document.getElementById("status-text");
+		const titleEl = document.getElementById("deploy-modal-title");
+		const spinnerEl = document.getElementById("deploy-status-spinner");
+		const bannerEl = document.getElementById("deploy-result-banner");
+		const logEl = document.getElementById("log-output");
+
+		if (fillEl && typeof progress === "number") {
+			fillEl.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+		}
+
+		const isSuccess =
+			status === "Thành công!" ||
+			status === "Hoàn tất!" ||
+			status.includes("Đã xóa");
+		const isError =
+			status.toLowerCase().includes("lỗi") ||
+			status.toLowerCase().includes("thất bại");
+
+		const plainLog = logText
+			? String(logText).replace(/<[^>]*>/g, "").replace(/^>\s*/, "").trim()
+			: "";
+
+		if (statusEl) {
+			statusEl.innerText = plainLog && !isSuccess && !isError ? plainLog : status;
+			if (isError) statusEl.style.color = "#f87171";
+			else if (isSuccess) statusEl.style.color = "#34d399";
+			else statusEl.style.color = "var(--primary)";
+		}
+
+		const count = this._deployStepCount || 0;
+		if (count > 0) {
+			if (isSuccess) {
+				for (let s = 1; s <= count; s++) this.setDeployStep(s, "done");
+			} else if (isError) {
+				const errStep = stepNum || this._deployCurrentStep || 1;
+				for (let s = 1; s < errStep; s++) this.setDeployStep(s, "done");
+				this.setDeployStep(errStep, "error", plainLog || status);
+			} else {
+				let targetStep = stepNum;
+				if (!targetStep && typeof progress === "number") {
+					targetStep = Math.max(
+						1,
+						Math.min(count, Math.ceil((progress / 100) * count)),
+					);
+				}
+				if (targetStep) {
+					this._deployCurrentStep = targetStep;
+					for (let s = 1; s < targetStep; s++) this.setDeployStep(s, "done");
+					this.setDeployStep(targetStep, "active", plainLog || null);
+				} else if (plainLog && this._deployCurrentStep) {
+					this.setDeployStep(this._deployCurrentStep, "active", plainLog);
+				}
+			}
+		}
+
+		if (isSuccess || isError) {
+			this.stopDeployTimer();
+			if (spinnerEl) spinnerEl.style.display = "none";
+			if (titleEl) titleEl.innerText = isSuccess ? "Hoàn tất!" : status;
+			if (fillEl && isError) {
+				fillEl.style.background = "linear-gradient(90deg, #ef4444, #f87171)";
+			}
+			if (bannerEl) {
+				const msgHtml = logText || status;
+				if (isSuccess) {
+					bannerEl.style.display = "block";
+					bannerEl.innerHTML = `<div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius:10px; padding:12px 14px; display:flex; align-items:center; gap:10px"><span style="font-size:1.35rem">🎉</span><div style="flex:1; font-size:0.85rem; color:#34d399; font-weight:600; line-height:1.45">${msgHtml}</div></div>`;
+				} else {
+					bannerEl.style.display = "block";
+					bannerEl.innerHTML = `<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius:10px; padding:12px 14px; display:flex; align-items:center; gap:10px"><span style="font-size:1.35rem">⚠️</span><div style="flex:1; font-size:0.84rem; color:#fca5a5; font-weight:600; line-height:1.45">${msgHtml}</div></div>`;
+				}
+			}
+		}
+
+		if (logText && logEl) {
+			logEl.innerHTML += `${logText}<br>`;
+			logEl.scrollTop = logEl.scrollHeight;
 		}
 	},
 

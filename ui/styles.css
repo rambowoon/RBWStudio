@@ -498,8 +498,48 @@ body {
 .dl-status { font-size: 11px; color: var(--text-2); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .progress { height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
-.progress-fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, var(--primary), var(--primary-2)); transition: width .25s ease; }
-.mt12 { margin-top: 12px; margin-bottom: 8px; }
+.progress-fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, #00d2d3, #10b981); transition: width .35s ease; }
+.mt12 { margin-top: 10px; margin-bottom: 8px; }
+
+/* Step Tracker Status UI */
+.step-tracker-box {
+  margin-top: 12px;
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.step-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; transition: all .25s; }
+.step-row.is-waiting { opacity: 0.52; color: var(--text-3); }
+.step-row.is-active { opacity: 1; color: #38bdf8; }
+.step-row.is-done { opacity: 1; color: #34d399; }
+.step-row.is-error { opacity: 1; color: #f87171; }
+.step-icon { width: 20px; text-align: center; flex-shrink: 0; font-size: 13px; }
+.step-info { flex: 1; min-width: 0; }
+.step-title { font-weight: 600; }
+.step-sub { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step-spinner {
+  width: 12px; height: 12px;
+  border: 2px solid rgba(56, 189, 248, 0.25);
+  border-top-color: #38bdf8;
+  border-radius: 50%;
+  display: inline-block;
+  animation: stepSpin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes stepSpin { to { transform: rotate(360deg); } }
+.deploy-status-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  margin-top: 10px; font-size: 12px;
+}
+.deploy-status-left {
+  display: flex; align-items: center; gap: 6px; font-weight: 600; color: #38bdf8;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.deploy-timer { font-family: "Cascadia Code", "SF Mono", Consolas, monospace; font-size: 11.5px; color: var(--text-3); flex-shrink: 0; }
 
 /* ---------------- Pro / About ---------------- */
 .hero {

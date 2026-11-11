@@ -10,11 +10,11 @@ const Api = {
     },
 
     async getProjects(category) {
-        return this.fetch(`listProjects&category=${category}`);
+        return this.fetch(`listProjects&category=${encodeURIComponent(category || '')}`);
     },
 
     async calculateCategorySizes(category = '') {
-        return this.fetch(`calculateCategorySizes&category=${encodeURIComponent(category)}`);
+        return this.fetch(`calculateCategorySizes&category=${encodeURIComponent(category || '')}`);
     },
 
     async saveConfig(name, config, category = '') {
@@ -32,15 +32,15 @@ const Api = {
     },
 
     async getProjectConfig(name, category = '') {
-        return this.fetch(`getProjectConfig&name=${name}&category=${category}`);
+        return this.fetch(`getProjectConfig&name=${encodeURIComponent(name || '')}&category=${encodeURIComponent(category || '')}`);
     },
 
     async getProjectSchemaList(name, category = App.currentCategory) {
-        return this.fetch(`getProjectSchemaList&name=${name}&category=${category || ''}`);
+        return this.fetch(`getProjectSchemaList&name=${encodeURIComponent(name || '')}&category=${encodeURIComponent(category || '')}`);
     },
 
     async loadModuleSchema(name, file, category = App.currentCategory) {
-        return this.fetch(`loadModuleSchema&name=${name}&file=${file}&category=${category || ''}`);
+        return this.fetch(`loadModuleSchema&name=${encodeURIComponent(name || '')}&file=${encodeURIComponent(file || '')}&category=${encodeURIComponent(category || '')}`);
     },
 
     async getTypeImageSize(name, type) {

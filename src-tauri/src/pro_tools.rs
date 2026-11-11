@@ -1188,11 +1188,8 @@ pub fn scan_sync_center(site_name: &str) -> Result<SyncCenterReport, String> {
 
     let init = crate::deploy::get_deploy_init_data(site_name);
     let mut files = Vec::new();
-    let sync_state_file = config::get_base_dir()
-        .join("config")
-        .join(format!("sync_manifest_{}.json", site_name));
-    let last_manifest: HashMap<String, u64> = fs::read_to_string(&sync_state_file)
-        .ok()
+    let sync_key = format!("sync_manifest_{}", site_name);
+    let last_manifest: HashMap<String, u64> = crate::db::get_setting(&sync_key)
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
 
@@ -1290,11 +1287,8 @@ pub fn create_sync_snapshot(site_name: &str, rel_paths: Vec<String>) -> Result<S
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
     let mut count = 0;
 
-    let sync_state_file = config::get_base_dir()
-        .join("config")
-        .join(format!("sync_manifest_{}.json", site_name));
-    let mut manifest: HashMap<String, u64> = fs::read_to_string(&sync_state_file)
-        .ok()
+    let sync_key = format!("sync_manifest_{}", site_name);
+    let mut manifest: HashMap<String, u64> = crate::db::get_setting(&sync_key)
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
 
@@ -1329,8 +1323,8 @@ pub fn create_sync_snapshot(site_name: &str, rel_paths: Vec<String>) -> Result<S
         }
     }
 
-    if let Ok(json) = serde_json::to_string_pretty(&manifest) {
-        let _ = fs::write(&sync_state_file, json);
+    if let Ok(json) = serde_json::to_string(&manifest) {
+        let _ = crate::db::set_setting(&sync_key, &json);
     }
 
     if has_ftp {

@@ -38,8 +38,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css?v=1.0.3">
-    <link rel="stylesheet" href="assets/css/theme-sync.css?v=1.0.5">
+    <link rel="stylesheet" href="assets/css/style.css?v=1.0.5">
+    <link rel="stylesheet" href="assets/css/theme-sync.css?v=1.0.9">
 </head>
 
 <body>
@@ -319,16 +319,19 @@
 
                                     <div class="toolbar-sep"></div>
 
-                                    <button class="btn btn-ghost" id="btn-batch-screenshot" onclick="App.batchCaptureScreenshots()" title="Tự động chụp ảnh tất cả website trong danh mục này" style="font-size:0.8rem; padding:6px 12px; height:34px; display:inline-flex; align-items:center; gap:6px">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <button class="btn btn-ghost btn-toolbar-icon" id="btn-batch-screenshot" onclick="App.batchCaptureScreenshots()" title="Chụp ảnh tất cả website trong danh mục này">
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
                                             <circle cx="12" cy="13" r="4" />
                                         </svg>
-                                        Chụp ảnh danh mục
                                     </button>
 
-                                    <button class="btn btn-ghost" onclick="App.createCustomMonthFolder()" style="font-size:0.8rem; padding:6px 12px; height:34px">
-                                        ➕ Tạo thư mục
+                                    <button class="btn btn-ghost btn-toolbar-icon" onclick="App.createCustomMonthFolder()" title="Tạo thư mục tháng mới">
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                                            <line x1="12" y1="11" x2="12" y2="17" />
+                                            <line x1="9" y1="14" x2="15" y2="14" />
+                                        </svg>
                                     </button>
                                 </div>
                             </div>
@@ -343,17 +346,19 @@
                 </div>
 
                 <!-- VIEW: PROJECT DETAIL (FULL PAGE) -->
-                <div id="view-project-detail" class="view-section" style="display:none; padding-top: 10px">
-                    <div class="project-master-tabs tabs" style="display:flex !important; flex-wrap:wrap; gap:6px; margin-top: 0; margin-bottom: 20px">
-                        <button class="btn btn-ghost project-tab-btn tab active" data-tab="d_tab-config" onclick="UI.switchProjectTab(this, 'd_tab-config')">⚙️ Cấu hình &amp; Deploy</button>
-                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-schema" onclick="UI.switchProjectTab(this, 'd_tab-schema')">▤ Visual Schema</button>
-                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-fonts" onclick="UI.switchProjectTab(this, 'd_tab-fonts')">🖋️ Quản lý Fonts</button>
-                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-webp" onclick="UI.switchProjectTab(this, 'd_tab-webp')">🖼️ Convert Ảnh WebP</button>
-                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-trim" onclick="UI.switchProjectTab(this, 'd_tab-trim')">✂️ Trim Ảnh</button>
-                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-auto-media" onclick="UI.switchProjectTab(this, 'd_tab-auto-media')">🤖 Tự động Map Ảnh</button>
-                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-seed" onclick="UI.switchProjectTab(this, 'd_tab-seed')">🌱 Tạo Dữ Liệu Mẫu</button>
-                        <button id="tab-btn-filemanager" class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-filemanager" onclick="UI.switchProjectTab(this, 'd_tab-filemanager'); typeof FileManager !== 'undefined' && FileManager.init()">📁 Quản lý File (Host)</button>
-                        <button id="tab-btn-synccenter" class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-synccenter" onclick="UI.switchProjectTab(this, 'd_tab-synccenter'); typeof SyncCenter !== 'undefined' && SyncCenter.init()">🔄 Sync Center</button>
+                <div id="view-project-detail" class="view-section" style="display:none; padding-top: 6px">
+                    <div class="project-master-tabs tabs">
+                        <button class="btn btn-ghost project-tab-btn tab active" data-tab="d_tab-config" onclick="UI.switchProjectTab(this, 'd_tab-config')" title="Cấu hình &amp; Triển khai dự án (Local / Demo / Prod)">⚙️ Cấu hình &amp; Deploy</button>
+                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-schema" onclick="UI.switchProjectTab(this, 'd_tab-schema')" title="Visual Schema Builder — Cấu hình Type &amp; Module">▤ Schema</button>
+                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-fonts" onclick="UI.switchProjectTab(this, 'd_tab-fonts')" title="Quản lý &amp; Nhúng Fonts chữ (Local &amp; Google Fonts)">🖋️ Fonts</button>
+                        <span class="project-tabs-divider" aria-hidden="true"></span>
+                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-webp" onclick="UI.switchProjectTab(this, 'd_tab-webp')" title="Convert &amp; Tối ưu ảnh sang định dạng WebP">🖼️ WebP</button>
+                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-trim" onclick="UI.switchProjectTab(this, 'd_tab-trim')" title="Cắt viền thừa (Trim) ảnh hàng loạt">✂️ Trim ảnh</button>
+                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-auto-media" onclick="UI.switchProjectTab(this, 'd_tab-auto-media')" title="Tự động gắn (Map) ảnh vào dữ liệu">🤖 Map ảnh</button>
+                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-seed" onclick="UI.switchProjectTab(this, 'd_tab-seed')" title="Tạo dữ liệu mẫu (Seed Data) tự động">🌱 Data mẫu</button>
+                        <span class="project-tabs-divider" aria-hidden="true"></span>
+                        <button id="tab-btn-filemanager" class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-filemanager" onclick="UI.switchProjectTab(this, 'd_tab-filemanager'); typeof FileManager !== 'undefined' && FileManager.init()" title="Quản lý File trực tiếp trên Hosting">📁 File Host</button>
+                        <button id="tab-btn-synccenter" class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-synccenter" onclick="UI.switchProjectTab(this, 'd_tab-synccenter'); typeof SyncCenter !== 'undefined' && SyncCenter.init()" title="Sync Center — Đồng bộ Code &amp; Database hai chiều">🔄 Đồng bộ</button>
                     </div>
 
                     <!-- TAB: CONFIG & DEPLOY -->
@@ -1138,15 +1143,9 @@
                                     <span class="badge" style="background: rgba(168, 85, 247, 0.12); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.25); font-size: 0.72rem; padding: 4px 10px; border-radius: 20px; font-weight: 600">Project Scaffolding</span>
                                 </div>
 
-                                <div class="form-grid-2" style="gap: 16px">
-                                    <div class="form-group">
-                                        <label style="font-weight: 600; font-size: 0.82rem; margin-bottom: 6px; display: block">📂 Thư mục mã nguồn mẫu (Source Path)</label>
-                                        <input type="text" id="g_source_path" placeholder="D:/RBWStack/www/source_laravel" style="width: 100%">
-                                    </div>
-                                    <div class="form-group">
-                                        <label style="font-weight: 600; font-size: 0.82rem; margin-bottom: 6px; display: block">📁 Tên thư mục Source (Folder Name)</label>
-                                        <input type="text" id="g_source_folder_name" placeholder="source_laravel" style="width: 100%">
-                                    </div>
+                                <div class="form-group">
+                                    <label style="font-weight: 600; font-size: 0.82rem; margin-bottom: 6px; display: block">📂 Thư mục mã nguồn mẫu (Source Path)</label>
+                                    <input type="text" id="g_source_path" placeholder="D:/RBWStack/www/source_laravel" style="width: 100%">
                                 </div>
 
                                 <div class="form-grid-2" style="gap: 16px; margin-top: 14px">
@@ -1432,7 +1431,7 @@
 
             <div class="form-group" style="margin-bottom:14px">
                 <label style="font-weight:600; display:block; margin-bottom:6px">URL Website Demo</label>
-                <input type="text" id="set_demo_url" class="form-control" placeholder="http://demo92.nasanivietnam.net/...">
+                <input type="text" id="set_demo_url" class="form-control" placeholder="https://demo.example.com/...">
             </div>
 
             <!-- Optional Advanced / DB Settings Accordion -->
@@ -1448,7 +1447,7 @@
                     <div class="form-grid-2" style="margin-bottom:12px">
                         <div class="form-group">
                             <label style="font-size:0.82rem; margin-bottom:4px; display:block">Tên Database Demo</label>
-                            <input type="text" id="set_demo_db_name" class="form-control" placeholder="vd: demo92y2026_shop">
+                            <input type="text" id="set_demo_db_name" class="form-control" placeholder="vd: dauser_shop">
                         </div>
                         <div class="form-group">
                             <label style="font-size:0.82rem; margin-bottom:4px; display:block">Database User</label>
@@ -1491,20 +1490,68 @@
         </div>
     </div>
 
-    <!-- Deploy Progress Modal -->
-    <div id="deploy-modal" class="modal-overlay">
-        <div class="modal">
-            <h2 id="deploy-modal-title">Đang triển khai...</h2>
-            <div id="deploy-project-name" style="color:var(--muted); font-size:0.85rem; margin-bottom:15px"></div>
-            <div class="progress-container">
-                <div style="height:6px; border-radius:10px; overflow:hidden">
-                    <div id="progress-fill" style="height:100%; width:0%; background:var(--primary); transition:width .4s"></div>
-                </div>
-                <div id="status-text" style="font-size:0.8rem; color:var(--muted); margin-top:8px">Chuẩn bị...</div>
-                <div id="log-output"></div>
+    <!-- Deploy Progress Modal (Step Tracker UI) -->
+    <div id="deploy-modal" class="modal-overlay" style="z-index: 10005">
+        <div class="modal" style="max-width: 580px; width: 95%">
+            <div class="modal-header-flex">
+                <h2 style="display:flex; align-items:center; gap:8px">
+                    <span id="deploy-modal-icon">🚀</span>
+                    <span id="deploy-modal-title">Đang triển khai...</span>
+                </h2>
+                <button class="btn-close-circle" onclick="UI.stopDeployTimer(); UI.hideModal('deploy-modal')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                </button>
             </div>
-            <div class="project-actions" id="deploy-footer" style="display:none">
-                <button class="btn btn-primary" style="width:100%; justify-content:center" onclick="UI.hideModal('deploy-modal'); App.loadProjects(App.currentCategory);">Hoàn tất</button>
+
+            <!-- Project Target Header -->
+            <div style="border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 15px 0; display:flex; flex-direction:column; gap:6px">
+                <div style="display:flex; justify-content:space-between; align-items:center">
+                    <div style="display:flex; align-items:center; gap:8px">
+                        <span style="font-size:1.1rem">📂</span>
+                        <span id="deploy-project-name" style="font-weight:700; font-size:1rem; font-family:var(--mono)">project_name</span>
+                    </div>
+                    <span id="deploy-category-badge" class="badge" style="background:rgba(56, 189, 248, 0.15); color:#38bdf8; font-size:0.75rem; border:1px solid rgba(56, 189, 248, 0.3)">--</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--muted); font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
+                    <span>🎯 Tác vụ:</span>
+                    <span id="deploy-target-desc" style="color:var(--primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Đang khởi tạo quy trình...</span>
+                </div>
+            </div>
+
+            <!-- Step Tracker List -->
+            <div id="deploy-steps-box" style="background:#0d1117; border: 1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:14px; display:flex; flex-direction:column; gap:10px; font-size:0.85rem">
+                <!-- Steps rendered dynamically by UI.setupDeployModal -->
+            </div>
+
+            <!-- Live Progress & Timer -->
+            <div style="margin-bottom:12px">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:10px">
+                    <span style="font-size:0.8rem; color:var(--primary); font-weight:600; display:flex; align-items:center; gap:6px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
+                        <span id="deploy-status-spinner" class="spinner-small" style="width:12px; height:12px; border: 2px solid rgba(255,255,255,0.2); border-top-color:var(--primary); border-radius:50%; animation:spin 0.8s linear infinite; display:inline-block; flex-shrink:0"></span>
+                        <span id="status-text" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Đang chuẩn bị...</span>
+                    </span>
+                    <span id="deploy-timer" style="font-size:0.8rem; color:var(--muted); font-family:var(--mono); flex-shrink:0">⏱️ 00:00s</span>
+                </div>
+                <div style="height:8px; background:rgba(255,255,255,0.06); border-radius:10px; overflow:hidden">
+                    <div id="progress-fill" style="height:100%; width:10%; background:linear-gradient(90deg, #00d2d3, #10b981); transition:width .35s ease; border-radius:10px"></div>
+                </div>
+            </div>
+
+            <!-- Result Banner (Success / Error) -->
+            <div id="deploy-result-banner" style="display:none; margin-bottom:12px"></div>
+
+            <!-- Collapsible Detailed Logs -->
+            <details id="deploy-log-details" style="margin-bottom:10px">
+                <summary style="cursor:pointer; font-size:0.75rem; color:var(--muted); user-select:none; outline:none; padding:4px 0">
+                    📋 Xem nhật ký chi tiết
+                </summary>
+                <div id="log-output"></div>
+            </details>
+
+            <div class="project-actions" id="deploy-footer" style="display:none; justify-content:flex-end; margin-top:10px">
+                <button class="btn btn-primary" style="min-width:120px; justify-content:center" onclick="UI.stopDeployTimer(); UI.hideModal('deploy-modal'); App.loadProjects(App.currentCategory);">Hoàn tất</button>
             </div>
         </div>
     </div>
@@ -1817,10 +1864,10 @@ Pass: password123..." style="height:200px"></textarea>
     <div id="action-menu-portal" class="action-menu"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-    <script src="assets/js/tauri_bridge.js?v=1.0.0"></script>
-    <script src="assets/js/api.js?v=1.0.0"></script>
-    <script src="assets/js/ui.js?v=1.0.0"></script>
-    <script src="assets/js/app.js?v=1.0.0"></script>
+    <script src="assets/js/tauri_bridge.js?v=1.0.2"></script>
+    <script src="assets/js/api.js?v=1.0.2"></script>
+    <script src="assets/js/ui.js?v=1.0.2"></script>
+    <script src="assets/js/app.js?v=1.0.2"></script>
     <script src="assets/js/converter.js?v=1.0.0"></script>
     <script src="assets/js/ai_checker.js?v=1.0.0"></script>
     <script src="assets/js/schema_components.js?v=1.0.0"></script>
@@ -1981,26 +2028,52 @@ Pass: password123..." style="height:200px"></textarea>
         </div>
     </div>
 
-    <!-- SSL Modal -->
+    <!-- SSL Modal (Step Tracker UI) -->
     <div id="ssl-modal" class="modal-overlay">
-        <div class="modal" style="max-width: 450px">
+        <div class="modal" style="max-width: 520px; width: 95%">
             <div class="modal-header-flex">
-                <h2>Cài đặt SSL Let's Encrypt</h2>
+                <h2 style="display:flex; align-items:center; gap:8px">
+                    <span>🔒</span>
+                    <span>Cài đặt SSL Let's Encrypt</span>
+                </h2>
                 <button class="btn-close-circle" onclick="UI.hideModal('ssl-modal')">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M18 6L6 18M6 6l12 12" />
                     </svg>
                 </button>
             </div>
-            <div class="modal-body" style="padding: 20px 0">
-                <div id="ssl-project-name" style="font-weight: 700; color: var(--primary); margin-bottom: 10px; font-size: 1.1rem"></div>
-                <div id="ssl-status-text" style="font-size: 0.9rem; color: var(--muted); margin-bottom: 20px; line-height: 1.5"></div>
-
-                <div id="ssl-status-icon" style="display:none; text-align:center; margin-bottom: 20px">
-                    <div class="spinner" style="margin: 0 auto"></div>
+            <div class="modal-body" style="padding: 12px 0">
+                <div style="border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; display:flex; justify-content:space-between; align-items:center">
+                    <div style="display:flex; align-items:center; gap:8px">
+                        <span style="font-size:1.1rem">📂</span>
+                        <span id="ssl-project-name" style="font-weight:700; font-size:0.95rem; font-family:var(--mono)"></span>
+                    </div>
+                    <span class="badge" style="background:rgba(16, 185, 129, 0.15); color:#34d399; font-size:0.75rem; border:1px solid rgba(16, 185, 129, 0.3)">2048-bit TLS</span>
                 </div>
 
-                <div id="ssl-log-output" style="max-height: 150px; overflow-y: auto; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 0.75rem; margin-bottom: 10px"></div>
+                <div style="background:#0d1117; border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:14px; display:flex; flex-direction:column; gap:10px; font-size:0.85rem">
+                    <div id="ssl-step-1" class="shot-step" style="display:flex; align-items:center; gap:10px; color:var(--muted); opacity:0.6">
+                        <span class="shot-step-icon" style="width:22px; text-align:center">⚪</span>
+                        <div style="flex:1"><div style="font-weight:600">1. Xác minh tên miền &amp; máy chủ</div><div style="font-size:0.75rem; color:var(--muted)">Kiểm tra cấu hình Domain trên DirectAdmin</div></div>
+                    </div>
+                    <div id="ssl-step-2" class="shot-step" style="display:flex; align-items:center; gap:10px; color:var(--muted); opacity:0.6">
+                        <span class="shot-step-icon" style="width:22px; text-align:center">⚪</span>
+                        <div style="flex:1"><div style="font-weight:600">2. Cấp phát chứng chỉ SSL Let's Encrypt</div><div style="font-size:0.75rem; color:var(--muted)">Yêu cầu chứng chỉ 2048-bit &amp; cài đặt HTTPS</div></div>
+                    </div>
+                    <div id="ssl-step-3" class="shot-step" style="display:flex; align-items:center; gap:10px; color:var(--muted); opacity:0.6">
+                        <span class="shot-step-icon" style="width:22px; text-align:center">⚪</span>
+                        <div style="flex:1"><div style="font-weight:600">3. Lưu cấu hình HTTPS &amp; hoàn tất</div><div style="font-size:0.75rem; color:var(--muted)">Đồng bộ trạng thái SSL vào hồ sơ dự án</div></div>
+                    </div>
+                </div>
+
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px">
+                    <span id="ssl-status-icon" style="display:none"><span class="spinner-small" style="width:12px; height:12px; border:2px solid rgba(255,255,255,0.2); border-top-color:var(--primary); border-radius:50%; animation:spin 0.8s linear infinite; display:inline-block"></span></span>
+                    <div id="ssl-status-text" style="font-size: 0.82rem; color: var(--primary); font-weight:600"></div>
+                </div>
+                <div style="height:8px; background:rgba(255,255,255,0.06); border-radius:10px; overflow:hidden; margin-bottom:10px">
+                    <div id="ssl-progress-bar" style="height:100%; width:0%; background:linear-gradient(90deg, #00d2d3, #10b981); transition:width .35s ease; border-radius:10px"></div>
+                </div>
+                <div id="ssl-log-output" style="font-size: 0.8rem"></div>
             </div>
 
             <div id="ssl-confirm-footer" class="modal-footer-actions">
@@ -2146,9 +2219,11 @@ Pass: password123..." style="height:200px"></textarea>
                 <button class="btn btn-ghost" onclick="UI.hideModal('deploy-db-confirm-modal')" style="width:100%; justify-content:center">Hủy</button>
             </div>
         </div>
-        <!-- MODAL: CHECK DEPLOY STATUS -->
-        <div id="check-deploy-status-modal" class="modal-overlay" style="z-index: 10006">
-            <div class="modal" style="max-width: 720px; width: 90%">
+    </div>
+
+    <!-- MODAL: CHECK DEPLOY STATUS -->
+    <div id="check-deploy-status-modal" class="modal-overlay" style="z-index: 10006">
+        <div class="modal" style="max-width: 840px; width: 92%">
                 <div class="modal-header-flex">
                     <h2 id="check-deploy-modal-title" style="display: flex; align-items: center; gap: 8px; font-size: 1.1rem">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5FF0BE" stroke-width="2.2">

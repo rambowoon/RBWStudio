@@ -31,6 +31,7 @@ pub struct SiteInfo {
 pub fn get_sites_list() -> Vec<SiteInfo> {
     let settings = config::load_app_settings();
     let sites_root = config::get_sites_root_dir();
+    let www_base = config::get_www_base_dir();
     let sites_php = config::load_string_map("sites.json");
     let ssl_map = config::load_bool_map("ssl.json");
     let vhosts_map = config::load_string_map("sites_vhosts.json");
@@ -77,86 +78,99 @@ pub fn get_sites_list() -> Vec<SiteInfo> {
         }
     }
 
+    let (running_nodes, running_tunnels, tunnel_urls_map) = with_pm(|pm| {
+        let rn: std::collections::HashSet<String> = pm.node_children.keys().cloned().collect();
+        let rt: std::collections::HashSet<String> = pm.tunnel_children.keys().cloned().collect();
+        let tu = pm.tunnel_urls.clone();
+        (rn, rt, tu)
+    });
+
     for (name, p) in raw_entries {
         let rel_path = p
-            .strip_prefix(&sites_root)
+            .strip_prefix(&www_base)
+            .or_else(|_| p.strip_prefix(&sites_root))
             .map(|r| r.to_string_lossy().replace('\\', "/"))
             .unwrap_or_else(|_| name.clone());
 
-        let has_package_json = p.join("package.json").exists();
-        let has_index_php = p.join("index.php").exists() || p.join("public/index.php").exists();
         let saved_engine = sites_php
-            .get(&name)
-            .or_else(|| sites_php.get(&rel_path))
+            .get(&rel_path)
+            .or_else(|| sites_php.get(&name))
             .cloned()
             .unwrap_or_default();
 
-            let is_node = saved_engine == "Node.js" || (has_package_json && !has_index_php && saved_engine.is_empty());
-            let php_version = if is_node {
-                "Node.js".to_string()
-            } else if !saved_engine.is_empty() {
-                saved_engine
-            } else {
-                default_php.clone()
-            };
+        let is_node = if !saved_engine.is_empty() {
+            saved_engine == "Node.js"
+        } else {
+            p.join("package.json").is_file()
+                && !p.join("index.php").is_file()
+                && !p.join("public/index.php").is_file()
+        };
+        let php_version = if is_node {
+            "Node.js".to_string()
+        } else if !saved_engine.is_empty() {
+            saved_engine
+        } else {
+            default_php.clone()
+        };
 
-            let ssl_enabled = *ssl_map.get(&name).or_else(|| ssl_map.get(&rel_path)).unwrap_or(&false);
-            let vhost_domain = vhosts_map.get(&name).or_else(|| vhosts_map.get(&rel_path)).cloned().unwrap_or_default();
-            let vhost_active = !vhost_domain.is_empty();
-            let is_root_project = !root_project.is_empty() && (root_project.eq_ignore_ascii_case(&name) || root_project.eq_ignore_ascii_case(&rel_path));
-            let node_autostart = *node_autostart_map.get(&name).or_else(|| node_autostart_map.get(&rel_path)).unwrap_or(&false);
-            let node_cmd = node_cmd_map
-                .get(&name)
-                .or_else(|| node_cmd_map.get(&rel_path))
-                .cloned()
-                .unwrap_or_else(|| "npm start".to_string());
-            let deploy_status = deploy_status_map
-                .get(&name)
-                .or_else(|| deploy_status_map.get(&rel_path))
-                .cloned()
-                .unwrap_or_else(|| "none".to_string());
+        let ssl_enabled = *ssl_map.get(&rel_path).or_else(|| ssl_map.get(&name)).unwrap_or(&false);
+        let vhost_domain = vhosts_map.get(&rel_path).or_else(|| vhosts_map.get(&name)).cloned().unwrap_or_default();
+        let vhost_active = !vhost_domain.is_empty();
+        let is_root_project = !root_project.is_empty() && (root_project.eq_ignore_ascii_case(&name) || root_project.eq_ignore_ascii_case(&rel_path));
+        let node_autostart = *node_autostart_map.get(&rel_path).or_else(|| node_autostart_map.get(&name)).unwrap_or(&false);
+        let node_cmd = node_cmd_map
+            .get(&rel_path)
+            .or_else(|| node_cmd_map.get(&name))
+            .cloned()
+            .unwrap_or_else(|| "npm start".to_string());
+        let deploy_status = deploy_status_map
+            .get(&rel_path)
+            .or_else(|| deploy_status_map.get(&name))
+            .cloned()
+            .unwrap_or_else(|| "none".to_string());
 
-            let (node_running, tunnel_running, tunnel_url) = with_pm(|pm| {
-                let nr = pm.node_children.contains_key(&name) || pm.node_children.contains_key(&rel_path);
-                let tr = pm.tunnel_children.contains_key(&name) || pm.tunnel_children.contains_key(&rel_path);
-                let tu = pm.tunnel_urls.get(&name).or_else(|| pm.tunnel_urls.get(&rel_path)).cloned().unwrap_or_default();
-                (nr, tr, tu)
-            });
+        let node_running = running_nodes.contains(&name) || running_nodes.contains(&rel_path);
+        let tunnel_running = running_tunnels.contains(&name) || running_tunnels.contains(&rel_path);
+        let tunnel_url = tunnel_urls_map
+            .get(&rel_path)
+            .or_else(|| tunnel_urls_map.get(&name))
+            .cloned()
+            .unwrap_or_default();
 
-            let scheme = if ssl_enabled { "https" } else { "http" };
-            let port_suffix = if (ssl_enabled && settings.web_port == 443) || (!ssl_enabled && settings.web_port == 80) {
-                String::new()
-            } else {
-                format!(":{}", settings.web_port)
-            };
+        let scheme = if ssl_enabled { "https" } else { "http" };
+        let port_suffix = if (ssl_enabled && settings.web_port == 443) || (!ssl_enabled && settings.web_port == 80) {
+            String::new()
+        } else {
+            format!(":{}", settings.web_port)
+        };
 
-            let url = if !tunnel_url.is_empty() {
-                tunnel_url.clone()
-            } else if vhost_active {
-                format!("{}://{}{}", scheme, vhost_domain, port_suffix)
-            } else if is_root_project {
-                format!("{}://localhost{}", scheme, port_suffix)
-            } else {
-                format!("{}://localhost{}/{}", scheme, port_suffix, rel_path.trim_matches('/'))
-            };
+        let url = if !tunnel_url.is_empty() {
+            tunnel_url.clone()
+        } else if vhost_active {
+            format!("{}://{}{}", scheme, vhost_domain, port_suffix)
+        } else if is_root_project {
+            format!("{}://localhost{}", scheme, port_suffix)
+        } else {
+            format!("{}://localhost{}/{}", scheme, port_suffix, rel_path.trim_matches('/'))
+        };
 
-            list.push(SiteInfo {
-                name,
-                path: p.to_string_lossy().to_string(),
-                is_node,
-                php_version,
-                ssl_enabled,
-                vhost_domain,
-                vhost_active,
-                is_root_project,
-                node_running,
-                node_autostart,
-                node_cmd,
-                deploy_status,
-                tunnel_running,
-                tunnel_url,
-                url,
-            });
+        list.push(SiteInfo {
+            name,
+            path: p.to_string_lossy().to_string(),
+            is_node,
+            php_version,
+            ssl_enabled,
+            vhost_domain,
+            vhost_active,
+            is_root_project,
+            node_running,
+            node_autostart,
+            node_cmd,
+            deploy_status,
+            tunnel_running,
+            tunnel_url,
+            url,
+        });
     }
 
     list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -214,7 +228,13 @@ pub fn set_root_project(site_name: &str) -> Result<String, String> {
     config::save_text_file("root_project.txt", &next)?;
 
     if !next.is_empty() {
-        let site_path = config::get_sites_root_dir().join(&next);
+        let sites_root = config::get_sites_root_dir();
+        let www_base = config::get_www_base_dir();
+        let site_path = if sites_root.join(&next).exists() {
+            sites_root.join(&next)
+        } else {
+            www_base.join(&next)
+        };
         let settings = config::load_app_settings();
         let port_str = if settings.web_port == 80 {
             String::new()
@@ -261,6 +281,11 @@ pub fn save_vhost(site_name: &str, domain: &str, enable: bool) -> Result<(), Str
         config::save_string_map("sites_vhosts.json", &vhosts)?;
 
         let site_path = config::get_sites_root_dir().join(site_name);
+        let www_base = config::get_www_base_dir();
+        let rel_site = site_path
+            .strip_prefix(&www_base)
+            .map(|r| r.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| site_name.to_string());
         let settings = config::load_app_settings();
         let port_str = if settings.web_port == 80 {
             String::new()
@@ -269,8 +294,8 @@ pub fn save_vhost(site_name: &str, domain: &str, enable: bool) -> Result<(), Str
         };
         update_project_env_file(
             &site_path,
-            &format!("http://localhost{}/{}", port_str, site_name),
-            &format!("/{}/", site_name),
+            &format!("http://localhost{}/{}", port_str, rel_site),
+            &format!("/{}/", rel_site),
         );
     }
 

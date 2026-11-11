@@ -225,25 +225,25 @@ pub struct ScannedProject {
 }
 
 fn load_sizes_cache() -> HashMap<String, Value> {
-    let p = get_manager_data_root().join("data").join("sizes_cache.json");
-    if let Ok(raw) = fs::read_to_string(p) {
-        if let Ok(m) = serde_json::from_str::<HashMap<String, Value>>(&raw) {
-            return m;
-        }
-    }
-    HashMap::new()
+    crate::db::load_sizes_cache()
 }
 
 fn save_sizes_cache(cache: &HashMap<String, Value>) {
-    let p = get_manager_data_root().join("data").join("sizes_cache.json");
-    if let Ok(s) = serde_json::to_string(cache) {
-        let _ = fs::write(p, s);
-    }
+    crate::db::save_sizes_cache(cache);
 }
 
 fn dir_md5_key(path: &Path) -> String {
-    let canon = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    format!("{:x}", md5::compute(canon.to_string_lossy().as_bytes()))
+    let norm = path
+        .to_string_lossy()
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_lowercase();
+    format!("{:x}", md5::compute(norm.as_bytes()))
+}
+
+fn dir_md5_key_legacy_verbatim(path: &Path) -> String {
+    let raw = format!(r"\\?\{}", path.to_string_lossy().replace('/', "\\"));
+    format!("{:x}", md5::compute(raw.as_bytes()))
 }
 
 fn file_mtime_secs(path: &Path) -> u64 {
@@ -256,15 +256,16 @@ fn file_mtime_secs(path: &Path) -> u64 {
 }
 
 pub fn get_cached_dir_size(path: &Path, sizes_cache: &HashMap<String, Value>) -> Option<f64> {
-    if !path.is_dir() {
-        return Some(0.0);
+    if sizes_cache.is_empty() {
+        return None;
     }
-    let mtime = file_mtime_secs(path);
-    let key = dir_md5_key(path);
-    if let Some(entry) = sizes_cache.get(&key) {
-        let cached_mtime = entry.get("mtime").and_then(|v| v.as_u64()).unwrap_or(0);
-        if cached_mtime == mtime {
-            if let Some(sz) = entry.get("size").and_then(|v| v.as_f64()) {
+    let key1 = dir_md5_key(path);
+    if let Some(entry) = sizes_cache
+        .get(&key1)
+        .or_else(|| sizes_cache.get(&dir_md5_key_legacy_verbatim(path)))
+    {
+        if let Some(sz) = entry.get("size").and_then(|v| v.as_f64()) {
+            if sz > 0.0 {
                 return Some(sz);
             }
         }
@@ -300,7 +301,10 @@ pub fn get_directory_size_with_cache(
     let mtime = file_mtime_secs(path);
     let key = dir_md5_key(path);
     if !force_refresh {
-        if let Some(entry) = sizes_cache.get(&key) {
+        if let Some(entry) = sizes_cache
+            .get(&key)
+            .or_else(|| sizes_cache.get(&dir_md5_key_legacy_verbatim(path)))
+        {
             if entry.get("mtime").and_then(|v| v.as_u64()) == Some(mtime) {
                 if let Some(sz) = entry.get("size").and_then(|v| v.as_f64()) {
                     return sz;
@@ -322,9 +326,14 @@ pub fn get_directory_size_with_cache(
 }
 
 fn is_month_or_cat_folder(item: &str) -> bool {
-    let re_ym = Regex::new(r"^\d{4}_\d{2}$").unwrap();
-    let re_thang = Regex::new(r"(?i)^(thang\d{1,2}|\d{2}t\d{1,2}|\d{1,2})$").unwrap();
-    re_ym.is_match(item) || re_thang.is_match(item)
+    config::is_month_or_cat_folder(item) || {
+        let lower = item.to_lowercase();
+        if let Some((y, m)) = lower.split_once('t') {
+            y.len() == 2 && y.chars().all(|c| c.is_ascii_digit()) && !m.is_empty() && m.chars().all(|c| c.is_ascii_digit())
+        } else {
+            item.len() <= 2 && !item.is_empty() && item.chars().all(|c| c.is_ascii_digit())
+        }
+    }
 }
 
 pub fn scan_categories(strict_month: bool) -> Vec<String> {
@@ -335,8 +344,8 @@ pub fn scan_categories(strict_month: bool) -> Vec<String> {
 
     if let Ok(entries) = fs::read_dir(&base_dir) {
         for entry in entries.flatten() {
-            let p = entry.path();
-            if !p.is_dir() {
+            let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+            if !is_dir {
                 continue;
             }
             let item = entry.file_name().to_string_lossy().to_string();
@@ -346,10 +355,11 @@ pub fn scan_categories(strict_month: bool) -> Vec<String> {
             if is_month_or_cat_folder(&item) {
                 categories.push(item);
             } else if re_year.is_match(&item) {
+                let p = entry.path();
                 let mut has_month_subdirs = false;
                 if let Ok(sub_entries) = fs::read_dir(&p) {
                     for sub in sub_entries.flatten() {
-                        if sub.path().is_dir() {
+                        if sub.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
                             let sub_name = sub.file_name().to_string_lossy().to_string();
                             if re_thang.is_match(&sub_name) {
                                 categories.push(format!("{}/{}", item, sub_name));
@@ -365,15 +375,16 @@ pub fn scan_categories(strict_month: bool) -> Vec<String> {
         }
     }
 
-    let normalize_cat = |cat: &str| -> String {
-        let re1 = Regex::new(r"^(\d{4})_(\d{2})$").unwrap();
-        let re2 = Regex::new(r"(?i)^(\d{4})/thang(\d{1,2})$").unwrap();
-        let re3 = Regex::new(r"(?i)^(\d{4})/(\d{2})t(\d{1,2})$").unwrap();
-        let re4 = Regex::new(r"^(\d{4})/(\d{1,2})$").unwrap();
-        let re5 = Regex::new(r"(?i)^thang(\d{1,2})$").unwrap();
-        let re6 = Regex::new(r"(?i)^(\d{2})t(\d{1,2})$").unwrap();
-        let re7 = Regex::new(r"^(\d{1,2})$").unwrap();
+    let re1 = Regex::new(r"^(\d{4})_(\d{2})$").unwrap();
+    let re2 = Regex::new(r"(?i)^(\d{4})/thang(\d{1,2})$").unwrap();
+    let re3 = Regex::new(r"(?i)^(\d{4})/(\d{2})t(\d{1,2})$").unwrap();
+    let re4 = Regex::new(r"^(\d{4})/(\d{1,2})$").unwrap();
+    let re5 = Regex::new(r"(?i)^thang(\d{1,2})$").unwrap();
+    let re6 = Regex::new(r"(?i)^(\d{2})t(\d{1,2})$").unwrap();
+    let re7 = Regex::new(r"^(\d{1,2})$").unwrap();
+    let cur_year = Local::now().format("%Y").to_string();
 
+    let normalize_cat = |cat: &str| -> String {
         if let Some(c) = re1.captures(cat) {
             return format!("{}_{}", &c[1], &c[2]);
         }
@@ -386,7 +397,6 @@ pub fn scan_categories(strict_month: bool) -> Vec<String> {
         if let Some(c) = re4.captures(cat) {
             return format!("{}_{:0>2}", &c[1], &c[2]);
         }
-        let cur_year = Local::now().format("%Y").to_string();
         if let Some(c) = re5.captures(cat) {
             return format!("{}_{:0>2}", cur_year, &c[1]);
         }
@@ -466,17 +476,15 @@ fn build_scanned_project(item: &str, path: &Path, cat: &str, sizes_cache: &HashM
     }
 }
 
-pub fn scan_projects(category: &str) -> Vec<ScannedProject> {
+pub fn scan_projects_with_cache(category: &str, sizes_cache: &HashMap<String, Value>) -> Vec<ScannedProject> {
     let base_dir = get_www_base_dir();
-    let sizes_cache = load_sizes_cache();
     let mut projects = Vec::new();
     let re_year = Regex::new(r"^\d{4}$").unwrap();
 
     if category.is_empty() || category == "all" {
         if let Ok(entries) = fs::read_dir(&base_dir) {
             for entry in entries.flatten() {
-                let p = entry.path();
-                if !p.is_dir() {
+                if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
                     continue;
                 }
                 let item = entry.file_name().to_string_lossy().to_string();
@@ -486,7 +494,8 @@ pub fn scan_projects(category: &str) -> Vec<ScannedProject> {
                 {
                     continue;
                 }
-                projects.push(build_scanned_project(&item, &p, "", &sizes_cache));
+                let p = entry.path();
+                projects.push(build_scanned_project(&item, &p, "", sizes_cache));
             }
         }
         let cats = scan_categories(false);
@@ -494,15 +503,15 @@ pub fn scan_projects(category: &str) -> Vec<ScannedProject> {
             let cat_dir = base_dir.join(cat.replace('/', std::path::MAIN_SEPARATOR_STR));
             if let Ok(entries) = fs::read_dir(&cat_dir) {
                 for entry in entries.flatten() {
-                    let p = entry.path();
-                    if !p.is_dir() {
+                    if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
                         continue;
                     }
                     let item = entry.file_name().to_string_lossy().to_string();
                     if is_ignored_project_folder(&item) {
                         continue;
                     }
-                    projects.push(build_scanned_project(&item, &p, &cat, &sizes_cache));
+                    let p = entry.path();
+                    projects.push(build_scanned_project(&item, &p, &cat, sizes_cache));
                 }
             }
         }
@@ -510,51 +519,74 @@ pub fn scan_projects(category: &str) -> Vec<ScannedProject> {
         let cat_dir = base_dir.join(category.replace('/', std::path::MAIN_SEPARATOR_STR));
         if let Ok(entries) = fs::read_dir(&cat_dir) {
             for entry in entries.flatten() {
-                let p = entry.path();
-                if !p.is_dir() {
+                if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
                     continue;
                 }
                 let item = entry.file_name().to_string_lossy().to_string();
                 if is_ignored_project_folder(&item) {
                     continue;
                 }
-                projects.push(build_scanned_project(&item, &p, category, &sizes_cache));
+                let p = entry.path();
+                projects.push(build_scanned_project(&item, &p, category, sizes_cache));
             }
         }
     }
     projects
 }
 
+pub fn scan_projects(category: &str) -> Vec<ScannedProject> {
+    let sizes_cache = load_sizes_cache();
+    scan_projects_with_cache(category, &sizes_cache)
+}
+
 pub fn find_project(project_name: &str, category: Option<&str>) -> Option<ScannedProject> {
+    let base_dir = get_www_base_dir();
+    let empty_cache = HashMap::new();
+
     if let Some(cat) = category {
-        if !cat.is_empty() {
-            for p in scan_projects(cat) {
-                if p.name == project_name {
-                    return Some(p);
-                }
+        if !cat.is_empty() && cat != "all" {
+            let direct = base_dir
+                .join(cat.replace('/', std::path::MAIN_SEPARATOR_STR))
+                .join(project_name);
+            if direct.is_dir() {
+                return Some(build_scanned_project(project_name, &direct, cat, &empty_cache));
             }
         }
     }
-    for p in scan_projects("all") {
-        if p.name == project_name {
-            return Some(p);
+
+    let root_direct = base_dir.join(project_name);
+    if root_direct.is_dir() {
+        return Some(build_scanned_project(project_name, &root_direct, "", &empty_cache));
+    }
+
+    for cat in scan_categories(false) {
+        let candidate = base_dir
+            .join(cat.replace('/', std::path::MAIN_SEPARATOR_STR))
+            .join(project_name);
+        if candidate.is_dir() {
+            return Some(build_scanned_project(project_name, &candidate, &cat, &empty_cache));
         }
     }
     None
 }
 
-pub fn resolve_project_php(proj: &ScannedProject) -> (String, String, bool, String) {
+pub fn get_system_php_version() -> String {
     let settings = config::load_app_settings();
-    let php_versions = services::list_installed_versions("php");
-    let sys_php = if !settings.active_php_version.is_empty() {
-        settings.active_php_version.clone()
-    } else {
-        php_versions
-            .last()
-            .cloned()
-            .unwrap_or_else(|| "php-8.5.0".to_string())
-    };
-    let sites_map = config::load_string_map("sites.json");
+    if !settings.active_php_version.is_empty() {
+        return settings.active_php_version;
+    }
+    services::list_installed_versions("php")
+        .last()
+        .cloned()
+        .unwrap_or_else(|| "php-8.5.0".to_string())
+}
+
+pub fn resolve_project_php_fast(
+    proj: &ScannedProject,
+    sites_map: &HashMap<String, String>,
+    sys_php: &str,
+    re_ver: &Regex,
+) -> (String, String, bool, String) {
     let rel = proj.rel_path.replace('\\', "/");
     let trim_rel = rel.trim_matches('/');
 
@@ -570,11 +602,8 @@ pub fn resolve_project_php(proj: &ScannedProject) -> (String, String, bool, Stri
     } else if let Some(v) = sites_map.get(&proj.name) {
         matched = Some(v.clone());
         is_custom = true;
-    } else if let Some(v) = crate::db::get_project_php(&rel).or_else(|| crate::db::get_project_php(&proj.name)) {
-        matched = Some(v);
-        is_custom = true;
     } else {
-        for (k, v) in &sites_map {
+        for (k, v) in sites_map {
             if k.eq_ignore_ascii_case(&rel)
                 || k.eq_ignore_ascii_case(trim_rel)
                 || k.eq_ignore_ascii_case(&proj.name)
@@ -586,108 +615,32 @@ pub fn resolve_project_php(proj: &ScannedProject) -> (String, String, bool, Stri
         }
     }
 
-    let effective = matched.unwrap_or_else(|| sys_php.clone());
-    let re_ver = Regex::new(r"(?i)(?:php-?)?(\d+\.\d+)").unwrap();
+    let effective = matched.unwrap_or_else(|| sys_php.to_string());
     let short_display = if let Some(c) = re_ver.captures(&effective) {
         format!("PHP {}", &c[1])
     } else {
         effective.clone()
     };
-    (effective, short_display, is_custom, sys_php)
+    (effective, short_display, is_custom, sys_php.to_string())
+}
+
+pub fn resolve_project_php(proj: &ScannedProject) -> (String, String, bool, String) {
+    let sys_php = get_system_php_version();
+    let sites_map = crate::db::get_all_projects_php_map();
+    let re_ver = Regex::new(r"(?i)(?:php-?)?(\d+\.\d+)").unwrap();
+    resolve_project_php_fast(proj, &sites_map, &sys_php, &re_ver)
 }
 
 // ============================================================================
-// CONFIG & DATA FILES (projects.json, demo_config.json, nasani_projects.json)
+// CONFIG & DATA STORAGE (100% SQLITE VIA CRATE::DB)
 // ============================================================================
-
-fn read_json_file(path: &Path) -> Value {
-    if let Ok(s) = fs::read_to_string(path) {
-        if let Ok(v) = serde_json::from_str::<Value>(&s) {
-            return v;
-        }
-    }
-    json!({})
-}
-
-fn write_json_file(path: &Path, val: &Value) -> bool {
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if let Ok(s) = serde_json::to_string_pretty(val) {
-        fs::write(path, s).is_ok()
-    } else {
-        false
-    }
-}
-
-pub fn get_projects_json_path() -> PathBuf {
-    get_manager_data_root().join("data").join("projects.json")
-}
-
-pub fn get_demo_config_json_path() -> PathBuf {
-    get_manager_data_root().join("data").join("demo_config.json")
-}
 
 pub fn get_project_config_entry(project_name: &str, category: &str) -> Value {
-    let all = read_json_file(&get_projects_json_path());
-    if !category.is_empty() {
-        if let Some(cat_obj) = all.get(category).and_then(|v| v.as_object()) {
-            if let Some(p) = cat_obj.get(project_name) {
-                return p.clone();
-            }
-        }
-    }
-    if let Some(map) = all.as_object() {
-        for (_cat, cat_val) in map {
-            if let Some(cat_obj) = cat_val.as_object() {
-                if let Some(p) = cat_obj.get(project_name) {
-                    if p.is_object() {
-                        return p.clone();
-                    }
-                }
-            }
-        }
-        if let Some(flat) = map.get(project_name) {
-            if flat.is_object() {
-                return flat.clone();
-            }
-        }
-    }
-    json!({})
+    crate::db::get_project_config_entry(project_name, category)
 }
 
 pub fn save_project_config_entry(project_name: &str, category: &str, cfg: Value) -> bool {
-    let path = get_projects_json_path();
-    let mut all = read_json_file(&path);
-    if !all.is_object() {
-        all = json!({});
-    }
-    let obj = all.as_object_mut().unwrap();
-    if !category.is_empty() {
-        let cat_entry = obj.entry(category.to_string()).or_insert_with(|| json!({}));
-        if !cat_entry.is_object() {
-            *cat_entry = json!({});
-        }
-        cat_entry
-            .as_object_mut()
-            .unwrap()
-            .insert(project_name.to_string(), cfg);
-    } else {
-        let mut found = false;
-        for (_c, v) in obj.iter_mut() {
-            if let Some(m) = v.as_object_mut() {
-                if m.contains_key(project_name) {
-                    m.insert(project_name.to_string(), cfg.clone());
-                    found = true;
-                    break;
-                }
-            }
-        }
-        if !found {
-            obj.insert(project_name.to_string(), cfg);
-        }
-    }
-    write_json_file(&path, &all)
+    crate::db::save_project_config_entry(project_name, category, &cfg)
 }
 
 pub fn add_project_history(project_name: &str, category: &str, action: &str, message: &str) {
@@ -717,9 +670,13 @@ pub fn add_project_history(project_name: &str, category: &str, action: &str, mes
 }
 
 pub fn get_screenshot_filename(category: &str, project_name: &str) -> String {
-    let re = Regex::new(r"[^a-zA-Z0-9_-]").unwrap();
-    let cat_clean = re.replace_all(category.trim_matches(|c| c == '/' || c == '\\'), "_");
-    let proj_clean = re.replace_all(project_name.trim(), "_");
+    let sanitize = |s: &str| -> String {
+        s.chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .collect()
+    };
+    let cat_clean = sanitize(category.trim_matches(|c| c == '/' || c == '\\'));
+    let proj_clean = sanitize(project_name.trim());
     if !cat_clean.is_empty() {
         format!("{}__{}.webp", cat_clean, proj_clean)
     } else {
@@ -727,20 +684,41 @@ pub fn get_screenshot_filename(category: &str, project_name: &str) -> String {
     }
 }
 
-pub fn get_screenshot_url(category: &str, project_name: &str) -> Option<String> {
+pub fn load_screenshots_mtime_map() -> HashMap<String, u64> {
+    let mut map = HashMap::new();
     let dir = get_manager_data_root().join("data").join("screenshots");
-    let fname = get_screenshot_filename(category, project_name);
-    let shot_path = dir.join(&fname);
-    if shot_path.is_file() {
-        if let Ok(meta) = fs::metadata(&shot_path) {
-            if meta.len() > 200 {
-                let mtime = file_mtime_secs(&shot_path);
-                return Some(format!("data/screenshots/{}?v={}", fname, mtime));
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_file() && meta.len() > 200 {
+                    let fname = entry.file_name().to_string_lossy().to_string();
+                    let mtime = meta
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    map.insert(fname, mtime);
+                }
             }
         }
     }
+    map
+}
 
-    // Fallback: check slug format (e.g. 2026-05_source-nasani-2026.webp)
+pub fn get_screenshot_url_from_map(
+    category: &str,
+    project_name: &str,
+    shots_map: &HashMap<String, u64>,
+) -> Option<String> {
+    if shots_map.is_empty() {
+        return None;
+    }
+    let fname = get_screenshot_filename(category, project_name);
+    if let Some(&mtime) = shots_map.get(&fname) {
+        return Some(format!("data/screenshots/{}?v={}", fname, mtime));
+    }
+
     let slug = make_slug(project_name);
     let cat_slug = if category.is_empty() { String::new() } else { make_slug(category) };
     let alt_name = if !cat_slug.is_empty() {
@@ -748,16 +726,15 @@ pub fn get_screenshot_url(category: &str, project_name: &str) -> Option<String> 
     } else {
         format!("{}.webp", slug)
     };
-    let alt_path = dir.join(&alt_name);
-    if alt_path.is_file() {
-        if let Ok(meta) = fs::metadata(&alt_path) {
-            if meta.len() > 200 {
-                let mtime = file_mtime_secs(&alt_path);
-                return Some(format!("data/screenshots/{}?v={}", alt_name, mtime));
-            }
-        }
+    if let Some(&mtime) = shots_map.get(&alt_name) {
+        return Some(format!("data/screenshots/{}?v={}", alt_name, mtime));
     }
     None
+}
+
+pub fn get_screenshot_url(category: &str, project_name: &str) -> Option<String> {
+    let shots_map = load_screenshots_mtime_map();
+    get_screenshot_url_from_map(category, project_name, &shots_map)
 }
 
 // ============================================================================
@@ -1673,13 +1650,48 @@ pub fn parse_project_db_env(project_path: &Path) -> ProjectDbEnv {
 }
 
 pub fn find_mysql_exe() -> Option<PathBuf> {
+    let settings = config::load_app_settings();
     let mysql_root = config::get_base_dir().join("bin").join("mysql");
-    services::find_executable_recursive(&mysql_root, &["mysql.exe"])
+    if !settings.active_mysql_version.trim().is_empty() {
+        let active_dir = mysql_root.join(settings.active_mysql_version.trim());
+        if let Some(p) = services::find_executable_recursive(&active_dir, &["mysql.exe", "mariadb.exe"]) {
+            return Some(p);
+        }
+    }
+    services::find_executable_recursive(&mysql_root, &["mysql.exe", "mariadb.exe"])
 }
 
 pub fn find_mysqldump_exe() -> Option<PathBuf> {
+    let settings = config::load_app_settings();
     let mysql_root = config::get_base_dir().join("bin").join("mysql");
-    services::find_executable_recursive(&mysql_root, &["mysqldump.exe"])
+    if !settings.active_mysql_version.trim().is_empty() {
+        let active_dir = mysql_root.join(settings.active_mysql_version.trim());
+        if let Some(p) = services::find_executable_recursive(&active_dir, &["mysqldump.exe", "mariadb-dump.exe"]) {
+            return Some(p);
+        }
+    }
+    services::find_executable_recursive(&mysql_root, &["mysqldump.exe", "mariadb-dump.exe"])
+}
+
+pub fn ensure_mysql_running() -> Result<(String, u16), String> {
+    let settings = config::load_app_settings();
+    let port = if settings.mysql_port == 0 { 3306 } else { settings.mysql_port };
+    if services::is_port_in_use(port) {
+        return Ok(("127.0.0.1".to_string(), port));
+    }
+
+    services::start_mysql_service(&settings)
+        .map_err(|e| format!("MySQL/MariaDB chưa chạy và không thể tự khởi động: {}", e))?;
+    for _ in 0..24 {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        if services::is_port_in_use(port) {
+            return Ok(("127.0.0.1".to_string(), port));
+        }
+    }
+    Err(format!(
+        "MySQL/MariaDB chưa sẵn sàng trên cổng {}. Vui lòng bật dịch vụ MySQL/MariaDB trước khi tạo Database.",
+        port
+    ))
 }
 
 pub fn run_mysql_query(db: &ProjectDbEnv, sql: &str, use_db: bool) -> Result<String, String> {
@@ -1705,6 +1717,89 @@ pub fn run_mysql_query(db: &ProjectDbEnv, sql: &str, use_db: bool) -> Result<Str
         return Err(stderr);
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
+pub fn run_mysql_import_file(db: &ProjectDbEnv, sql_path: &Path) -> Result<(), String> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let raw_bytes = fs::read(sql_path)
+        .map_err(|e| format!("Không thể đọc file SQL {}: {}", sql_path.display(), e))?;
+    let raw_lossy = String::from_utf8_lossy(&raw_bytes);
+    let raw_sql = raw_lossy.trim_start_matches('\u{FEFF}');
+
+    let mut sanitized = String::with_capacity(raw_sql.len() + 128);
+    sanitized.push_str("SET FOREIGN_KEY_CHECKS=0;\n");
+    for line in raw_sql.lines() {
+        let trimmed_upper = line.trim_start().to_ascii_uppercase();
+        if trimmed_upper.starts_with("CREATE DATABASE ")
+            || trimmed_upper.starts_with("USE ")
+            || trimmed_upper.starts_with("DROP DATABASE ")
+        {
+            continue;
+        }
+        sanitized.push_str(line);
+        sanitized.push('\n');
+    }
+    sanitized.push_str("SET FOREIGN_KEY_CHECKS=1;\n");
+
+    let exe = find_mysql_exe().ok_or_else(|| "Không tìm thấy mysql.exe trong bin/mysql".to_string())?;
+    let mut cmd = create_hidden_command(&exe.to_string_lossy());
+    cmd.arg(format!("-h{}", db.host))
+        .arg(format!("-P{}", db.port))
+        .arg(format!("-u{}", db.user))
+        .arg("--default-character-set=utf8mb4");
+    if !db.pass.is_empty() {
+        cmd.arg(format!("-p{}", db.pass));
+    }
+    if !db.name.is_empty() {
+        cmd.arg(&db.name);
+    }
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| format!("Lỗi chạy mysql.exe: {}", e))?;
+    let writer_handle = child.stdin.take().map(|mut stdin| {
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(sanitized.as_bytes());
+            let _ = stdin.flush();
+        })
+    });
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("Lỗi đợi mysql.exe: {}", e))?;
+    if let Some(h) = writer_handle {
+        let _ = h.join();
+    }
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        return Err(stderr);
+    }
+    Ok(())
+}
+
+pub fn export_local_mysql_db(source_db_name: &str, out_sql_path: &Path) -> Result<(), String> {
+    let (host, port) = ensure_mysql_running()?;
+    let exe = find_mysqldump_exe().ok_or_else(|| "Không tìm thấy mysqldump.exe trong bin/mysql".to_string())?;
+    let mut cmd = create_hidden_command(&exe.to_string_lossy());
+    cmd.arg(format!("-h{}", host))
+        .arg(format!("-P{}", port))
+        .arg("-uroot")
+        .arg("--default-character-set=utf8mb4")
+        .arg("--single-transaction")
+        .arg("--routines")
+        .arg(source_db_name);
+    let out = cmd.output().map_err(|e| format!("Lỗi chạy mysqldump.exe: {}", e))?;
+    if !out.status.success() || out.stdout.is_empty() {
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        return Err(if stderr.is_empty() {
+            format!("Không thể trích xuất database nguồn '{}'", source_db_name)
+        } else {
+            stderr
+        });
+    }
+    fs::write(out_sql_path, &out.stdout).map_err(|e| format!("Lỗi ghi file SQL: {}", e))
 }
 
 pub fn run_mysql_tsv(db: &ProjectDbEnv, sql: &str) -> Result<Vec<Vec<String>>, String> {
@@ -1782,15 +1877,15 @@ pub fn handle_save_module_schema(project_name: &str, category: &str, file_name: 
 }
 
 pub fn handle_get_schema_presets() -> Value {
-    let path = get_manager_data_root().join("data").join("schema_presets.json");
-    let data = read_json_file(&path);
+    let data = crate::db::get_json_setting("schema_presets.json").unwrap_or_else(|| json!([]));
     let arr = if data.is_array() { data } else { json!([]) };
     json!({ "status": "success", "data": arr })
 }
 
 pub fn handle_save_schema_preset(name: &str, module_type: &str, config_json: &str) -> Value {
-    let path = get_manager_data_root().join("data").join("schema_presets.json");
-    let mut arr = read_json_file(&path).as_array().cloned().unwrap_or_default();
+    let mut arr = crate::db::get_json_setting("schema_presets.json")
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
     let cfg: Value = serde_json::from_str(config_json).unwrap_or_else(|_| json!({}));
     arr.push(json!({
         "id": format!("preset_{}", now_unix()),
@@ -1799,7 +1894,7 @@ pub fn handle_save_schema_preset(name: &str, module_type: &str, config_json: &st
         "config": cfg,
         "created_at": Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
     }));
-    let _ = write_json_file(&path, &Value::Array(arr));
+    let _ = crate::db::set_json_setting("schema_presets.json", &Value::Array(arr));
     json!({ "status": "success", "message": "Đã lưu Preset mẫu!" })
 }
 
@@ -1850,17 +1945,8 @@ pub fn get_fonts_db_path() -> PathBuf {
 }
 
 pub fn get_local_fonts_list() -> Vec<Value> {
-    let candidates = [
-        get_manager_data_root().join("data").join("local_fonts_cache.json"),
-        get_manager_data_root().join("data").join("fonts_db.json"),
-        config::get_base_dir().join("config").join("rbwmanager").join("data").join("local_fonts_cache.json"),
-        config::get_base_dir().join("data").join("local_fonts_cache.json"),
-        config::get_base_dir().join("www").join("RBWManager").join("data").join("local_fonts_cache.json"),
-        config::get_base_dir().join("config").join("rbwmanager").join("data").join("fonts_db.json"),
-    ];
-    for p in &candidates {
-        if p.is_file() {
-            let val = read_json_file(p);
+    for key in ["local_fonts_cache.json", "fonts_db.json"] {
+        if let Some(val) = crate::db::get_json_setting(key) {
             if let Some(arr) = val.as_array() {
                 if !arr.is_empty() {
                     return arr.clone();
@@ -1877,19 +1963,10 @@ pub fn get_local_fonts_list() -> Vec<Value> {
 }
 
 fn get_google_fonts_list() -> Vec<Value> {
-    let candidates = [
-        get_manager_data_root().join("data").join("google_fonts_cache.json"),
-        config::get_base_dir().join("config").join("rbwmanager").join("data").join("google_fonts_cache.json"),
-        config::get_base_dir().join("data").join("google_fonts_cache.json"),
-        config::get_base_dir().join("www").join("RBWManager").join("data").join("google_fonts_cache.json"),
-    ];
-    for p in &candidates {
-        if p.is_file() {
-            let val = read_json_file(p);
-            if let Some(arr) = val.as_array() {
-                if !arr.is_empty() {
-                    return arr.clone();
-                }
+    if let Some(val) = crate::db::get_json_setting("google_fonts_cache.json") {
+        if let Some(arr) = val.as_array() {
+            if !arr.is_empty() {
+                return arr.clone();
             }
         }
     }
@@ -1920,8 +1997,7 @@ fn get_google_fonts_list() -> Vec<Value> {
                                 "variants": variants
                             }));
                         }
-                        let cache_path = get_manager_data_root().join("data").join("google_fonts_cache.json");
-                        let _ = fs::write(&cache_path, serde_json::to_string(&items).unwrap_or_default());
+                        let _ = crate::db::set_json_setting("google_fonts_cache.json", &Value::Array(items.clone()));
                         return items;
                     }
                 }
@@ -2235,16 +2311,32 @@ pub fn handle_remove_font(project_name: &str, category: &str, font_family: &str,
         let cpath = p_root.join(cname);
         if cpath.is_file() {
             if let Ok(content) = fs::read_to_string(&cpath) {
+                let fam_plus = font_family.replace(' ', "+");
                 let re_ff = Regex::new(r#"(?is)@font-face\s*\{[^}]+\}\s*"#).unwrap();
-                let updated = re_ff
+                let mut updated = re_ff
                     .replace_all(&content, |caps: &regex::Captures| -> String {
                         let blk = &caps[0];
-                        if (!font_family.is_empty() && blk.contains(font_family))
+                        if (!font_family.is_empty() && blk.to_ascii_lowercase().contains(&font_family.to_ascii_lowercase()))
                             || (!font_file.is_empty() && blk.contains(font_file))
                         {
                             String::new()
                         } else {
                             blk.to_string()
+                        }
+                    })
+                    .to_string();
+                let re_imp = Regex::new(r#"(?im)@import\s+[^;\r\n]+;\s*"#).unwrap();
+                updated = re_imp
+                    .replace_all(&updated, |caps: &regex::Captures| -> String {
+                        let line = &caps[0];
+                        let lower = line.to_ascii_lowercase();
+                        if !font_family.is_empty()
+                            && (lower.contains(&font_family.to_ascii_lowercase())
+                                || lower.contains(&fam_plus.to_ascii_lowercase()))
+                        {
+                            String::new()
+                        } else {
+                            line.to_string()
                         }
                     })
                     .to_string();
@@ -2260,6 +2352,26 @@ pub fn handle_add_google_font(project_name: &str, category: &str, import_url: &s
         Some(p) => p,
         None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
     };
+    let trimmed = import_url.trim();
+    if trimmed.is_empty() {
+        return json!({ "status": "error", "message": "Thiếu URL hoặc đoạn @import Google Font!" });
+    }
+
+    let re_http = Regex::new(r#"(?i)https?://[^\s'"\);<>]+"#).unwrap();
+    let (dedup_key, rule) = if let Some(m) = re_http.find(trimmed) {
+        let clean_url = m.as_str().trim();
+        (clean_url.to_string(), format!("@import url('{}');\n", clean_url))
+    } else if trimmed.to_ascii_lowercase().starts_with("@import") {
+        let normalized = if trimmed.ends_with(';') {
+            format!("{}\n", trimmed)
+        } else {
+            format!("{};\n", trimmed)
+        };
+        (trimmed.to_string(), normalized)
+    } else {
+        (trimmed.to_string(), format!("@import url('{}');\n", trimmed))
+    };
+
     let p_root = Path::new(&proj.path);
     let css_file = if p_root.join("assets/css/font.css").is_file() {
         p_root.join("assets/css/font.css")
@@ -2268,8 +2380,7 @@ pub fn handle_add_google_font(project_name: &str, category: &str, import_url: &s
     };
     let _ = fs::create_dir_all(p_root.join("assets/css"));
     let mut css = fs::read_to_string(&css_file).unwrap_or_default();
-    let rule = format!("@import url('{}');\n", import_url);
-    if !css.contains(import_url) {
+    if !css.contains(&dedup_key) {
         css = format!("{}{}", rule, css);
         let _ = fs::write(&css_file, css);
     }
@@ -3312,10 +3423,14 @@ pub fn handle_setup_local_source(
         }
     }
 
-    // 3. Check if DB already exists in MySQL
+    // 3. Ensure MySQL is running & check if DB already exists
+    let (mysql_host, mysql_port) = match ensure_mysql_running() {
+        Ok(hp) => hp,
+        Err(e) => return json!({ "status": "error", "message": e }),
+    };
     let db_for_server = ProjectDbEnv {
-        host: "127.0.0.1".to_string(),
-        port: "3306".to_string(),
+        host: mysql_host,
+        port: mysql_port.to_string(),
         name: String::new(),
         user: "root".to_string(),
         pass: String::new(),
@@ -3323,11 +3438,16 @@ pub fn handle_setup_local_source(
     };
     let check_sql = format!(
         "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '{}';",
-        db_name
+        db_name.replace('\'', "''")
     );
     let db_exists = match run_mysql_query(&db_for_server, &check_sql, false) {
-        Ok(out) => out.trim().contains(&db_name),
-        Err(_) => false,
+        Ok(out) => out.lines().any(|line| line.trim() == db_name),
+        Err(e) => {
+            return json!({
+                "status": "error",
+                "message": format!("Không thể kết nối MySQL/MariaDB để kiểm tra Database: {}", e.trim())
+            });
+        }
     };
 
     // If DB exists and user hasn't chosen overwrite/skip yet
@@ -3348,21 +3468,28 @@ pub fn handle_setup_local_source(
     };
 
     if should_import {
-        let _ = run_mysql_query(
+        if let Err(e) = run_mysql_query(
             &db_for_server,
             &format!("CREATE DATABASE IF NOT EXISTS `{}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;", db_name),
             false,
-        );
+        ) {
+            return json!({
+                "status": "error",
+                "message": format!("Không thể tạo Database '{}': {}", db_name, e.trim())
+            });
+        }
         if let Some(sp) = &sql_path {
-            if let Ok(sql) = fs::read_to_string(sp) {
-                let db_with_name = ProjectDbEnv {
-                    name: db_name.clone(),
-                    ..db_for_server.clone()
-                };
-                if run_mysql_query(&db_with_name, &sql, true).is_ok() {
-                    sql_imported = true;
-                }
+            let db_with_name = ProjectDbEnv {
+                name: db_name.clone(),
+                ..db_for_server.clone()
+            };
+            if let Err(e) = run_mysql_import_file(&db_with_name, sp) {
+                return json!({
+                    "status": "error",
+                    "message": format!("Đã tạo Database '{}' nhưng lỗi import file SQL ({}): {}", db_name, sql_file_name, e.trim())
+                });
             }
+            sql_imported = true;
         }
     }
 
@@ -3476,17 +3603,7 @@ pub fn handle_setup_local_source(
         let _ = fs::write(&env_file, env_lines.join("\n") + "\n");
     }
 
-    // 6. Save configured_local: true in SQLite & projects.json
-    let _ = crate::db::get_connection().and_then(|conn| {
-        let now = chrono::Local::now().timestamp();
-        let id = format!("{}_{}", category.replace(['/', '\\'], "_"), proj.name);
-        conn.execute(
-            "INSERT INTO projects (id, name, category, path, configured_local, db_name, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)
-             ON CONFLICT(id) DO UPDATE SET configured_local = 1, db_name = ?5, updated_at = ?6",
-            rusqlite::params![id, proj.name, category, proj.path, db_name, now],
-        )
-    });
+    // 6. Save configured_local: true in SQLite
     let mut cfg = get_project_config_entry(project_name, category);
     if !cfg.is_object() {
         cfg = json!({});
@@ -3505,8 +3622,447 @@ pub fn handle_setup_local_source(
     })
 }
 
-pub fn handle_get_logs() -> Value {
+pub fn write_job_log(job_id: &str, data: Value) {
+    if job_id.trim().is_empty() {
+        return;
+    }
     let logs_dir = get_manager_data_root().join("logs");
+    let _ = fs::create_dir_all(&logs_dir);
+    let safe_id = Path::new(job_id.trim())
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    if safe_id.is_empty() {
+        return;
+    }
+    let log_file = logs_dir.join(format!("{}.log", safe_id.trim_end_matches(".log")));
+    if let Ok(line) = serde_json::to_string(&data) {
+        use std::io::Write;
+        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&log_file) {
+            let _ = writeln!(f, "{}", line);
+        }
+    }
+}
+
+fn resolve_local_www_path(raw: &str, base_dir: &Path) -> PathBuf {
+    let trimmed = raw.trim().trim_end_matches(['\\', '/']);
+    if trimmed.is_empty() {
+        return base_dir.join("source_laravel");
+    }
+    let direct = PathBuf::from(trimmed);
+    if direct.exists() {
+        return direct;
+    }
+    let norm = trimmed.replace('/', "\\");
+    let lower = norm.to_lowercase();
+    if let Some(idx) = lower.find("\\www\\") {
+        let suffix = &norm[idx + 5..];
+        let candidate = base_dir.join(suffix);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    direct
+}
+
+fn is_template_project_root(p: &Path) -> bool {
+    p.is_dir()
+        && (p.join(".env").is_file()
+            || p.join(".env.example").is_file()
+            || p.join("app").is_dir()
+            || p.join("src").is_dir()
+            || p.join("index.php").is_file()
+            || p.join("libraries").is_dir())
+}
+
+fn copy_dir_recursive_fallback(src: &Path, dst: &Path) -> Result<(), String> {
+    fs::create_dir_all(dst).map_err(|e| format!("Không thể tạo thư mục đích {}: {}", dst.display(), e))?;
+    let entries = fs::read_dir(src).map_err(|e| format!("Không thể đọc thư mục nguồn {}: {}", src.display(), e))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let target = dst.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_recursive_fallback(&path, &target)?;
+        } else {
+            let _ = fs::copy(&path, &target);
+        }
+    }
+    Ok(())
+}
+
+fn copy_dir_fast(src: &Path, dst: &Path) -> Result<(), String> {
+    if !src.is_dir() {
+        return Err(format!("Thư mục nguồn không tồn tại: {}", src.display()));
+    }
+    let _ = fs::create_dir_all(dst);
+    let src_str = src
+        .to_string_lossy()
+        .trim_start_matches(r"\\?\")
+        .trim_end_matches(['\\', '/'])
+        .to_string();
+    let dst_str = dst
+        .to_string_lossy()
+        .trim_start_matches(r"\\?\")
+        .trim_end_matches(['\\', '/'])
+        .to_string();
+
+    let mut cmd = create_hidden_command("robocopy");
+    cmd.args([
+        &src_str, &dst_str, "/E", "/NFL", "/NDL", "/NJH", "/NJS", "/nc", "/ns", "/np", "/MT:8",
+    ]);
+    if let Ok(status) = cmd.status() {
+        if status.code().unwrap_or(16) < 8 {
+            return Ok(());
+        }
+    }
+    copy_dir_recursive_fallback(src, dst)
+}
+
+fn extract_zip_to_dir(zip_path: &Path, dst: &Path) -> Result<(), String> {
+    let _ = fs::create_dir_all(dst);
+    let zip_str = zip_path.to_string_lossy().trim_start_matches(r"\\?\").to_string();
+    let dst_str = dst.to_string_lossy().trim_start_matches(r"\\?\").to_string();
+    let mut cmd = create_hidden_command("tar");
+    cmd.args(["-xf", &zip_str, "-C", &dst_str]);
+    let out = cmd.output().map_err(|e| format!("Lỗi chạy tar giải nén: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "Lỗi giải nén ZIP: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    Ok(())
+}
+
+pub fn handle_deploy_new_project(
+    project_name: &str,
+    category: &str,
+    _source_key: &str,
+    job_id: &str,
+) -> Value {
+    let project_name = project_name.trim();
+    let category = category.trim();
+    if project_name.is_empty() || category.is_empty() {
+        let msg = "Thiếu thông tin tên dự án hoặc thư mục tháng";
+        write_job_log(job_id, json!({ "status": "error", "message": msg }));
+        return json!({ "status": "error", "message": msg });
+    }
+
+    let base_dir = get_www_base_dir();
+    let settings = get_settings_data();
+    let raw_source_path = settings
+        .get("source_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let source_db_name = settings
+        .get("source_db_name")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("source_nasani_2026")
+        .trim()
+        .to_string();
+    let source_folder_name = settings
+        .get("source_folder_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let source_base_name = if !source_folder_name.is_empty() {
+        source_folder_name
+    } else {
+        source_db_name.clone()
+    };
+
+    let mut source_path = resolve_local_www_path(raw_source_path, &base_dir);
+    if !source_path.exists() {
+        source_path = base_dir.join("source_laravel");
+    }
+
+    let cat_rel = category.replace(['/', '\\'], std::path::MAIN_SEPARATOR_STR);
+    let parent_dir = base_dir.join(&cat_rel);
+    let target_dir = parent_dir.join(project_name);
+
+    let clean_proj: String = project_name
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect();
+    let db_name = format!("{}_{}", category.replace(['/', '\\'], "_"), clean_proj);
+
+    write_job_log(
+        job_id,
+        json!({
+            "status": "info",
+            "step": 1,
+            "progress": 12,
+            "log": format!("Bắt đầu triển khai dự án: {} → {}", project_name, target_dir.display())
+        }),
+    );
+
+    if target_dir.exists() {
+        let msg = format!(
+            "Thư mục dự án đã tồn tại: {}. Vui lòng chọn tên khác.",
+            target_dir.display()
+        );
+        write_job_log(job_id, json!({ "status": "error", "step": 1, "message": msg }));
+        return json!({ "status": "error", "message": msg });
+    }
+
+    let _ = fs::create_dir_all(&parent_dir);
+
+    // Determine final source folder or zip
+    let (final_source_folder, final_source_zip) = if is_template_project_root(&source_path) {
+        let zip_cand = PathBuf::from(format!(
+            "{}.zip",
+            source_path.to_string_lossy().trim_end_matches(['\\', '/'])
+        ));
+        (source_path.clone(), zip_cand)
+    } else {
+        let sub_folder = source_path.join(&source_base_name);
+        let sub_zip = source_path.join(format!("{}.zip", source_base_name));
+        if sub_folder.is_dir() || sub_zip.is_file() {
+            (sub_folder, sub_zip)
+        } else {
+            let mut best_dir: Option<(u64, PathBuf)> = None;
+            if let Ok(entries) = fs::read_dir(&source_path) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    let name_lower = entry.file_name().to_string_lossy().to_lowercase();
+                    if (name_lower.starts_with("source_nasani")
+                        || name_lower.starts_with("source_laravel"))
+                        && is_template_project_root(&p)
+                    {
+                        let mt = file_mtime_secs(&p);
+                        if best_dir.as_ref().map(|(b, _)| mt >= *b).unwrap_or(true) {
+                            best_dir = Some((mt, p));
+                        }
+                    }
+                }
+            }
+            if let Some((_, found_dir)) = best_dir {
+                let zip_cand = PathBuf::from(format!("{}.zip", found_dir.to_string_lossy()));
+                (found_dir, zip_cand)
+            } else {
+                (sub_folder, sub_zip)
+            }
+        }
+    };
+
+    // 1. Copy or extract template to target_dir
+    if final_source_folder.is_dir() {
+        write_job_log(
+            job_id,
+            json!({
+                "status": "info",
+                "step": 1,
+                "progress": 20,
+                "log": format!("Đang copy mã nguồn từ: {}", final_source_folder.display())
+            }),
+        );
+        if let Err(e) = copy_dir_fast(&final_source_folder, &target_dir) {
+            write_job_log(job_id, json!({ "status": "error", "step": 1, "message": e }));
+            return json!({ "status": "error", "message": e });
+        }
+    } else if final_source_zip.is_file() {
+        write_job_log(
+            job_id,
+            json!({
+                "status": "info",
+                "step": 1,
+                "progress": 20,
+                "log": "Tìm thấy file ZIP mẫu. Đang giải nén..."
+            }),
+        );
+        if let Err(e) = extract_zip_to_dir(&final_source_zip, &parent_dir) {
+            write_job_log(job_id, json!({ "status": "error", "step": 1, "message": e }));
+            return json!({ "status": "error", "message": e });
+        }
+        let extracted = parent_dir.join(&source_base_name);
+        if extracted.is_dir() && extracted != target_dir {
+            let _ = fs::rename(&extracted, &target_dir);
+        }
+    } else {
+        let msg = format!(
+            "Không tìm thấy source mẫu tại '{}'. Vui lòng kiểm tra cấu hình Đường dẫn Source mẫu.",
+            final_source_folder.display()
+        );
+        write_job_log(job_id, json!({ "status": "error", "step": 1, "message": msg }));
+        return json!({ "status": "error", "message": msg });
+    }
+
+    // 2. Copy .agents & find/export SQL
+    write_job_log(
+        job_id,
+        json!({
+            "status": "info",
+            "step": 2,
+            "progress": 38,
+            "log": "Đang tích hợp .agents & chuẩn bị file SQL..."
+        }),
+    );
+    let target_agents = target_dir.join(".agents");
+    if !target_agents.is_dir() {
+        for cand_agents in [
+            base_dir.join("RBWManager").join(".agents"),
+            get_manager_data_root().join(".agents"),
+        ] {
+            if cand_agents.is_dir() {
+                let _ = copy_dir_fast(&cand_agents, &target_agents);
+                write_job_log(
+                    job_id,
+                    json!({ "status": "info", "step": 2, "progress": 44, "log": "✅ Đã copy .agents vào dự án." }),
+                );
+                break;
+            }
+        }
+    }
+
+    let mut sql_file: Option<PathBuf> = None;
+    if let Ok(entries) = fs::read_dir(&target_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file()
+                && p.extension()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.eq_ignore_ascii_case("sql"))
+                    .unwrap_or(false)
+            {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                write_job_log(
+                    job_id,
+                    json!({ "status": "info", "step": 2, "progress": 50, "log": format!("Tìm thấy file SQL: {}", fname) }),
+                );
+                sql_file = Some(p);
+                break;
+            }
+        }
+    }
+
+    if sql_file.is_none() {
+        let dump_target = target_dir.join("database_dump.sql");
+        write_job_log(
+            job_id,
+            json!({
+                "status": "info",
+                "step": 2,
+                "progress": 50,
+                "log": format!("Đang trích xuất SQL từ Database nguồn ({})...", source_db_name)
+            }),
+        );
+        match export_local_mysql_db(&source_db_name, &dump_target) {
+            Ok(_) => sql_file = Some(dump_target),
+            Err(e) => {
+                write_job_log(
+                    job_id,
+                    json!({ "status": "info", "step": 2, "progress": 52, "log": format!("⚠️ Không trích xuất được DB nguồn ({}): {}", source_db_name, e) }),
+                );
+            }
+        }
+    }
+
+    // 3. Ensure MySQL running & prepare Database
+    write_job_log(
+        job_id,
+        json!({
+            "status": "info",
+            "step": 3,
+            "progress": 64,
+            "log": format!("Đang kết nối MySQL & khởi tạo Database: {}", db_name)
+        }),
+    );
+
+    if let Err(e) = ensure_mysql_running() {
+        write_job_log(job_id, json!({ "status": "error", "step": 3, "message": e }));
+        return json!({ "status": "error", "message": e });
+    }
+
+    // 4. Create DB, import SQL & update .env / config.php
+    write_job_log(
+        job_id,
+        json!({
+            "status": "info",
+            "step": 4,
+            "progress": 78,
+            "log": "Đang nạp dữ liệu SQL & cập nhật .env / config.php..."
+        }),
+    );
+
+    let setup_res = handle_setup_local_source(project_name, category, &db_name, Some(true));
+    if setup_res.get("status").and_then(|v| v.as_str()) == Some("error") {
+        let err_msg = setup_res
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Lỗi cấu hình database local");
+        write_job_log(job_id, json!({ "status": "error", "step": 4, "message": err_msg }));
+        return setup_res;
+    }
+
+    // 5. Cleanup temporary SQL & save SQLite project metadata
+    write_job_log(
+        job_id,
+        json!({
+            "status": "info",
+            "step": 5,
+            "progress": 94,
+            "log": "Đang hoàn tất & lưu cấu hình dự án vào SQLite..."
+        }),
+    );
+    if let Some(sp) = sql_file {
+        let _ = fs::remove_file(sp);
+    }
+
+    let mut cfg = get_project_config_entry(project_name, category);
+    if !cfg.is_object() {
+        cfg = json!({});
+    }
+    if let Some(map) = cfg.as_object_mut() {
+        map.insert("configured_local".to_string(), json!(true));
+        map.insert("lock_demo".to_string(), json!(false));
+        map.insert("lock_production".to_string(), json!(false));
+        map.insert("db_name".to_string(), json!(db_name));
+    }
+    save_project_config_entry(project_name, category, cfg);
+    add_project_history(
+        project_name,
+        category,
+        "Triển khai dự án mới",
+        &format!("Khởi tạo thành công từ Source mẫu (Database: {}).", db_name),
+    );
+
+    let ok_msg = format!("Triển khai dự án {} thành công! (Database: {})", project_name, db_name);
+    write_job_log(
+        job_id,
+        json!({ "status": "success", "step": 5, "progress": 100, "message": ok_msg }),
+    );
+    json!({
+        "status": "success",
+        "message": ok_msg,
+        "db_name": db_name
+    })
+}
+
+pub fn handle_get_logs(job_id: &str) -> Value {
+    let logs_dir = get_manager_data_root().join("logs");
+    if !job_id.trim().is_empty() {
+        let safe_id = Path::new(job_id.trim())
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        let log_file = logs_dir.join(format!("{}.log", safe_id.trim_end_matches(".log")));
+        let mut job_logs = Vec::new();
+        if let Ok(content) = fs::read_to_string(&log_file) {
+            for line in content.lines() {
+                let t = line.trim();
+                if !t.is_empty() {
+                    if let Ok(val) = serde_json::from_str::<Value>(t) {
+                        job_logs.push(val);
+                    }
+                }
+            }
+        }
+        return json!({ "status": "success", "logs": job_logs, "data": job_logs });
+    }
+
     let mut logs = Vec::new();
     if let Ok(entries) = fs::read_dir(&logs_dir) {
         for entry in entries.flatten() {
@@ -3530,11 +4086,22 @@ pub fn handle_get_logs() -> Value {
         let mb = b.get("mtime").and_then(|v| v.as_u64()).unwrap_or(0);
         mb.cmp(&ma)
     });
-    json!({ "status": "success", "data": logs })
+    json!({ "status": "success", "data": logs, "logs": [] })
 }
 
-pub fn handle_delete_log(file_name: &str) -> Value {
+pub fn handle_delete_log(file_name: &str, job_id: &str) -> Value {
     let logs_dir = get_manager_data_root().join("logs");
+    if !job_id.trim().is_empty() {
+        let safe_id = Path::new(job_id.trim())
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        if !safe_id.is_empty() {
+            let log_file = logs_dir.join(format!("{}.log", safe_id.trim_end_matches(".log")));
+            let _ = fs::remove_file(log_file);
+        }
+        return json!({ "status": "success" });
+    }
     if file_name == "all" || file_name.is_empty() {
         if let Ok(entries) = fs::read_dir(&logs_dir) {
             for entry in entries.flatten() {
@@ -3730,112 +4297,138 @@ pub fn handle_capture_screenshot(project_name: &str, category: &str) -> Value {
 pub fn get_settings_data() -> Value {
     let global_demo = config::load_demo_config();
     let global_app = config::load_app_settings();
-    let demo_cfg = read_json_file(&get_demo_config_json_path());
-    let settings_cfg = read_json_file(&get_manager_data_root().join("data").join("settings.json"));
-    let mut merged = Map::new();
-    if let Some(m) = demo_cfg.as_object() {
-        for (k, v) in m {
-            merged.insert(k.clone(), v.clone());
-        }
-    }
-    if let Some(m) = settings_cfg.as_object() {
-        for (k, v) in m {
-            merged.insert(k.clone(), v.clone());
-        }
-    }
+    let mut merged = crate::db::get_json_setting("pro_settings")
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
 
-    // Luôn ưu tiên đồng bộ cấu hình FTP/DirectAdmin/Domain từ Cài đặt chung vào
-    if !global_demo.ftp_host.is_empty() || merged.get("ftp_host").map(|v| v.as_str().unwrap_or("").is_empty()).unwrap_or(true) {
+    // Đồng bộ fallback từ demo_global_config khi chưa có trong pro_settings
+    if merged.get("ftp_host").and_then(|v| v.as_str()).unwrap_or("").is_empty() && !global_demo.ftp_host.is_empty() {
         merged.insert("ftp_host".to_string(), Value::String(global_demo.ftp_host.clone()));
     }
-    if !global_demo.web_domain.is_empty() || merged.get("web_domain").map(|v| v.as_str().unwrap_or("").is_empty()).unwrap_or(true) {
+    if merged.get("web_domain").and_then(|v| v.as_str()).unwrap_or("").is_empty() && !global_demo.web_domain.is_empty() {
         merged.insert("web_domain".to_string(), Value::String(global_demo.web_domain.clone()));
     }
-    if !global_demo.ftp_user.is_empty() || merged.get("ftp_user").map(|v| v.as_str().unwrap_or("").is_empty()).unwrap_or(true) {
+    if merged.get("ftp_user").and_then(|v| v.as_str()).unwrap_or("").is_empty() && !global_demo.ftp_user.is_empty() {
         merged.insert("ftp_user".to_string(), Value::String(global_demo.ftp_user.clone()));
     }
-    if !global_demo.ftp_pass.is_empty() || merged.get("ftp_pass").map(|v| v.as_str().unwrap_or("").is_empty()).unwrap_or(true) {
+    if merged.get("ftp_pass").and_then(|v| v.as_str()).unwrap_or("").is_empty() && !global_demo.ftp_pass.is_empty() {
         merged.insert("ftp_pass".to_string(), Value::String(global_demo.ftp_pass.clone()));
     }
-    if !global_demo.ftp_root_path.is_empty() || merged.get("ftp_root").map(|v| v.as_str().unwrap_or("").is_empty()).unwrap_or(true) {
+    if merged.get("ftp_root").and_then(|v| v.as_str()).unwrap_or("").is_empty() && !global_demo.ftp_root_path.is_empty() {
         merged.insert("ftp_root".to_string(), Value::String(global_demo.ftp_root_path.clone()));
     }
-    if !global_demo.da_user.is_empty() || merged.get("da_user").map(|v| v.as_str().unwrap_or("").is_empty()).unwrap_or(true) {
+    if merged.get("da_user").and_then(|v| v.as_str()).unwrap_or("").is_empty() && !global_demo.da_user.is_empty() {
         merged.insert("da_user".to_string(), Value::String(global_demo.da_user.clone()));
     }
-    if !global_demo.da_port.is_empty() || merged.get("da_port").map(|v| v.as_str().unwrap_or("").is_empty()).unwrap_or(true) {
+    if merged.get("da_port").and_then(|v| v.as_str()).unwrap_or("").is_empty() && !global_demo.da_port.is_empty() {
         merged.insert("da_port".to_string(), Value::String(global_demo.da_port.clone()));
     }
-    merged.insert("db_naming_mode".to_string(), json!(global_demo.db_naming_mode));
+    if merged.get("font_source_path").and_then(|v| v.as_str()).unwrap_or("").is_empty() && !global_demo.font_folder_path.is_empty() {
+        merged.insert("font_source_path".to_string(), Value::String(global_demo.font_folder_path.clone()));
+    }
+    if !merged.contains_key("db_naming_mode") {
+        merged.insert("db_naming_mode".to_string(), json!(global_demo.db_naming_mode));
+    }
     merged.insert("vhost_suffix".to_string(), Value::String(global_app.vhost_suffix.clone()));
 
-    // Đồng bộ Server Demo vào demo_list
-    let default_server = json!({
-        "id": "default",
-        "name": if !global_demo.web_domain.is_empty() { format!("Server Demo ({})", global_demo.web_domain) } else { "Server Demo Chính".to_string() },
-        "ftp_host": global_demo.ftp_host,
-        "web_domain": global_demo.web_domain,
-        "da_user": global_demo.da_user,
-        "da_port": global_demo.da_port,
-        "ftp_user": global_demo.ftp_user,
-        "ftp_pass": global_demo.ftp_pass,
-        "ftp_root": global_demo.ftp_root_path,
-        "db_naming_mode": global_demo.db_naming_mode
-    });
+    let existing_demo_list = merged
+        .get("demo_list")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
 
-    let mut demo_list_arr = match merged.get("demo_list").and_then(|v| v.as_array()) {
-        Some(arr) if !arr.is_empty() => arr.clone(),
-        _ => vec![default_server.clone()],
+    let demo_list_arr = if !existing_demo_list.is_empty() {
+        existing_demo_list
+    } else if !global_demo.ftp_host.is_empty() || !global_demo.web_domain.is_empty() {
+        vec![json!({
+            "id": "default",
+            "name": if !global_demo.web_domain.is_empty() { global_demo.web_domain.clone() } else { "Server Demo Chính".to_string() },
+            "ftp_host": global_demo.ftp_host,
+            "web_domain": global_demo.web_domain,
+            "da_user": global_demo.da_user,
+            "da_port": global_demo.da_port,
+            "ftp_user": global_demo.ftp_user,
+            "ftp_pass": global_demo.ftp_pass,
+            "ftp_root": global_demo.ftp_root_path,
+            "db_naming_mode": global_demo.db_naming_mode
+        })]
+    } else {
+        Vec::new()
     };
 
-    if let Some(first) = demo_list_arr.get_mut(0) {
-        if let Some(obj) = first.as_object_mut() {
-            if !global_demo.ftp_host.is_empty() { obj.insert("ftp_host".to_string(), Value::String(global_demo.ftp_host.clone())); }
-            if !global_demo.web_domain.is_empty() { obj.insert("web_domain".to_string(), Value::String(global_demo.web_domain.clone())); }
-            if !global_demo.da_user.is_empty() { obj.insert("da_user".to_string(), Value::String(global_demo.da_user.clone())); }
-            if !global_demo.da_port.is_empty() { obj.insert("da_port".to_string(), Value::String(global_demo.da_port.clone())); }
-            if !global_demo.ftp_user.is_empty() { obj.insert("ftp_user".to_string(), Value::String(global_demo.ftp_user.clone())); }
-            if !global_demo.ftp_pass.is_empty() { obj.insert("ftp_pass".to_string(), Value::String(global_demo.ftp_pass.clone())); }
-            if !global_demo.ftp_root_path.is_empty() { obj.insert("ftp_root".to_string(), Value::String(global_demo.ftp_root_path.clone())); }
-            obj.insert("db_naming_mode".to_string(), json!(global_demo.db_naming_mode));
-        }
-    }
+    let saved_default_id = merged
+        .get("default_demo_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let valid_default_id = if !saved_default_id.is_empty()
+        && demo_list_arr
+            .iter()
+            .any(|item| item.get("id").and_then(|v| v.as_str()) == Some(saved_default_id.as_str()))
+    {
+        saved_default_id
+    } else {
+        demo_list_arr
+            .first()
+            .and_then(|item| item.get("id").and_then(|v| v.as_str()))
+            .unwrap_or("")
+            .to_string()
+    };
+
     merged.insert("demo_list".to_string(), Value::Array(demo_list_arr));
-    merged.insert("default_demo_id".to_string(), json!("default"));
+    merged.insert("default_demo_id".to_string(), Value::String(valid_default_id));
 
     Value::Object(merged)
 }
 
 pub fn save_settings_data(val: &Value) -> bool {
-    let _ = write_json_file(&get_demo_config_json_path(), val);
-    let _ = write_json_file(&get_manager_data_root().join("data").join("settings.json"), val);
-
+    let mut merged = crate::db::get_json_setting("pro_settings")
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
     if let Some(obj) = val.as_object() {
-        let mut global_demo = config::load_demo_config();
-        if let Some(v) = obj.get("ftp_host").and_then(|v| v.as_str()) {
-            if !v.is_empty() { global_demo.ftp_host = v.to_string(); }
+        for (k, v) in obj {
+            merged.insert(k.clone(), v.clone());
         }
-        if let Some(v) = obj.get("web_domain").and_then(|v| v.as_str()) {
-            if !v.is_empty() { global_demo.web_domain = v.to_string(); }
-        }
-        if let Some(v) = obj.get("ftp_user").and_then(|v| v.as_str()) {
-            if !v.is_empty() { global_demo.ftp_user = v.to_string(); }
-        }
-        if let Some(v) = obj.get("ftp_pass").and_then(|v| v.as_str()) {
-            if !v.is_empty() { global_demo.ftp_pass = v.to_string(); }
-        }
-        if let Some(v) = obj.get("ftp_root").and_then(|v| v.as_str()) {
-            if !v.is_empty() { global_demo.ftp_root_path = v.to_string(); }
-        }
-        if let Some(v) = obj.get("da_user").and_then(|v| v.as_str()) {
-            if !v.is_empty() { global_demo.da_user = v.to_string(); }
-        }
-        if let Some(v) = obj.get("da_port").and_then(|v| v.as_str()) {
-            if !v.is_empty() { global_demo.da_port = v.to_string(); }
-        }
-        let _ = config::save_demo_config(&global_demo);
     }
-    true
+
+    let merged_val = Value::Object(merged.clone());
+    let ok = crate::db::set_json_setting("pro_settings", &merged_val).is_ok();
+
+    let mut global_demo = config::load_demo_config();
+    if let Some(v) = merged.get("ftp_host").and_then(|v| v.as_str()) {
+        global_demo.ftp_host = v.to_string();
+    }
+    if let Some(v) = merged.get("web_domain").and_then(|v| v.as_str()) {
+        global_demo.web_domain = v.to_string();
+    }
+    if let Some(v) = merged.get("ftp_user").and_then(|v| v.as_str()) {
+        global_demo.ftp_user = v.to_string();
+    }
+    if let Some(v) = merged.get("ftp_pass").and_then(|v| v.as_str()) {
+        global_demo.ftp_pass = v.to_string();
+    }
+    if let Some(v) = merged.get("ftp_root").and_then(|v| v.as_str()) {
+        if !v.is_empty() {
+            global_demo.ftp_root_path = v.to_string();
+        }
+    }
+    if let Some(v) = merged.get("da_user").and_then(|v| v.as_str()) {
+        global_demo.da_user = v.to_string();
+    }
+    if let Some(v) = merged.get("da_port").and_then(|v| v.as_str()) {
+        if !v.is_empty() {
+            global_demo.da_port = v.to_string();
+        }
+    }
+    if let Some(v) = merged.get("db_naming_mode").and_then(|v| v.as_i64()) {
+        global_demo.db_naming_mode = v as i32;
+    }
+    if let Some(v) = merged.get("font_source_path").and_then(|v| v.as_str()) {
+        global_demo.font_folder_path = v.to_string();
+    }
+    let _ = config::save_demo_config_file_only(&global_demo);
+
+    ok
 }
 
 pub fn get_project_history_entries(project_name: &str, category: &str) -> Value {
@@ -4213,6 +4806,1899 @@ pub fn handle_test_demo_connection(body_obj: &Map<String, Value>) -> Value {
     }
 }
 
+#[derive(Debug, Clone)]
+struct DeployServerCfg {
+    id: String,
+    ftp_host: String,
+    ftp_user: String,
+    ftp_pass: String,
+    ftp_root: String,
+    web_domain: String,
+    da_user: String,
+    da_port: String,
+    db_name: String,
+    db_user: String,
+    db_pass: String,
+    ssl: bool,
+    clear_db: bool,
+    turnstile_sitekey: String,
+    turnstile_secretkey: String,
+    email_user: String,
+    email_pass: String,
+}
+
+fn resolve_demo_server_cfg(
+    proj_cfg: &Value,
+    demo_server_id: &str,
+    custom_domain: &str,
+) -> Result<DeployServerCfg, String> {
+    let settings = get_settings_data();
+    let target_id = if !demo_server_id.trim().is_empty() {
+        demo_server_id.trim().to_string()
+    } else if let Some(s) = proj_cfg
+        .get("deployed")
+        .and_then(|d| d.get("demo"))
+        .and_then(|d| d.get("demo_server_id"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        s.to_string()
+    } else {
+        settings
+            .get("default_demo_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+
+    let mut chosen = Map::new();
+    if let Some(obj) = settings.as_object() {
+        for (k, v) in obj {
+            chosen.insert(k.clone(), v.clone());
+        }
+    }
+    if let Some(list) = settings.get("demo_list").and_then(|v| v.as_array()) {
+        let found = list
+            .iter()
+            .find(|item| item.get("id").and_then(|v| v.as_str()) == Some(target_id.as_str()))
+            .or_else(|| list.first());
+        if let Some(Value::Object(item_obj)) = found {
+            for (k, v) in item_obj {
+                chosen.insert(k.clone(), v.clone());
+            }
+        }
+    }
+
+    let get_s = |k: &str| -> String {
+        chosen
+            .get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+
+    let ftp_host = get_s("ftp_host");
+    let ftp_user = get_s("ftp_user");
+    let ftp_pass = get_s("ftp_pass");
+    if ftp_host.is_empty() || ftp_user.is_empty() || ftp_pass.is_empty() {
+        return Err("Chưa cấu hình đầy đủ FTP Host / User / Pass cho Server Demo.".to_string());
+    }
+
+    let mut web_domain = get_s("web_domain");
+    let mut ftp_root = get_s("ftp_root");
+    if ftp_root.is_empty() {
+        ftp_root = "/public_html".to_string();
+    }
+    if !custom_domain.trim().is_empty() {
+        let clean = custom_domain
+            .trim()
+            .trim_start_matches("http://")
+            .trim_start_matches("https://")
+            .trim_end_matches('/')
+            .to_string();
+        web_domain = clean.clone();
+        ftp_root = format!("/domains/{}/public_html", clean);
+    } else {
+        let clean = web_domain
+            .trim()
+            .trim_start_matches("http://")
+            .trim_start_matches("https://")
+            .trim_end_matches('/')
+            .to_string();
+        if !clean.is_empty() {
+            ftp_root = ftp_root.replace("{domain}", &clean);
+        }
+    }
+
+    let da_user = {
+        let d = get_s("da_user");
+        if d.is_empty() {
+            ftp_user.clone()
+        } else {
+            d
+        }
+    };
+    let da_port = {
+        let p = get_s("da_port");
+        if p.is_empty() {
+            "1111".to_string()
+        } else {
+            p
+        }
+    };
+
+    let use_ssl = chosen
+        .get("ssl")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| web_domain.starts_with("https://"));
+
+    Ok(DeployServerCfg {
+        id: {
+            let id_v = get_s("id");
+            if id_v.is_empty() { target_id } else { id_v }
+        },
+        ftp_host,
+        ftp_user,
+        ftp_pass,
+        ftp_root,
+        web_domain,
+        da_user,
+        da_port,
+        db_name: String::new(),
+        db_user: String::new(),
+        db_pass: String::new(),
+        ssl: use_ssl,
+        clear_db: false,
+        turnstile_sitekey: String::new(),
+        turnstile_secretkey: String::new(),
+        email_user: String::new(),
+        email_pass: String::new(),
+    })
+}
+
+fn generate_demo_db_suffix(category: &str, project_name: &str, manual_suffix: &str) -> String {
+    let cat_norm = category.replace('\\', "/");
+    let mut year = Local::now().format("%Y").to_string();
+    let mut month = Local::now().format("%m").to_string();
+
+    if let Some(caps) = Regex::new(r"^(\d{4})_(\d{1,2})$").unwrap().captures(&cat_norm) {
+        year = caps[1].to_string();
+        month = format!("{:02}", caps[2].parse::<u32>().unwrap_or(1));
+    } else if let Some(caps) = Regex::new(r"(?i)^(\d{4})/(?:thang)?(\d{1,2})$").unwrap().captures(&cat_norm) {
+        year = caps[1].to_string();
+        month = format!("{:02}", caps[2].parse::<u32>().unwrap_or(1));
+    } else if let Some(caps) = Regex::new(r"(?i)^(\d{4})/(\d{2})t(\d{1,2})$").unwrap().captures(&cat_norm) {
+        year = caps[1].to_string();
+        month = format!("{:02}", caps[3].parse::<u32>().unwrap_or(1));
+    } else {
+        let digits: String = cat_norm.chars().filter(|c| c.is_ascii_digit()).collect();
+        if digits.len() >= 6 {
+            year = digits[..4].to_string();
+            month = digits[4..6].to_string();
+        } else if digits.len() >= 2 {
+            month = digits[digits.len() - 2..].to_string();
+        }
+    }
+
+    let year_digit = year.chars().last().unwrap_or('6');
+    let prefix_cat = format!("{}{}", year_digit, month);
+
+    let clean_name: String = if !manual_suffix.trim().is_empty() {
+        manual_suffix
+            .trim()
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect()
+    } else {
+        let first_part = project_name.to_lowercase();
+        let head = first_part.split('_').next().unwrap_or(&first_part);
+        let letters: String = head.chars().filter(|c| c.is_ascii_alphabetic()).collect();
+        letters.chars().take(10).collect()
+    };
+
+    let suffix = format!("{}{}", prefix_cat, clean_name);
+    suffix.chars().take(13).collect()
+}
+
+fn generate_random_db_pass() -> String {
+    use rand::Rng;
+    const LOWER: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789";
+    const UPPER: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ";
+    let mut rng = rand::thread_rng();
+    let mut out = String::from("Pw");
+    for _ in 0..14 {
+        out.push(LOWER[rng.gen_range(0..LOWER.len())] as char);
+    }
+    for _ in 0..2 {
+        out.push(UPPER[rng.gen_range(0..UPPER.len())] as char);
+    }
+    out
+}
+
+fn da_get(cfg: &DeployServerCfg, endpoint: &str) -> Result<String, String> {
+    let client = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut last_err = String::new();
+    for scheme in ["https", "http"] {
+        let url = format!("{}://{}:{}/{}", scheme, cfg.ftp_host, cfg.da_port, endpoint.trim_start_matches('/'));
+        match client
+            .get(&url)
+            .basic_auth(&cfg.da_user, Some(&cfg.ftp_pass))
+            .send()
+        {
+            Ok(resp) => {
+                let txt = resp.text().unwrap_or_default();
+                if !txt.trim().is_empty() {
+                    return Ok(txt);
+                }
+            }
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(if last_err.is_empty() {
+        "DirectAdmin không phản hồi".to_string()
+    } else {
+        last_err
+    })
+}
+
+fn da_post_form(cfg: &DeployServerCfg, endpoint: &str, form: &[(&str, &str)]) -> Result<String, String> {
+    let client = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .timeout(std::time::Duration::from_secs(25))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut last_err = String::new();
+    for scheme in ["https", "http"] {
+        let url = format!("{}://{}:{}/{}", scheme, cfg.ftp_host, cfg.da_port, endpoint.trim_start_matches('/'));
+        match client
+            .post(&url)
+            .basic_auth(&cfg.da_user, Some(&cfg.ftp_pass))
+            .form(form)
+            .send()
+        {
+            Ok(resp) => {
+                let txt = resp.text().unwrap_or_default();
+                if !txt.trim().is_empty() {
+                    return Ok(txt);
+                }
+            }
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(if last_err.is_empty() {
+        "DirectAdmin không phản hồi".to_string()
+    } else {
+        last_err
+    })
+}
+
+fn url_decode_simple(s: &str) -> String {
+    let mut out = Vec::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(h1), Some(h2)) = ((bytes[i + 1] as char).to_digit(16), (bytes[i + 2] as char).to_digit(16)) {
+                out.push(((h1 << 4) | h2) as u8);
+                i += 3;
+                continue;
+            }
+        } else if bytes[i] == b'+' {
+            out.push(b' ');
+            i += 1;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
+fn directadmin_db_exists(cfg: &DeployServerCfg, db_suffix: &str) -> Result<bool, String> {
+    let raw = da_get(cfg, "CMD_API_DATABASES")?;
+    let target = format!("{}_{}", cfg.da_user, db_suffix).to_lowercase();
+    let re = Regex::new(r"(?i)list(?:%5B%5D|\[\])=([^&]+)").unwrap();
+    for caps in re.captures_iter(&raw) {
+        let db = url_decode_simple(caps[1].trim()).to_lowercase();
+        if db == target {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn change_directadmin_db_password(cfg: &DeployServerCfg, db_suffix: &str, db_pass: &str) -> Result<String, String> {
+    let full_db = format!("{}_{}", cfg.da_user, db_suffix);
+    da_post_form(
+        cfg,
+        "CMD_API_DB_USER",
+        &[
+            ("action", "modify"),
+            ("name", &full_db),
+            ("user", &full_db),
+            ("passwd", db_pass),
+            ("passwd2", db_pass),
+        ],
+    )
+}
+
+fn create_directadmin_db(cfg: &DeployServerCfg, db_suffix: &str, db_pass: &str) -> Result<String, String> {
+    let res = da_post_form(
+        cfg,
+        "CMD_API_DATABASES",
+        &[
+            ("action", "create"),
+            ("name", db_suffix),
+            ("user", db_suffix),
+            ("passwd", db_pass),
+            ("passwd2", db_pass),
+            ("create", "Create"),
+        ],
+    )?;
+    let decoded = url_decode_simple(&res).to_lowercase();
+    if decoded.contains("already exists") || decoded.contains("already user") {
+        let _ = change_directadmin_db_password(cfg, db_suffix, db_pass);
+        return Ok("ok_already_exists".to_string());
+    }
+    if decoded.contains("error=1") {
+        return Err(decoded);
+    }
+    Ok(res)
+}
+
+fn parse_ftp_list_lines(raw: &str) -> Vec<String> {
+    raw.lines()
+        .filter_map(|l| {
+            let t = l.trim();
+            if t.is_empty() || t == "." || t == ".." {
+                return None;
+            }
+            let base = t.rsplit('/').next().unwrap_or(t).trim();
+            if base.is_empty() || base == "." || base == ".." {
+                None
+            } else {
+                Some(base.to_string())
+            }
+        })
+        .collect()
+}
+
+fn da_list_items(cfg: &DeployServerCfg, ftp_dir: &str) -> Result<Vec<String>, String> {
+    let clean_domain = cfg
+        .web_domain
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
+        .to_string();
+    let rel_dir = if ftp_dir.starts_with('/') {
+        ftp_dir.to_string()
+    } else {
+        format!("/{}", ftp_dir)
+    };
+    let abs_dir = if rel_dir.starts_with("/public_html") && !clean_domain.is_empty() {
+        format!("/domains/{}{}", clean_domain, rel_dir)
+    } else {
+        rel_dir
+    };
+    let mut qs_path = String::new();
+    for b in abs_dir.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'/' => {
+                qs_path.push(b as char);
+            }
+            _ => qs_path.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    let endpoint = format!("CMD_API_FILE_MANAGER?action=json&path={}", qs_path);
+    let raw = da_get(cfg, &endpoint)?;
+    let lower = raw.to_lowercase();
+    if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&raw) {
+        let mut names = Vec::new();
+        for (k, v) in map {
+            let trimmed = k.trim().trim_start_matches('/').to_string();
+            if trimmed.is_empty()
+                || trimmed == "."
+                || trimmed == ".."
+                || trimmed == "info"
+                || trimmed == "error"
+            {
+                continue;
+            }
+            // DirectAdmin JSON file manager maps entry path/name -> metadata object
+            if v.is_object() {
+                let base = trimmed.rsplit('/').next().unwrap_or(&trimmed).to_string();
+                if !base.is_empty() && base != "." && base != ".." {
+                    names.push(base);
+                }
+            }
+        }
+        return Ok(names);
+    }
+    if lower.contains("does not exist")
+        || lower.contains("unable to open directory")
+        || lower.contains("cannot read directory")
+    {
+        return Ok(Vec::new());
+    }
+    Err(format!(
+        "DirectAdmin list error: {}",
+        raw.chars().take(120).collect::<String>()
+    ))
+}
+
+fn ftp_list_items_checked(cfg: &DeployServerCfg, ftp_dir: &str) -> Result<Vec<String>, String> {
+    let rel = ftp_dir.trim_matches('/');
+    let url = if rel.is_empty() {
+        format!("ftp://{}/", cfg.ftp_host)
+    } else {
+        format!("ftp://{}/{}/", cfg.ftp_host, rel)
+    };
+    let user_pass = format!("{}:{}", cfg.ftp_user, cfg.ftp_pass);
+
+    // Attempt 1: Explicit FTPS with --no-sessionid & --disable-epsv
+    let mut last_err = String::new();
+    if let Ok(o) = create_hidden_command("C:\\Windows\\System32\\curl.exe")
+        .args([
+            "-s",
+            "-S",
+            "--connect-timeout",
+            "10",
+            "--max-time",
+            "18",
+            "--list-only",
+            "--ssl",
+            "--insecure",
+            "--no-sessionid",
+            "--disable-epsv",
+            "--user",
+            &user_pass,
+            &url,
+        ])
+        .output()
+    {
+        if o.status.success() {
+            return Ok(parse_ftp_list_lines(&String::from_utf8_lossy(&o.stdout)));
+        }
+        let code = o.status.code().unwrap_or(-1);
+        if code == 9 || code == 78 {
+            return Ok(Vec::new());
+        }
+        last_err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+    }
+
+    // Attempt 2: Plain FTP (--disable-epsv)
+    if let Ok(o) = create_hidden_command("C:\\Windows\\System32\\curl.exe")
+        .args([
+            "-s",
+            "-S",
+            "--connect-timeout",
+            "10",
+            "--max-time",
+            "18",
+            "--list-only",
+            "--disable-epsv",
+            "--user",
+            &user_pass,
+            &url,
+        ])
+        .output()
+    {
+        if o.status.success() {
+            return Ok(parse_ftp_list_lines(&String::from_utf8_lossy(&o.stdout)));
+        }
+        let code = o.status.code().unwrap_or(-1);
+        if code == 9 || code == 78 {
+            return Ok(Vec::new());
+        }
+        let err2 = String::from_utf8_lossy(&o.stderr).trim().to_string();
+        if !err2.is_empty() {
+            last_err = err2;
+        }
+    }
+
+    // Attempt 3: DirectAdmin File Manager JSON listing
+    match da_list_items(cfg, ftp_dir) {
+        Ok(items) => Ok(items),
+        Err(e) => Err(if last_err.is_empty() { e } else { last_err }),
+    }
+}
+
+fn is_uphost_archive_folder(entry: &str, project_name: &str) -> bool {
+    let e = entry.trim().to_lowercase();
+    let p = project_name.trim().to_lowercase();
+    if e.is_empty() || p.is_empty() {
+        return false;
+    }
+    if e.ends_with(".zip")
+        || e.ends_with(".rar")
+        || e.ends_with(".tar")
+        || e.ends_with(".gz")
+        || e.ends_with(".sql")
+    {
+        return false;
+    }
+    if e == format!("_old_{}", p)
+        || e == format!("_old{}", p)
+        || e == format!("_up_{}", p)
+        || e == format!("_up{}", p)
+    {
+        return true;
+    }
+    if let Some(rest) = e.strip_prefix(&p) {
+        for tag in ["_up", "__up", "-up", "_old", "__old", "-old"] {
+            if let Some(after) = rest.strip_prefix(tag) {
+                if after.is_empty() || after.starts_with('_') || after.starts_with('-') {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn ftp_list_items(cfg: &DeployServerCfg, ftp_dir: &str) -> Vec<String> {
+    ftp_list_items_checked(cfg, ftp_dir).unwrap_or_default()
+}
+
+fn ftp_download_text(cfg: &DeployServerCfg, remote_rel: &str) -> Option<String> {
+    let root = cfg.ftp_root.trim_matches('/');
+    let rel = remote_rel.trim_start_matches('/');
+    let url = if root.is_empty() {
+        format!("ftp://{}/{}", cfg.ftp_host, rel)
+    } else {
+        format!("ftp://{}/{}/{}", cfg.ftp_host, root, rel)
+    };
+    let out = create_hidden_command("C:\\Windows\\System32\\curl.exe")
+        .args([
+            "-s",
+            "-f",
+            "--connect-timeout",
+            "10",
+            "--max-time",
+            "15",
+            "--ssl",
+            "--insecure",
+            "--user",
+            &format!("{}:{}", cfg.ftp_user, cfg.ftp_pass),
+            &url,
+        ])
+        .output()
+        .ok()?;
+    if out.status.success() {
+        Some(String::from_utf8_lossy(&out.stdout).to_string())
+    } else {
+        None
+    }
+}
+
+fn da_ensure_dir(cfg: &DeployServerCfg, remote_dir: &str) {
+    let clean_domain = cfg
+        .web_domain
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
+        .to_string();
+    let abs_dir = if remote_dir.starts_with("/public_html") && !clean_domain.is_empty() {
+        format!("/domains/{}{}", clean_domain, remote_dir)
+    } else {
+        remote_dir.to_string()
+    };
+    let parts: Vec<&str> = abs_dir.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return;
+    }
+    let mut cur = String::new();
+    for part in parts {
+        let parent = if cur.is_empty() { "/".to_string() } else { cur.clone() };
+        let _ = da_post_form(
+            cfg,
+            "CMD_API_FILE_MANAGER",
+            &[("action", "mkdir"), ("path", &parent), ("name", part)],
+        );
+        cur = format!("{}/{}", cur, part);
+    }
+}
+
+fn da_upload_file(cfg: &DeployServerCfg, remote_dir: &str, local_clean: &str) -> Result<(), String> {
+    let clean_domain = cfg
+        .web_domain
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
+        .to_string();
+    let abs_dir = if remote_dir.starts_with("/public_html") && !clean_domain.is_empty() {
+        format!("/domains/{}{}", clean_domain, remote_dir)
+    } else {
+        remote_dir.to_string()
+    };
+    da_ensure_dir(cfg, &abs_dir);
+
+    let mut last_err = String::new();
+    for scheme in ["https", "http"] {
+        let url = format!("{}://{}:{}/CMD_API_FILE_MANAGER", scheme, cfg.ftp_host, cfg.da_port);
+        let out = create_hidden_command("C:\\Windows\\System32\\curl.exe")
+            .args([
+                "-s",
+                "-S",
+                "-k",
+                "--connect-timeout",
+                "20",
+                "--max-time",
+                "1800",
+                "-u",
+                &format!("{}:{}", cfg.da_user, cfg.ftp_pass),
+                "-F",
+                "action=upload",
+                "-F",
+                &format!("path={}", abs_dir),
+                "-F",
+                &format!("file1=@{}", local_clean),
+                &url,
+            ])
+            .output();
+        match out {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+                let decoded = url_decode_simple(&stdout).to_lowercase();
+                if o.status.success()
+                    && (decoded.contains("error=0")
+                        || decoded.contains("upload successful")
+                        || decoded.contains("file1="))
+                {
+                    return Ok(());
+                }
+                let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                last_err = if !stderr.is_empty() {
+                    stderr
+                } else if !decoded.trim().is_empty() {
+                    decoded.chars().take(220).collect()
+                } else {
+                    format!("DA upload status {:?}", o.status.code())
+                };
+            }
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(last_err)
+}
+
+fn ftp_upload_file_to_rel(cfg: &DeployServerCfg, sub_path: &str, local_path: &Path, remote_name: &str) -> Result<(), String> {
+    let root = cfg.ftp_root.trim_matches('/');
+    let sub = sub_path.trim_matches('/');
+    let url = if root.is_empty() && sub.is_empty() {
+        format!("ftp://{}/{}", cfg.ftp_host, remote_name)
+    } else if root.is_empty() {
+        format!("ftp://{}/{}/{}", cfg.ftp_host, sub, remote_name)
+    } else if sub.is_empty() {
+        format!("ftp://{}/{}/{}", cfg.ftp_host, root, remote_name)
+    } else {
+        format!("ftp://{}/{}/{}/{}", cfg.ftp_host, root, sub, remote_name)
+    };
+    let remote_dir = match (root.is_empty(), sub.is_empty()) {
+        (true, true) => "/public_html".to_string(),
+        (false, true) => format!("/{}", root),
+        (true, false) => format!("/{}", sub),
+        (false, false) => format!("/{}/{}", root, sub),
+    };
+    let local_clean = local_path
+        .to_string_lossy()
+        .trim_start_matches(r"\\?\")
+        .to_string();
+    let user_pass = format!("{}:{}", cfg.ftp_user, cfg.ftp_pass);
+
+    // Attempt 1: Explicit FTPS with --no-sessionid & --disable-epsv (avoids Pure-FTPd TLS 451)
+    let out_ftps = create_hidden_command("C:\\Windows\\System32\\curl.exe")
+        .args([
+            "-s",
+            "-S",
+            "--ftp-create-dirs",
+            "--ssl",
+            "--insecure",
+            "--no-sessionid",
+            "--disable-epsv",
+            "--connect-timeout",
+            "20",
+            "--max-time",
+            "1800",
+            "--user",
+            &user_pass,
+            "-T",
+            &local_clean,
+            &url,
+        ])
+        .output()
+        .map_err(|e| format!("Lỗi chạy curl FTP: {}", e))?;
+    if out_ftps.status.success() {
+        return Ok(());
+    }
+    let ftps_err = String::from_utf8_lossy(&out_ftps.stderr).trim().to_string();
+
+    // Attempt 2: Plain FTP (--disable-epsv) when TLS data channel returns 451
+    let out_plain = create_hidden_command("C:\\Windows\\System32\\curl.exe")
+        .args([
+            "-s",
+            "-S",
+            "--ftp-create-dirs",
+            "--disable-epsv",
+            "--connect-timeout",
+            "20",
+            "--max-time",
+            "1800",
+            "--user",
+            &user_pass,
+            "-T",
+            &local_clean,
+            &url,
+        ])
+        .output();
+    if let Ok(o) = out_plain {
+        if o.status.success() {
+            return Ok(());
+        }
+    }
+
+    // Attempt 3: DirectAdmin HTTP API Upload fallback (matches RBWManager uploadViaDA)
+    if let Ok(()) = da_upload_file(cfg, &remote_dir, &local_clean) {
+        return Ok(());
+    }
+
+    Err(if ftps_err.is_empty() {
+        format!("FTP upload {} thất bại (code {:?})", remote_name, out_ftps.status.code())
+    } else {
+        format!("FTP upload {} thất bại: {}", remote_name, ftps_err)
+    })
+}
+
+fn get_web_sub_path(ftp_root: &str) -> String {
+    if let Some(after) = ftp_root.split("/public_html").nth(1) {
+        after.trim_matches('/').to_string()
+    } else {
+        String::new()
+    }
+}
+
+fn build_remote_bridge_urls(cfg: &DeployServerCfg, sub_path: &str, query: &str) -> Vec<String> {
+    let clean_host = if !cfg.web_domain.is_empty() {
+        cfg.web_domain
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_end_matches('/')
+            .to_string()
+    } else {
+        cfg.ftp_host
+            .trim_start_matches("ftp.")
+            .trim_start_matches("www.")
+            .to_string()
+    };
+    let web_sub = get_web_sub_path(&cfg.ftp_root);
+    let sub_clean = sub_path.trim_matches('/');
+    let full_path = match (web_sub.is_empty(), sub_clean.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => web_sub,
+        (true, false) => sub_clean.to_string(),
+        (false, false) => format!("{}/{}", web_sub, sub_clean),
+    };
+    let schemes = if cfg.ssl || cfg.web_domain.starts_with("https://") {
+        ["https://", "http://"]
+    } else {
+        ["http://", "https://"]
+    };
+    schemes
+        .iter()
+        .map(|s| {
+            if full_path.is_empty() {
+                format!("{}{}/bridge.php?{}", s, clean_host, query)
+            } else {
+                format!("{}{}/{}/bridge.php?{}", s, clean_host, full_path, query)
+            }
+        })
+        .collect()
+}
+
+fn call_remote_bridge_post(cfg: &DeployServerCfg, sub_path: &str, query: &str, form: &[(&str, String)]) -> Result<Value, String> {
+    let client = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let urls = build_remote_bridge_urls(cfg, sub_path, query);
+    let mut last_err = String::new();
+    for url in &urls {
+        match client.post(url).form(form).send() {
+            Ok(resp) => {
+                let status_code = resp.status().as_u16();
+                let raw = resp.text().unwrap_or_default();
+                if let Ok(val) = serde_json::from_str::<Value>(&raw) {
+                    return Ok(val);
+                }
+                if let (Some(s), Some(e)) = (raw.find('{'), raw.rfind('}')) {
+                    if e > s {
+                        if let Ok(val) = serde_json::from_str::<Value>(&raw[s..=e]) {
+                            return Ok(val);
+                        }
+                    }
+                }
+                let msg = format!(
+                    "Phản hồi không phải JSON từ {} (HTTP {}): {}",
+                    url,
+                    status_code,
+                    raw.chars().take(240).collect::<String>()
+                );
+                // If this request actually reached PHP (not 404/403/502/503) during deploy, do NOT execute deploy twice on fallback scheme
+                if query.contains("action=deploy") && status_code < 400 {
+                    return Err(msg);
+                }
+                last_err = msg;
+            }
+            Err(e) => last_err = format!("Lỗi gọi {}: {}", url, e),
+        }
+    }
+    Err(last_err)
+}
+
+fn read_local_db_pass_or_default(proj_root: &Path, proj_cfg: &Value) -> String {
+    let env_db = parse_project_db_env(proj_root);
+    if !env_db.pass.is_empty() {
+        return env_db.pass;
+    }
+    proj_cfg
+        .get("deployed")
+        .and_then(|d| d.get("demo"))
+        .and_then(|d| d.get("db_pass"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(generate_random_db_pass)
+}
+
+fn add_dir_to_deploy_zip<W: std::io::Write + std::io::Seek>(
+    zip: &mut zip::ZipWriter<W>,
+    root: &Path,
+    current: &Path,
+    options: zip::write::SimpleFileOptions,
+) -> Result<(), String> {
+    use std::io::Read;
+    let entries = fs::read_dir(current).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        let name_lower = name.to_lowercase();
+        if matches!(
+            name_lower.as_str(),
+            ".agents"
+                | ".git"
+                | ".gitignore"
+                | "node_modules"
+                | ".vscode"
+                | ".idea"
+                | "thumbs"
+                | "watermarks"
+                | "caches"
+                | "dist.zip"
+                | "dist.sql"
+                | "vite.config.js"
+                | "readme.md"
+        ) {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(root)
+            .map_err(|e| e.to_string())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if path.is_dir() {
+            add_dir_to_deploy_zip(zip, root, &path, options)?;
+        } else if path.is_file() {
+            let mut f = fs::File::open(&path).map_err(|e| e.to_string())?;
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+            zip.start_file(&rel, options).map_err(|e| e.to_string())?;
+            std::io::Write::write_all(zip, &buf).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn pack_project_for_deploy(proj_path: &Path, zip_path: &Path, use_7zip: bool) -> Result<u64, String> {
+    if zip_path.exists() {
+        let _ = fs::remove_file(zip_path);
+    }
+    if let Some(parent) = zip_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    let proj_clean = proj_path.to_string_lossy().trim_start_matches(r"\\?\").to_string();
+    let zip_clean = zip_path.to_string_lossy().trim_start_matches(r"\\?\").to_string();
+
+    if use_7zip {
+        for cand in [
+            r"C:\Program Files\7-Zip\7z.exe",
+            r"C:\Program Files (x86)\7-Zip\7z.exe",
+        ] {
+            if Path::new(cand).is_file() {
+                let mut cmd = create_hidden_command(cand);
+                cmd.current_dir(&proj_clean).args([
+                    "a",
+                    "-tzip",
+                    "-mx=3",
+                    "-bso0",
+                    "-bsp0",
+                    "-y",
+                    "-ssw",
+                    &zip_clean,
+                    r"-xr!.agents",
+                    r"-xr!.git",
+                    r"-xr!node_modules",
+                    r"-xr!thumbs",
+                    r"-xr!watermarks",
+                    r"-xr!caches",
+                    r"-xr!dist.zip",
+                    r"-xr!dist.sql",
+                    r"-xr!vite.config.js",
+                    r"-xr!README.md",
+                    r"-xr!.gitignore",
+                    ".",
+                ]);
+                if let Ok(out) = cmd.output() {
+                    if out.status.success() && zip_path.is_file() {
+                        if let Ok(meta) = fs::metadata(zip_path) {
+                            if meta.len() > 0 {
+                                return Ok(meta.len());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let file = fs::File::create(zip_path).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    add_dir_to_deploy_zip(&mut zip, proj_path, proj_path, options)?;
+    zip.finish().map_err(|e| e.to_string())?;
+    let sz = fs::metadata(zip_path).map(|m| m.len()).unwrap_or(0);
+    if sz == 0 {
+        return Err("Nén mã nguồn tạo ra file ZIP rỗng.".to_string());
+    }
+    Ok(sz)
+}
+
+fn find_bridge_php_path() -> Result<PathBuf, String> {
+    let base = config::get_base_dir();
+    for p in [
+        base.join("www").join("RBWManager").join("bridge.php"),
+        get_manager_data_root().join("bridge.php"),
+    ] {
+        if p.is_file() {
+            return Ok(p);
+        }
+    }
+    Err("Không tìm thấy tệp bridge.php trong www/RBWManager/".to_string())
+}
+
+pub fn handle_pre_check_deploy_demo(body_obj: &Map<String, Value>) -> Value {
+    let project_name = body_obj.get("name").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let category = body_obj.get("category").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let manual_suffix = body_obj.get("manual_db_suffix").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let demo_server_id = body_obj.get("demo_server_id").and_then(|v| v.as_str()).unwrap_or("").trim();
+
+    if project_name.is_empty() || category.is_empty() {
+        return json!({ "status": "error", "message": "Thiếu thông tin dự án hoặc danh mục" });
+    }
+    let proj = match find_project(project_name, Some(category)) {
+        Some(p) => p,
+        None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
+    };
+
+    let mut proj_cfg = get_project_config_entry(project_name, category);
+    let mut srv = match resolve_demo_server_cfg(&proj_cfg, demo_server_id, "") {
+        Ok(c) => c,
+        Err(e) => return json!({ "status": "error", "message": e }),
+    };
+
+    let db_suffix = generate_demo_db_suffix(&proj.category, project_name, manual_suffix);
+    let db_name = format!("{}_{}", srv.da_user, db_suffix);
+
+    let db_exists = match directadmin_db_exists(&srv, &db_suffix) {
+        Ok(ex) => ex,
+        Err(e) => return json!({ "status": "error", "message": format!("Lỗi kết nối DirectAdmin: {}", e) }),
+    };
+
+    if !db_exists {
+        return json!({
+            "status": "success",
+            "action": "proceed",
+            "db_pass": "",
+            "message": "Database chưa tồn tại, tiến hành tạo mới."
+        });
+    }
+
+    let rel_path = proj.rel_path.replace('\\', "/");
+    let mut db_pass = String::new();
+    if let Some(env_txt) = ftp_download_text(&srv, &format!("{}/.env", rel_path)) {
+        for line in env_txt.lines() {
+            let t = line.trim();
+            if let Some((k, v)) = t.split_once('=') {
+                let ku = k.trim().to_uppercase();
+                if matches!(ku.as_str(), "DB_PASSWORD" | "DB_PASS" | "DATABASE_PASS" | "DATABASE_PASSWORD") {
+                    db_pass = v.trim().trim_matches(|c| c == '"' || c == '\'').to_string();
+                    break;
+                }
+            }
+        }
+    }
+    if db_pass.is_empty() {
+        if let Some(cfg_txt) = ftp_download_text(&srv, &format!("{}/libraries/config.php", rel_path)) {
+            if let Some(caps) = Regex::new(r#"['"]password['"]\s*=>\s*['"]([^'"]*)['"]"#).unwrap().captures(&cfg_txt) {
+                db_pass = caps[1].to_string();
+            }
+        }
+    }
+    if db_pass.is_empty() {
+        db_pass = read_local_db_pass_or_default(Path::new(&proj.path), &proj_cfg);
+    }
+
+    let bridge_path = match find_bridge_php_path() {
+        Ok(p) => p,
+        Err(e) => return json!({ "status": "error", "message": e }),
+    };
+
+    // Upload bridge.php to check DB connection/data
+    if let Err(e) = ftp_upload_file_to_rel(&srv, &rel_path, &bridge_path, "bridge.php") {
+        let dir_items = ftp_list_items(&srv, &format!("{}/{}", srv.ftp_root.trim_end_matches('/'), rel_path));
+        if dir_items.is_empty() {
+            return json!({
+                "status": "success",
+                "action": "proceed",
+                "db_pass": db_pass,
+                "message": "Dự án mới trên Demo, tiếp tục triển khai."
+            });
+        }
+        return json!({ "status": "error", "message": format!("Không thể upload Bridge kiểm tra DB: {}", e) });
+    }
+
+    srv.db_name = db_name.clone();
+    srv.db_user = db_name.clone();
+    srv.db_pass = db_pass.clone();
+
+    let db_json = json!({
+        "host": "localhost",
+        "name": db_name,
+        "user": db_name,
+        "pass": db_pass
+    })
+    .to_string();
+
+    let mut password_updated = false;
+    let mut check_res = call_remote_bridge_post(&srv, &rel_path, "action=checkDb", &[("db_config", db_json.clone())])
+        .unwrap_or_else(|e| json!({ "status": "error", "message": e }));
+
+    if check_res.get("status").and_then(|v| v.as_str()) != Some("success") {
+        let target_pass = read_local_db_pass_or_default(Path::new(&proj.path), &proj_cfg);
+        if !target_pass.is_empty() && change_directadmin_db_password(&srv, &db_suffix, &target_pass).is_ok() {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            db_pass = target_pass;
+            let retry_json = json!({
+                "host": "localhost",
+                "name": db_name,
+                "user": db_name,
+                "pass": db_pass
+            })
+            .to_string();
+            check_res = call_remote_bridge_post(&srv, &rel_path, "action=checkDb", &[("db_config", retry_json)])
+                .unwrap_or_else(|e| json!({ "status": "error", "message": e }));
+            if check_res.get("status").and_then(|v| v.as_str()) == Some("success") {
+                password_updated = true;
+            }
+        }
+    }
+
+    if check_res.get("status").and_then(|v| v.as_str()) != Some("success") {
+        let msg = check_res.get("message").and_then(|v| v.as_str()).unwrap_or("Không thể kết nối Bridge");
+        return json!({
+            "status": "error",
+            "message": format!("Database '{}' đã tồn tại nhưng không thể kết nối: {}", db_name, msg)
+        });
+    }
+
+    if !proj_cfg.is_object() {
+        proj_cfg = json!({});
+    }
+    if let Some(map) = proj_cfg.as_object_mut() {
+        let mut deployed = map.get("deployed").and_then(|v| v.as_object()).cloned().unwrap_or_default();
+        let mut demo_dep = deployed.get("demo").and_then(|v| v.as_object()).cloned().unwrap_or_default();
+        demo_dep.insert("db_pass".to_string(), Value::String(db_pass.clone()));
+        demo_dep.insert("demo_server_id".to_string(), Value::String(srv.id.clone()));
+        deployed.insert("demo".to_string(), Value::Object(demo_dep));
+        map.insert("deployed".to_string(), Value::Object(deployed));
+    }
+    save_project_config_entry(project_name, category, proj_cfg);
+
+    let has_data = check_res.get("has_data").and_then(|v| v.as_bool()).unwrap_or(false);
+    json!({
+        "status": "success",
+        "action": if has_data { "prompt_confirm" } else { "proceed" },
+        "db_pass": db_pass,
+        "password_updated": password_updated,
+        "message": if has_data {
+            "Database đã tồn tại và đang chứa dữ liệu."
+        } else {
+            "Database đã kết nối thành công và chưa có dữ liệu."
+        }
+    })
+}
+
+pub fn handle_deploy_demo_or_prod(
+    action: &str,
+    project_name: &str,
+    category: &str,
+    body_obj: &Map<String, Value>,
+) -> Value {
+    let job_id = body_obj.get("jobId").and_then(|v| v.as_str()).unwrap_or("");
+    let is_demo = action == "deployDemo";
+
+    let mut proj_cfg = get_project_config_entry(project_name, category);
+    if is_demo && proj_cfg.get("lock_demo").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let msg = "Deploy Demo đang bị khóa cho dự án này.";
+        write_job_log(job_id, json!({ "status": "error", "step": 1, "message": msg }));
+        return json!({ "status": "error", "message": msg });
+    }
+    if !is_demo && proj_cfg.get("lock_production").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let msg = "Deploy Production đang bị khóa cho dự án này.";
+        write_job_log(job_id, json!({ "status": "error", "step": 1, "message": msg }));
+        return json!({ "status": "error", "message": msg });
+    }
+
+    let proj = match find_project(project_name, Some(category)) {
+        Some(p) => p,
+        None => {
+            let msg = "Dự án không tồn tại";
+            write_job_log(job_id, json!({ "status": "error", "step": 1, "message": msg }));
+            return json!({ "status": "error", "message": msg });
+        }
+    };
+
+    let demo_server_id = body_obj.get("demo_server_id").and_then(|v| v.as_str()).unwrap_or("");
+    let custom_domain = body_obj.get("custom_domain").and_then(|v| v.as_str()).unwrap_or("");
+
+    let mut srv = if is_demo {
+        match resolve_demo_server_cfg(&proj_cfg, demo_server_id, custom_domain) {
+            Ok(c) => c,
+            Err(e) => {
+                write_job_log(job_id, json!({ "status": "error", "step": 1, "message": e }));
+                return json!({ "status": "error", "message": e });
+            }
+        }
+    } else {
+        let prod = proj_cfg.get("prod").and_then(|v| v.as_object());
+        let Some(pmap) = prod else {
+            let msg = "Chưa cấu hình Hosting Production cho dự án này.";
+            write_job_log(job_id, json!({ "status": "error", "step": 1, "message": msg }));
+            return json!({ "status": "error", "message": msg });
+        };
+        let ps = |k: &str| pmap.get(k).and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let ftp_host = ps("ftp_host");
+        let ftp_user = ps("ftp_user");
+        let ftp_pass = ps("ftp_pass");
+        if ftp_host.is_empty() || ftp_user.is_empty() || ftp_pass.is_empty() {
+            let msg = "Thiếu thông tin FTP Host / User / Pass Production.";
+            write_job_log(job_id, json!({ "status": "error", "step": 1, "message": msg }));
+            return json!({ "status": "error", "message": msg });
+        }
+        DeployServerCfg {
+            id: "production".to_string(),
+            ftp_host,
+            ftp_user: ftp_user.clone(),
+            ftp_pass,
+            ftp_root: {
+                let r = ps("ftp_root");
+                if r.is_empty() { "/public_html".to_string() } else { r }
+            },
+            web_domain: ps("web_domain"),
+            da_user: {
+                let d = ps("da_user");
+                if d.is_empty() { ftp_user } else { d }
+            },
+            da_port: "1111".to_string(),
+            db_name: ps("db_name"),
+            db_user: ps("db_user"),
+            db_pass: ps("db_pass"),
+            ssl: pmap.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false),
+            clear_db: false,
+            turnstile_sitekey: String::new(),
+            turnstile_secretkey: String::new(),
+            email_user: String::new(),
+            email_pass: String::new(),
+        }
+    };
+
+    if let Some(use_ssl) = body_obj.get("use_ssl").and_then(|v| v.as_bool()) {
+        srv.ssl = use_ssl;
+    }
+    srv.clear_db = body_obj.get("clear_db").and_then(|v| v.as_i64()).unwrap_or(0) != 0
+        || body_obj.get("clear_db").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let pack_upload = body_obj.get("pack_upload").and_then(|v| v.as_bool()).unwrap_or(true);
+    let export_upload = body_obj.get("export_upload").and_then(|v| v.as_bool()).unwrap_or(true);
+    let create_db = body_obj.get("create_db").and_then(|v| v.as_bool()).unwrap_or(true);
+    let extract_setup = body_obj.get("extract_setup").and_then(|v| v.as_bool()).unwrap_or(true);
+    let use_7zip = body_obj.get("use_7zip").and_then(|v| v.as_bool()).unwrap_or(true);
+
+    let manual_suffix = body_obj.get("manual_db_suffix").and_then(|v| v.as_str()).unwrap_or("");
+    let db_suffix = if is_demo {
+        generate_demo_db_suffix(&proj.category, project_name, manual_suffix)
+    } else {
+        String::new()
+    };
+
+    if is_demo {
+        let req_pass = body_obj.get("db_pass").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let db_pass = if !req_pass.is_empty() {
+            req_pass
+        } else {
+            read_local_db_pass_or_default(Path::new(&proj.path), &proj_cfg)
+        };
+        srv.db_name = format!("{}_{}", srv.da_user, db_suffix);
+        srv.db_user = srv.db_name.clone();
+        srv.db_pass = db_pass;
+    }
+
+    let tmp_dir = get_manager_data_root().join("temp_conv").join(format!("deploy_{}", chrono::Local::now().timestamp_millis()));
+    let _ = fs::create_dir_all(&tmp_dir);
+    let zip_file = tmp_dir.join("dist.zip");
+    let sql_file = tmp_dir.join("dist.sql");
+
+    // Step 1: Pack source & Export local SQL
+    write_job_log(
+        job_id,
+        json!({ "status": "info", "step": 1, "progress": 18, "log": "📦 Đang đóng gói mã nguồn & trích xuất SQL..." }),
+    );
+    if pack_upload {
+        match pack_project_for_deploy(Path::new(&proj.path), &zip_file, use_7zip) {
+            Ok(bytes) => {
+                write_job_log(
+                    job_id,
+                    json!({ "status": "info", "step": 1, "progress": 28, "log": format!("✅ Đóng gói mã nguồn thành công ({})", format_bytes(bytes as f64, 2)) }),
+                );
+            }
+            Err(e) => {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                write_job_log(job_id, json!({ "status": "error", "step": 1, "message": e }));
+                return json!({ "status": "error", "message": e });
+            }
+        }
+    }
+
+    if export_upload {
+        let local_db = parse_project_db_env(Path::new(&proj.path));
+        if local_db.name.is_empty() {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            let msg = "Không tìm thấy DB_DATABASE trong .env hoặc libraries/config.php";
+            write_job_log(job_id, json!({ "status": "error", "step": 1, "message": msg }));
+            return json!({ "status": "error", "message": msg });
+        }
+        if let Err(e) = export_local_mysql_db(&local_db.name, &sql_file) {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            let msg = format!("Export SQL thất bại ({}): {}", local_db.name, e);
+            write_job_log(job_id, json!({ "status": "error", "step": 1, "message": msg }));
+            return json!({ "status": "error", "message": msg });
+        }
+        let sql_sz = fs::metadata(&sql_file).map(|m| m.len()).unwrap_or(0);
+        write_job_log(
+            job_id,
+            json!({ "status": "info", "step": 1, "progress": 38, "log": format!("✅ Đã xuất SQL local '{}' ({})", local_db.name, format_bytes(sql_sz as f64, 1)) }),
+        );
+    }
+
+    // Step 2: DirectAdmin DB + FTP Upload
+    write_job_log(
+        job_id,
+        json!({ "status": "info", "step": 2, "progress": 48, "log": "🛠️ Khởi tạo Database trên DirectAdmin & tải file qua FTP..." }),
+    );
+    if is_demo && create_db {
+        if let Err(e) = create_directadmin_db(&srv, &db_suffix, &srv.db_pass) {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            let msg = format!("DirectAdmin tạo Database thất bại: {}", e);
+            write_job_log(job_id, json!({ "status": "error", "step": 2, "message": msg }));
+            return json!({ "status": "error", "message": msg });
+        }
+        write_job_log(
+            job_id,
+            json!({ "status": "info", "step": 2, "progress": 56, "log": format!("✅ Database '{}' sẵn sàng trên DirectAdmin", srv.db_name) }),
+        );
+    }
+
+    let rel_path = if is_demo {
+        proj.rel_path.replace('\\', "/")
+    } else {
+        String::new()
+    };
+
+    if is_demo && !rel_path.is_empty() {
+        let parts: Vec<&str> = rel_path.split('/').filter(|s| !s.is_empty()).collect();
+        if let Some(last_part) = parts.last() {
+            let mut parent_ftp = srv.ftp_root.trim_end_matches('/').to_string();
+            for p in &parts[..parts.len() - 1] {
+                parent_ftp = format!("{}/{}", parent_ftp, p);
+            }
+            let existing = ftp_list_items(&srv, &parent_ftp);
+            if existing.iter().any(|item| is_uphost_archive_folder(item, last_part)) {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                let msg = "❌ TỪ CHỐI TRIỂN KHAI: Dự án này đã từng được xuất bản (_up / _old trên host).";
+                write_job_log(job_id, json!({ "status": "error", "step": 2, "message": msg }));
+                return json!({ "status": "error", "message": msg });
+            }
+        }
+    }
+
+    let mut uploads: Vec<(&str, PathBuf)> = Vec::new();
+    if extract_setup {
+        match find_bridge_php_path() {
+            Ok(bp) => uploads.push(("bridge.php", bp)),
+            Err(e) => {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                write_job_log(job_id, json!({ "status": "error", "step": 2, "message": e }));
+                return json!({ "status": "error", "message": e });
+            }
+        }
+    }
+    if pack_upload {
+        uploads.push(("dist.zip", zip_file.clone()));
+    }
+    if export_upload {
+        uploads.push(("dist.sql", sql_file.clone()));
+    }
+
+    for (idx, (rname, lpath)) in uploads.iter().enumerate() {
+        let pct = 60 + ((idx as i32 + 1) * 16 / (uploads.len().max(1) as i32));
+        write_job_log(
+            job_id,
+            json!({ "status": "info", "step": 2, "progress": pct, "log": format!("☁️ Đang upload {} lên Hosting...", rname) }),
+        );
+        if let Err(e) = ftp_upload_file_to_rel(&srv, &rel_path, lpath, rname) {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            write_job_log(job_id, json!({ "status": "error", "step": 2, "message": e }));
+            return json!({ "status": "error", "message": e });
+        }
+    }
+
+    // Step 3: Trigger bridge.php?action=deploy
+    write_job_log(
+        job_id,
+        json!({ "status": "info", "step": 3, "progress": 82, "log": "⚡ Đang kích hoạt Bridge giải nén & nạp Database..." }),
+    );
+
+    let clean_host = srv
+        .web_domain
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
+        .to_string();
+    let web_sub = get_web_sub_path(&srv.ftp_root);
+    let full_web_sub = match (web_sub.is_empty(), rel_path.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => web_sub,
+        (true, false) => rel_path.clone(),
+        (false, false) => format!("{}/{}", web_sub, rel_path),
+    };
+    let scheme_str = if srv.ssl { "https://" } else { "http://" };
+    let app_url = if full_web_sub.is_empty() {
+        format!("{}{}/", scheme_str, clean_host)
+    } else {
+        format!("{}{}/{}/", scheme_str, clean_host, full_web_sub)
+    };
+
+    if extract_setup {
+        let db_cfg_json = json!({
+            "host": "localhost",
+            "name": srv.db_name,
+            "user": srv.db_user,
+            "pass": srv.db_pass,
+        })
+        .to_string();
+        let app_cfg_json = json!({
+            "app_url": app_url.trim_end_matches('/'),
+            "ssl": srv.ssl,
+            "skip_lock": is_demo,
+            "is_production": !is_demo,
+        })
+        .to_string();
+        let clear_str = if srv.clear_db { "1".to_string() } else { "0".to_string() };
+
+        let mut bridge_res = call_remote_bridge_post(
+            &srv,
+            &rel_path,
+            "action=deploy",
+            &[
+                ("db_config", db_cfg_json.clone()),
+                ("app_config", app_cfg_json.clone()),
+                ("clear_db", clear_str.clone()),
+            ],
+        );
+
+        // Auto-heal DB access denied on Demo
+        if is_demo {
+            let needs_heal = match &bridge_res {
+                Ok(v) if v.get("status").and_then(|s| s.as_str()) == Some("success") => false,
+                Ok(v) => {
+                    let msg = v.get("message").and_then(|s| s.as_str()).unwrap_or("").to_lowercase();
+                    msg.contains("access denied") || msg.contains("1045") || msg.contains("db_connection_fail")
+                }
+                Err(_) => false,
+            };
+            if needs_heal {
+                write_job_log(
+                    job_id,
+                    json!({ "status": "info", "step": 3, "progress": 88, "log": "🔄 Đồng bộ lại mật khẩu DB trên DirectAdmin & thử lại..." }),
+                );
+                let _ = change_directadmin_db_password(&srv, &db_suffix, &srv.db_pass);
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                bridge_res = call_remote_bridge_post(
+                    &srv,
+                    &rel_path,
+                    "action=deploy",
+                    &[
+                        ("db_config", db_cfg_json),
+                        ("app_config", app_cfg_json),
+                        ("clear_db", clear_str),
+                    ],
+                );
+            }
+        }
+
+        let _ = fs::remove_dir_all(&tmp_dir);
+
+        match bridge_res {
+            Ok(v) if v.get("status").and_then(|s| s.as_str()) == Some("success") => {
+                if let Some(logs) = v.get("logs").and_then(|l| l.as_array()) {
+                    for l in logs {
+                        if let Some(ls) = l.as_str() {
+                            write_job_log(
+                                job_id,
+                                json!({ "status": "info", "step": 3, "progress": 94, "log": format!("✈️ [Bridge] {}", ls) }),
+                            );
+                        }
+                    }
+                }
+            }
+            Ok(v) => {
+                let err_msg = v.get("message").and_then(|s| s.as_str()).unwrap_or("Bridge báo lỗi");
+                write_job_log(job_id, json!({ "status": "error", "step": 3, "message": err_msg }));
+                return json!({ "status": "error", "message": err_msg });
+            }
+            Err(e) => {
+                write_job_log(job_id, json!({ "status": "error", "step": 3, "message": e }));
+                return json!({ "status": "error", "message": e });
+            }
+        }
+    } else {
+        let _ = fs::remove_dir_all(&tmp_dir);
+    }
+
+    // Save project deployed status & metadata in SQLite
+    if !proj_cfg.is_object() {
+        proj_cfg = json!({});
+    }
+    if let Some(map) = proj_cfg.as_object_mut() {
+        let mut deployed = map.get("deployed").and_then(|v| v.as_object()).cloned().unwrap_or_default();
+        let section_key = if is_demo { "demo" } else { "production" };
+        deployed.insert(
+            section_key.to_string(),
+            json!({
+                "db_name": srv.db_name,
+                "db_user": srv.db_user,
+                "db_pass": srv.db_pass,
+                "deploy_time": Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                "demo_server_id": srv.id,
+                "url": app_url,
+            }),
+        );
+        map.insert("deployed".to_string(), Value::Object(deployed));
+        if is_demo {
+            map.insert("has_demo".to_string(), Value::Bool(true));
+            map.insert("demo_url".to_string(), Value::String(app_url.clone()));
+            map.insert("demo_server_id".to_string(), Value::String(srv.id.clone()));
+            map.insert("lock_demo".to_string(), Value::Bool(true));
+        }
+    }
+    save_project_config_entry(project_name, category, proj_cfg);
+    add_project_history(
+        project_name,
+        category,
+        if is_demo { "Deploy Demo" } else { "Deploy Production" },
+        &format!("Thành công ({})", app_url),
+    );
+
+    let ok_msg = format!("Deploy {} thành công! URL: {}", project_name, app_url);
+    write_job_log(
+        job_id,
+        json!({ "status": "success", "step": 3, "progress": 100, "message": ok_msg }),
+    );
+    json!({
+        "status": "success",
+        "message": ok_msg,
+        "url": app_url
+    })
+}
+
+pub fn handle_push_tools(project_name: &str, category: &str, job_id: &str) -> Value {
+    let proj = match find_project(project_name, Some(category)) {
+        Some(p) => p,
+        None => {
+            let msg = "Dự án không tồn tại";
+            write_job_log(job_id, json!({ "status": "error", "message": msg }));
+            return json!({ "status": "error", "message": msg });
+        }
+    };
+    let proj_cfg = get_project_config_entry(project_name, category);
+    let srv = match resolve_demo_server_cfg(&proj_cfg, "", "") {
+        Ok(c) => c,
+        Err(e) => {
+            write_job_log(job_id, json!({ "status": "error", "message": e }));
+            return json!({ "status": "error", "message": e });
+        }
+    };
+    let bridge_path = match find_bridge_php_path() {
+        Ok(p) => p,
+        Err(e) => {
+            write_job_log(job_id, json!({ "status": "error", "message": e }));
+            return json!({ "status": "error", "message": e });
+        }
+    };
+    let rel_path = proj.rel_path.replace('\\', "/");
+    write_job_log(
+        job_id,
+        json!({ "status": "info", "step": 1, "progress": 40, "log": "🚀 Đang tải lên Bridge.php lên Server Demo..." }),
+    );
+    if let Err(e) = ftp_upload_file_to_rel(&srv, &rel_path, &bridge_path, "bridge.php") {
+        write_job_log(job_id, json!({ "status": "error", "message": e }));
+        return json!({ "status": "error", "message": e });
+    }
+    add_project_history(project_name, category, "Sync Tools", "Đã tải lên Bridge.php");
+    let ok_msg = "Đã cập nhật Bridge (bridge.php) lên Server thành công!";
+    write_job_log(job_id, json!({ "status": "success", "progress": 100, "message": ok_msg }));
+    json!({ "status": "success", "message": ok_msg })
+}
+
+pub fn handle_cleanup_tools(project_name: &str, category: &str) -> Value {
+    let proj = match find_project(project_name, Some(category)) {
+        Some(p) => p,
+        None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
+    };
+    let proj_cfg = get_project_config_entry(project_name, category);
+    let srv = match resolve_demo_server_cfg(&proj_cfg, "", "") {
+        Ok(c) => c,
+        Err(e) => return json!({ "status": "error", "message": e }),
+    };
+    let rel_path = proj.rel_path.replace('\\', "/");
+    match call_remote_bridge_post(&srv, &rel_path, "action=cleanup", &[]) {
+        Ok(v) => v,
+        Err(_) => json!({ "status": "success", "message": "Đã gửi lệnh dọn dẹp Bridge trên Server!" }),
+    }
+}
+
+pub fn handle_check_category_deploy_status(category: &str, target_name: &str) -> Value {
+    let cat_str = if category.trim().is_empty() { "all" } else { category.trim() };
+    let mut projects = scan_projects(cat_str);
+    if !target_name.trim().is_empty() {
+        projects.retain(|p| p.name.eq_ignore_ascii_case(target_name.trim()));
+    }
+    if projects.is_empty() {
+        return json!({
+            "status": "success",
+            "total": 0,
+            "counts": { "local": 0, "demo": 0, "production": 0 },
+            "results": []
+        });
+    }
+
+    let settings = get_settings_data();
+    let mut server_entries: Vec<(String, DeployServerCfg)> = Vec::new();
+    if let Some(list) = settings.get("demo_list").and_then(|v| v.as_array()) {
+        for item in list {
+            let sid = item.get("id").and_then(|v| v.as_str()).unwrap_or("").trim();
+            let sname = item
+                .get("name")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .or_else(|| item.get("web_domain").and_then(|v| v.as_str()))
+                .unwrap_or("Demo Server")
+                .trim()
+                .to_string();
+            if let Ok(cfg) = resolve_demo_server_cfg(&json!({}), sid, "") {
+                server_entries.push((sname, cfg));
+            }
+        }
+    }
+    if server_entries.is_empty() {
+        if let Ok(cfg) = resolve_demo_server_cfg(&json!({}), "", "") {
+            let label = if !cfg.web_domain.is_empty() {
+                cfg.web_domain.clone()
+            } else {
+                cfg.ftp_host.clone()
+            };
+            server_entries.push((label, cfg));
+        }
+    }
+
+    if server_entries.is_empty() {
+        return json!({
+            "status": "error",
+            "message": "Chưa cấu hình Server Demo nào (vui lòng kiểm tra Cài đặt chung > Server Demo)."
+        });
+    }
+
+    // Scan each (server_idx, parent_rel_dir) at most once
+    let mut dir_cache: HashMap<(usize, String), Result<Vec<String>, String>> = HashMap::new();
+    let mut any_server_ok = false;
+    let mut first_err = String::new();
+
+    for p in &projects {
+        let rel_fwd = p.rel_path.replace('\\', "/");
+        let parent_rel = rel_fwd
+            .rsplit_once('/')
+            .map(|(par, _)| par.trim_matches('/').to_string())
+            .unwrap_or_else(|| p.category.trim_matches('/').to_string());
+
+        for (idx, (_sname, srv)) in server_entries.iter().enumerate() {
+            let key = (idx, parent_rel.clone());
+            if !dir_cache.contains_key(&key) {
+                let root = srv.ftp_root.trim_matches('/');
+                let remote_dir = match (root.is_empty(), parent_rel.is_empty()) {
+                    (true, true) => "/".to_string(),
+                    (false, true) => format!("/{}", root),
+                    (true, false) => format!("/{}", parent_rel),
+                    (false, false) => format!("/{}/{}", root, parent_rel),
+                };
+                let res = ftp_list_items_checked(srv, &remote_dir);
+                match &res {
+                    Ok(_) => any_server_ok = true,
+                    Err(e) => {
+                        if first_err.is_empty() {
+                            first_err = e.clone();
+                        }
+                    }
+                }
+                dir_cache.insert(key, res);
+            }
+        }
+    }
+
+    if !any_server_ok && !first_err.is_empty() {
+        return json!({
+            "status": "error",
+            "message": format!("Không thể kết nối tới Server Demo để quét: {}", first_err)
+        });
+    }
+
+    let mut all_configs = crate::db::get_all_projects_config_map();
+    let mut count_local = 0usize;
+    let mut count_demo = 0usize;
+    let mut count_prod = 0usize;
+    let mut results = Vec::with_capacity(projects.len());
+
+    for p in &projects {
+        let rel_fwd = p.rel_path.replace('\\', "/");
+        let parent_rel = rel_fwd
+            .rsplit_once('/')
+            .map(|(par, _)| par.trim_matches('/').to_string())
+            .unwrap_or_else(|| p.category.trim_matches('/').to_string());
+        let id_key = crate::db::make_project_db_id(&p.name, &p.category);
+        let mut proj_cfg = all_configs
+            .remove(&id_key)
+            .or_else(|| all_configs.get(&rel_fwd).cloned())
+            .or_else(|| all_configs.get(&p.name).cloned())
+            .unwrap_or_else(|| json!({}));
+
+        let has_saved_prod = proj_cfg
+            .get("deployed")
+            .and_then(|d| d.get("production"))
+            .and_then(|pr| pr.as_object())
+            .map(|m| !m.is_empty())
+            .unwrap_or(false);
+
+        let mut matched_prod: Option<(String, String, String)> = None;
+        let mut matched_demo: Option<(usize, String, &DeployServerCfg)> = None;
+
+        for (idx, (sname, srv)) in server_entries.iter().enumerate() {
+            if let Some(Ok(entries)) = dir_cache.get(&(idx, parent_rel.clone())) {
+                if let Some(up_dir) = entries
+                    .iter()
+                    .find(|e| is_uphost_archive_folder(e, &p.name))
+                {
+                    let matched_path = if parent_rel.is_empty() {
+                        up_dir.clone()
+                    } else {
+                        format!("{}/{}", parent_rel, up_dir)
+                    };
+                    matched_prod = Some((sname.clone(), matched_path, srv.id.clone()));
+                    break;
+                }
+                if matched_demo.is_none()
+                    && entries.iter().any(|e| e.eq_ignore_ascii_case(&p.name))
+                {
+                    matched_demo = Some((idx, sname.clone(), srv));
+                }
+            }
+        }
+
+        let mut status = "local";
+        let mut server_name = String::new();
+        let mut matched_folder = String::new();
+
+        if has_saved_prod || matched_prod.is_some() {
+            status = "production";
+            count_prod += 1;
+            if let Some((sname, mpath, sid)) = matched_prod {
+                server_name = sname.clone();
+                matched_folder = mpath.clone();
+
+                // Sync Production (_up / _old detected) status into SQLite so project cards update immediately
+                if !proj_cfg.is_object() {
+                    proj_cfg = json!({});
+                }
+                if let Some(map) = proj_cfg.as_object_mut() {
+                    let mut deployed = map
+                        .get("deployed")
+                        .and_then(|v| v.as_object())
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut prod_obj = deployed
+                        .get("production")
+                        .and_then(|v| v.as_object())
+                        .cloned()
+                        .unwrap_or_default();
+                    let existing_time = prod_obj
+                        .get("deploy_time")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                    prod_obj.insert("detected_from".to_string(), Value::String("demo_up_host".to_string()));
+                    prod_obj.insert("demo_server_id".to_string(), Value::String(sid));
+                    prod_obj.insert("server_name".to_string(), Value::String(sname));
+                    prod_obj.insert("matched_folder".to_string(), Value::String(mpath));
+                    prod_obj.insert("deploy_time".to_string(), Value::String(existing_time));
+                    deployed.insert("production".to_string(), Value::Object(prod_obj));
+                    deployed.remove("demo");
+                    map.insert("deployed".to_string(), Value::Object(deployed));
+                    map.insert("has_demo".to_string(), Value::Bool(false));
+                    map.insert("lock_demo".to_string(), Value::Bool(false));
+                    save_project_config_entry(&p.name, &p.category, proj_cfg);
+                }
+            } else {
+                server_name = "Production".to_string();
+                matched_folder = proj_cfg
+                    .get("prod")
+                    .and_then(|pr| pr.get("web_domain"))
+                    .and_then(|v| v.as_str())
+                    .or_else(|| {
+                        proj_cfg
+                            .get("deployed")
+                            .and_then(|d| d.get("production"))
+                            .and_then(|pr| pr.get("url"))
+                            .and_then(|v| v.as_str())
+                    })
+                    .unwrap_or(&p.name)
+                    .to_string();
+            }
+        } else if let Some((_idx, sname, srv)) = matched_demo {
+            status = "demo";
+            count_demo += 1;
+            server_name = sname.clone();
+            matched_folder = rel_fwd.clone();
+
+            let clean_host = srv
+                .web_domain
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .trim_end_matches('/')
+                .to_string();
+            let web_sub = get_web_sub_path(&srv.ftp_root);
+            let full_web_sub = match (web_sub.is_empty(), rel_fwd.is_empty()) {
+                (true, true) => String::new(),
+                (false, true) => web_sub,
+                (true, false) => rel_fwd.clone(),
+                (false, false) => format!("{}/{}", web_sub, rel_fwd),
+            };
+            let scheme = if srv.ssl { "https://" } else { "http://" };
+            let app_url = if full_web_sub.is_empty() {
+                format!("{}{}/", scheme, clean_host)
+            } else {
+                format!("{}{}/{}/", scheme, clean_host, full_web_sub)
+            };
+
+            // Sync Demo metadata into SQLite
+            if !proj_cfg.is_object() {
+                proj_cfg = json!({});
+            }
+            if let Some(map) = proj_cfg.as_object_mut() {
+                let mut deployed = map
+                    .get("deployed")
+                    .and_then(|v| v.as_object())
+                    .cloned()
+                    .unwrap_or_default();
+                let mut demo_obj = deployed
+                    .get("demo")
+                    .and_then(|v| v.as_object())
+                    .cloned()
+                    .unwrap_or_default();
+                let existing_time = demo_obj
+                    .get("deploy_time")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                demo_obj.insert("demo_server_id".to_string(), Value::String(srv.id.clone()));
+                demo_obj.insert("server_name".to_string(), Value::String(sname.clone()));
+                demo_obj.insert("url".to_string(), Value::String(app_url.clone()));
+                demo_obj.insert("matched_folder".to_string(), Value::String(rel_fwd.clone()));
+                demo_obj.insert("deploy_time".to_string(), Value::String(existing_time));
+                deployed.insert("demo".to_string(), Value::Object(demo_obj));
+                map.insert("deployed".to_string(), Value::Object(deployed));
+                map.insert("has_demo".to_string(), Value::Bool(true));
+                map.insert("demo_url".to_string(), Value::String(app_url));
+                map.insert("demo_server_id".to_string(), Value::String(srv.id.clone()));
+                map.insert("lock_demo".to_string(), Value::Bool(true));
+                save_project_config_entry(&p.name, &p.category, proj_cfg);
+            }
+        } else {
+            count_local += 1;
+            // If project previously claimed deployed.demo on a server we just scanned successfully and it's gone, clear stale demo flag
+            if let Some(prev_sid) = proj_cfg
+                .get("deployed")
+                .and_then(|d| d.get("demo"))
+                .and_then(|d| d.get("demo_server_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+            {
+                let scanned_ok = server_entries
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (_, srv))| srv.id == prev_sid || prev_sid.is_empty())
+                    .and_then(|(idx, _)| dir_cache.get(&(idx, parent_rel.clone())))
+                    .map(|r| r.is_ok())
+                    .unwrap_or(false);
+                if scanned_ok {
+                    if let Some(map) = proj_cfg.as_object_mut() {
+                        if let Some(Value::Object(dep)) = map.get_mut("deployed") {
+                            dep.remove("demo");
+                        }
+                        map.insert("has_demo".to_string(), Value::Bool(false));
+                        map.insert("lock_demo".to_string(), Value::Bool(false));
+                        save_project_config_entry(&p.name, &p.category, proj_cfg);
+                    }
+                }
+            }
+        }
+
+        results.push(json!({
+            "name": p.name,
+            "status": status,
+            "server_name": server_name,
+            "matched_folder": matched_folder
+        }));
+    }
+
+    json!({
+        "status": "success",
+        "total": results.len(),
+        "counts": {
+            "local": count_local,
+            "demo": count_demo,
+            "production": count_prod
+        },
+        "results": results
+    })
+}
+
 // ============================================================================
 // MAIN TAURI DISPATCHER & LOCAL IMAGE DATA-URL LOADER
 // ============================================================================
@@ -4355,13 +6841,27 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
             let categories = scan_categories(strict);
             let mut stats = serde_json::Map::new();
             let sizes_cache = load_sizes_cache();
+            let base_dir = get_www_base_dir();
+
             for cat in &categories {
-                let projs = scan_projects(cat);
-                let count = projs.len();
+                let cat_dir = base_dir.join(cat.replace('/', std::path::MAIN_SEPARATOR_STR));
+                let mut count = 0usize;
                 let mut total_sz = 0.0f64;
-                for p in &projs {
-                    let sz = get_cached_dir_size(Path::new(&p.path), &sizes_cache).unwrap_or(0.0);
-                    total_sz += sz;
+                if let Ok(entries) = fs::read_dir(&cat_dir) {
+                    for entry in entries.flatten() {
+                        if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                            continue;
+                        }
+                        let item = entry.file_name().to_string_lossy().to_string();
+                        if is_ignored_project_folder(&item) {
+                            continue;
+                        }
+                        count += 1;
+                        let p = entry.path();
+                        if let Some(sz) = get_cached_dir_size(&p, &sizes_cache) {
+                            total_sz += sz;
+                        }
+                    }
                 }
                 stats.insert(
                     cat.clone(),
@@ -4381,14 +6881,27 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
         "getProjects" | "listProjects" => {
             let force_refresh = get_param("refresh") == "1" || get_param("refresh") == "true";
             let cat_str = if category.is_empty() { "all" } else { category.as_str() };
-            let projects = scan_projects(cat_str);
             let mut sizes_cache = load_sizes_cache();
-            let mut result = Vec::new();
+            let projects = scan_projects_with_cache(cat_str, &sizes_cache);
+            let all_configs = crate::db::get_all_projects_config_map();
+            let sites_php_map = crate::db::get_all_projects_php_map();
+            let sys_php = get_system_php_version();
+            let re_ver = Regex::new(r"(?i)(?:php-?)?(\d+\.\d+)").unwrap();
+            let shots_map = load_screenshots_mtime_map();
+
+            let mut result = Vec::with_capacity(projects.len());
             let mut total_bytes = 0.0f64;
-            let mut sys_php = String::new();
 
             for p in projects {
-                let cfg = get_project_config_entry(&p.name, &p.category);
+                let id_key = crate::db::make_project_db_id(&p.name, &p.category);
+                let rel_fwd = p.rel_path.replace('\\', "/");
+                let cfg = all_configs
+                    .get(&id_key)
+                    .or_else(|| all_configs.get(&rel_fwd))
+                    .or_else(|| all_configs.get(&p.name))
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+
                 let is_configured = cfg.as_object().map(|m| !m.is_empty()).unwrap_or(false);
                 let mut demo_url = String::new();
                 let mut subfolder = String::new();
@@ -4397,16 +6910,23 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
                     let domain = cfg.get("domain").and_then(|v| v.as_str()).unwrap_or("");
                     if !domain.is_empty() && !subfolder.is_empty() {
                         demo_url = format!("https://{}/{}/", domain.trim_end_matches('/'), subfolder.trim_matches('/'));
+                    } else if let Some(u) = cfg.get("demo_url").and_then(|v| v.as_str()) {
+                        demo_url = u.to_string();
                     }
                 }
-                let size_bytes = get_directory_size_with_cache(Path::new(&p.path), force_refresh, &mut sizes_cache);
-                total_bytes += size_bytes;
-                let screenshot = get_screenshot_url(&p.category, &p.name);
-                let rel_fwd = p.rel_path.replace('\\', "/");
-                let (php_eff, php_short, is_custom_php, system_php) = resolve_project_php(&p);
-                if sys_php.is_empty() {
-                    sys_php = system_php;
+
+                let size_opt = if force_refresh {
+                    Some(get_directory_size_with_cache(Path::new(&p.path), true, &mut sizes_cache))
+                } else {
+                    p.size
+                };
+                if let Some(sz) = size_opt {
+                    total_bytes += sz;
                 }
+                let size_formatted = size_opt.map(|s| format_bytes(s, 1));
+                let screenshot = get_screenshot_url_from_map(&p.category, &p.name, &shots_map);
+                let (php_eff, php_short, is_custom_php, _) =
+                    resolve_project_php_fast(&p, &sites_php_map, &sys_php, &re_ver);
                 let db_env = parse_project_db_env(Path::new(&p.path));
 
                 result.push(json!({
@@ -4430,8 +6950,8 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
                     "config": cfg,
                     "subfolder": subfolder,
                     "demo_url": demo_url,
-                    "size": size_bytes,
-                    "size_formatted": format_bytes(size_bytes, 1),
+                    "size": size_opt,
+                    "size_formatted": size_formatted,
                     "screenshot": screenshot,
                     "local_url": format!("http://localhost/{}/", rel_fwd.trim_matches('/')),
                     "admin_url": format!("http://localhost/{}/admin/", rel_fwd.trim_matches('/')),
@@ -4441,7 +6961,9 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
                     "php_mode": if is_custom_php { "custom" } else { "inherit" }
                 }));
             }
-            save_sizes_cache(&sizes_cache);
+            if force_refresh {
+                save_sizes_cache(&sizes_cache);
+            }
             let proj_count = result.len();
             json!({
                 "status": "success",
@@ -4455,22 +6977,28 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
         "calculateCategorySizes" => {
             let cat = category.clone();
             let cat_str = if cat.is_empty() { "all" } else { cat.as_str() };
-            let projects = scan_projects(cat_str);
             let mut sizes_cache = load_sizes_cache();
+            let projects = scan_projects_with_cache(cat_str, &sizes_cache);
             let mut project_sizes = serde_json::Map::new();
             let mut total_bytes = 0.0f64;
             for p in projects {
                 let sz = get_directory_size_with_cache(Path::new(&p.path), false, &mut sizes_cache);
                 total_bytes += sz;
-                project_sizes.insert(p.name, json!({
-                    "size": sz,
-                    "formatted": format_bytes(sz, 1)
-                }));
+                let formatted = format_bytes(sz, 1);
+                project_sizes.insert(
+                    p.name,
+                    json!({
+                        "size": sz,
+                        "formatted": formatted,
+                        "size_formatted": formatted
+                    }),
+                );
             }
             save_sizes_cache(&sizes_cache);
             json!({
                 "status": "success",
                 "category": cat,
+                "projects": project_sizes.clone(),
                 "project_sizes": project_sizes,
                 "total_bytes": total_bytes,
                 "category_total_size_formatted": format_bytes(total_bytes, 1)
@@ -4486,32 +7014,23 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
             })
         }
         "deleteConfig" => {
-            let p_data = get_manager_data_root().join("data").join("projects.json");
-            let mut root_val = read_json_file(&p_data);
-            if let Some(map) = root_val.as_object_mut() {
-                let key1 = if category.is_empty() { project.clone() } else { format!("{}/{}", category, project) };
-                map.remove(&key1);
-                map.remove(&project);
-                write_json_file(&p_data, &root_val);
-            }
+            crate::db::delete_project_config_entry(&project, &category);
             json!({ "status": "success", "message": "Đã xóa cấu hình dự án!" })
         }
         "toggleActionLock" | "toggleLock" => {
             let lock_type = get_param("type");
-            let p_data = get_manager_data_root().join("data").join("projects.json");
-            let mut root_val = read_json_file(&p_data);
-            let key = if category.is_empty() { project.clone() } else { format!("{}/{}", category, project) };
-            let mut is_locked = false;
-            if let Some(map) = root_val.as_object_mut() {
-                let entry = map.entry(key).or_insert_with(|| json!({}));
-                if let Some(obj) = entry.as_object_mut() {
-                    let field = if lock_type == "production" { "lock_production" } else { "lock_demo" };
-                    let cur = obj.get(field).and_then(|v| v.as_bool()).unwrap_or(false);
-                    is_locked = !cur;
-                    obj.insert(field.to_string(), Value::Bool(is_locked));
-                }
-                write_json_file(&p_data, &root_val);
+            let mut cfg = get_project_config_entry(&project, &category);
+            if !cfg.is_object() {
+                cfg = json!({});
             }
+            let mut is_locked = false;
+            if let Some(obj) = cfg.as_object_mut() {
+                let field = if lock_type == "production" { "lock_production" } else { "lock_demo" };
+                let cur = obj.get(field).and_then(|v| v.as_bool()).unwrap_or(false);
+                is_locked = !cur;
+                obj.insert(field.to_string(), Value::Bool(is_locked));
+            }
+            save_project_config_entry(&project, &category, cfg);
             json!({ "status": "success", "locked": is_locked })
         }
         "saveConfig" => {
@@ -4713,17 +7232,30 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
             let db_type = get_param("db_type");
             handle_change_database_type(&project, &category, &db_type)
         }
-        "setupLocalSource" | "deployNewProject" => {
+        "setupLocalSource" => {
             let db_name = get_param("db_name");
             let force_overwrite = body_obj
                 .get("force_overwrite_db")
                 .and_then(|v| v.as_bool());
             handle_setup_local_source(&project, &category, &db_name, force_overwrite)
         }
-        "getLogs" => handle_get_logs(),
+        "deployNewProject" => {
+            let mut proj_name = get_param("projectName");
+            if proj_name.is_empty() {
+                proj_name = project.clone();
+            }
+            let source_key = get_param("sourceKey");
+            let job_id = get_param("jobId");
+            handle_deploy_new_project(&proj_name, &category, &source_key, &job_id)
+        }
+        "getLogs" => {
+            let job_id = get_param("jobId");
+            handle_get_logs(&job_id)
+        }
         "deleteLog" => {
             let file = get_param("file");
-            handle_delete_log(&file)
+            let job_id = get_param("jobId");
+            handle_delete_log(&file, &job_id)
         }
         "captureScreenshot" => handle_capture_screenshot(&project, &category),
         "deleteScreenshot" => handle_delete_screenshot(&project, &category),
@@ -4805,19 +7337,11 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
             json!({ "status": "success", "message": "Đã đồng bộ Database thành công!" })
         }
         "testDemoConnection" => handle_test_demo_connection(&body_obj),
-        "checkCategoryDeployStatus" => {
-            let cat_str = if category.is_empty() { "all" } else { category.as_str() };
-            let projects = scan_projects(cat_str);
-            let mut statuses = HashMap::new();
-            for p in projects {
-                let cfg = get_project_config_entry(&p.name, &p.category);
-                let has_cfg = cfg.as_object().map(|m| !m.is_empty()).unwrap_or(false);
-                statuses.insert(p.name, has_cfg);
-            }
-            json!({ "status": "success", "data": statuses })
-        }
-        "preCheckDeployDemo" => {
-            json!({ "status": "success", "exists": false, "ready": true })
+        "checkCategoryDeployStatus" => handle_check_category_deploy_status(&category, &project),
+        "preCheckDeployDemo" => handle_pre_check_deploy_demo(&body_obj),
+        "pushTools" => {
+            let job_id = get_param("jobId");
+            handle_push_tools(&project, &category, &job_id)
         }
         "reindexProjects" => {
             let _ = scan_categories(false);
@@ -4938,13 +7462,8 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
                 "logs": ["Cấu hình SSL Let's Encrypt hoàn tất"]
             })
         }
-        "cleanupTools" => {
-            json!({ "status": "success", "message": "Đã dọn dẹp các tệp công cụ tạm thời trên máy chủ!" })
-        }
-        "deploy" | "deployDemo" => {
-            add_project_history(&project, &category, "Deploy Demo", "Triển khai lên Server Demo");
-            json!({ "status": "success", "message": format!("Đã thực thi triển khai dự án {}!", project) })
-        }
+        "cleanupTools" => handle_cleanup_tools(&project, &category),
+        "deploy" | "deployDemo" => handle_deploy_demo_or_prod(&action, &project, &category, &body_obj),
         _ => json!({
             "status": "success",
             "message": format!("Action '{}' processed by Rust backend", action)

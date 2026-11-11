@@ -44,6 +44,7 @@ const ICONS = {
   home: `<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>`,
   terminal: `<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>`,
   check: `<polyline points="20 6 9 17 4 12"/>`,
+  pipette: `<path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/>`,
   alert: `<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`,
   info: `<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>`,
 };
@@ -74,6 +75,7 @@ let appState = {
   activeFontSite: null,
   activeNodeSite: null,
   activeConfigPath: "",
+  activeQuickPasteServerId: null,
   localFonts: [],
   googleFonts: [],
   selectedFontMode: "local",
@@ -195,7 +197,7 @@ function bindNavigation() {
 
       if (tabKey === "sites") refreshSitesList();
       if (tabKey === "mail") refreshEmailsList();
-      if (tabKey === "store") renderStoreItems(appState.activeStoreCategory);
+      if (tabKey === "store") refreshStoreItems();
       if (tabKey === "pro") refreshProSuite();
       if (tabKey === "about") checkUpdateInfo();
     });
@@ -210,8 +212,14 @@ function bindStoreTabs() {
       btn.classList.add("active");
       const cat = btn.getAttribute("data-cat") || "php";
       appState.activeStoreCategory = cat;
-      renderStoreItems(cat);
+      refreshStoreItems();
     });
+  });
+
+  window.addEventListener("focus", () => {
+    if (document.getElementById("tab-store")?.classList.contains("active")) {
+      refreshStoreItems();
+    }
   });
 }
 
@@ -325,9 +333,20 @@ function updateServiceCard(cardId, switchId, pillId, sbDotId, running) {
 function populateVersionSelect(selectId, list, activeVal, emptyText) {
   const sel = document.getElementById(selectId);
   if (!sel) return;
+  if (document.activeElement === sel || sel.dataset.switching === "1") return;
   const items = Array.isArray(list) ? list : [];
   if (items.length === 0) {
     sel.innerHTML = `<option value="">${emptyText}</option>`;
+    return;
+  }
+  const currentOptions = Array.from(sel.options).map((o) => o.value);
+  const sameList =
+    currentOptions.length === items.length &&
+    currentOptions.every((v, idx) => v === items[idx]);
+  if (sameList) {
+    if (activeVal && sel.value !== activeVal) {
+      sel.value = activeVal;
+    }
     return;
   }
   sel.innerHTML = items
@@ -354,6 +373,48 @@ function bindServiceEvents() {
       setHeaderStatus("Sẵn sàng");
     }
   };
+
+  const switchSvcVersion = async (serviceName, selectId, label) => {
+    const sel = document.getElementById(selectId);
+    const ver = sel?.value || "";
+    if (!sel || !ver) return;
+    sel.dataset.switching = "1";
+    sel.disabled = true;
+    setHeaderStatus(`Đang chuyển ${label} sang ${ver}...`, true);
+    try {
+      const st = await tauriInvoke("switch_service_version", { serviceName, version: ver });
+      appState.status = st;
+      if (serviceName === "php") appState.settings.activePhpVersion = ver;
+      if (serviceName === "mysql") appState.settings.activeMysqlVersion = ver;
+      if (serviceName === "web") {
+        if ((appState.settings.defaultWebServer || "").toLowerCase() === "nginx") {
+          appState.settings.activeNginxVersion = ver;
+        } else {
+          appState.settings.activeApacheVersion = ver;
+        }
+      }
+      sel.dataset.switching = "0";
+      sel.disabled = false;
+      renderServiceStatus(st);
+      setHeaderStatus("Sẵn sàng");
+      showToast(`Đã chuyển ${label} sang ${ver}`, "success");
+    } catch (e) {
+      sel.dataset.switching = "0";
+      sel.disabled = false;
+      showToast(String(e), "error");
+      setHeaderStatus("Sẵn sàng");
+    }
+  };
+
+  document.getElementById("selWebVersion")?.addEventListener("change", () =>
+    switchSvcVersion("web", "selWebVersion", "Web Server")
+  );
+  document.getElementById("selPhpVersion")?.addEventListener("change", () =>
+    switchSvcVersion("php", "selPhpVersion", "PHP FastCGI")
+  );
+  document.getElementById("selMysqlVersion")?.addEventListener("change", () =>
+    switchSvcVersion("mysql", "selMysqlVersion", "MySQL")
+  );
 
   document.getElementById("btnToggleWeb")?.addEventListener("click", () =>
     toggleSvc("web", "selWebVersion", "btnToggleWeb", "Web Server")
@@ -481,7 +542,38 @@ function populateGeneralSettingsForm() {
   document.getElementById("cfgAutoOptimizePhp").checked = s.autoOptimizePhp !== false;
   document.getElementById("cfgAdminVhostMode").checked = !!s.adminVhostMode;
 
+  refreshColorPickerStatusUI();
   loadProSettingsToForm();
+}
+
+async function refreshColorPickerStatusUI(statusObj = null) {
+  const el = document.getElementById("cfgColorHotkeyStatus");
+  const headerBtn = document.getElementById("btnColorPicker");
+  try {
+    const st = statusObj || await tauriInvoke("get_color_picker_status");
+    if (headerBtn && st?.hotkey) {
+      headerBtn.title = `Lấy mã màu màn hình (${st.hotkey})`;
+    }
+    if (!el || !st) return;
+    if (st.registered) {
+      el.style.color = "var(--green, #10b981)";
+      el.textContent = `● Phím tắt toàn cục ${st.hotkey} đang hoạt động`;
+    } else if (st.error) {
+      el.style.color = "#f59e0b";
+      el.textContent = `⚠ ${st.error}`;
+    } else {
+      el.style.color = "var(--text-muted)";
+      el.textContent = st.hotkey ? `Phím tắt: ${st.hotkey}` : "Chưa đặt phím tắt";
+    }
+  } catch (_) {}
+}
+
+async function triggerColorPicker() {
+  try {
+    await tauriInvoke("start_color_picker", { hideTray: false });
+  } catch (err) {
+    showToast("Lỗi mở công cụ lấy mã màu: " + err, "error");
+  }
 }
 
 appState.demoServers = [];
@@ -505,13 +597,12 @@ async function loadProSettingsToForm() {
 
       // Card 3: RBW Pro Scaffolding Settings
       if (document.getElementById("cfgSourcePath")) document.getElementById("cfgSourcePath").value = cfg.source_path || "";
-      if (document.getElementById("cfgSourceFolderName")) document.getElementById("cfgSourceFolderName").value = cfg.source_folder_name || "";
       if (document.getElementById("cfgSourceDbName")) document.getElementById("cfgSourceDbName").value = cfg.source_db_name || "";
       if (document.getElementById("cfgEditorPath")) document.getElementById("cfgEditorPath").value = cfg.editor_path || "";
-      if (document.getElementById("cfgFontSourcePath")) document.getElementById("cfgFontSourcePath").value = cfg.font_source_path || "";
+      if (document.getElementById("cfgFontSourcePath")) document.getElementById("cfgFontSourcePath").value = cfg.font_source_path || appState.demoConfig?.FontFolderPath || "";
       if (document.getElementById("cfgImagesPoolPath")) document.getElementById("cfgImagesPoolPath").value = cfg.images_pool_path || "";
       if (document.getElementById("cfgMonthFolderFormat")) document.getElementById("cfgMonthFolderFormat").value = cfg.month_folder_format || "YYYY_MM";
-      if (document.getElementById("cfgGeminiKey")) document.getElementById("cfgGeminiKey").value = cfg.gemini_api_key || "";
+      if (document.getElementById("cfgGeminiKey")) document.getElementById("cfgGeminiKey").value = cfg.gemini_api_key || cfg.gemini_key || "";
 
       // Card 2: Demo Servers
       if (Array.isArray(cfg.demo_list) && cfg.demo_list.length > 0) {
@@ -534,6 +625,11 @@ async function loadProSettingsToForm() {
         appState.demoServers = [primary];
         appState.defaultDemoId = primary.id;
       }
+      const dbModeSel = document.getElementById("cfgGlobalDbNamingMode");
+      if (dbModeSel) {
+        const globalMode = cfg.db_naming_mode ?? appState.demoConfig?.DbNamingMode ?? appState.demoServers[0]?.db_naming_mode ?? 0;
+        dbModeSel.value = String(Number(globalMode) || 0);
+      }
       renderDemoServersSettingsList();
     }
   } catch (err) {
@@ -553,9 +649,176 @@ async function loadProSettingsToForm() {
       };
       appState.demoServers = [primary];
       appState.defaultDemoId = primary.id;
+      const dbModeSel = document.getElementById("cfgGlobalDbNamingMode");
+      if (dbModeSel) {
+        dbModeSel.value = String(primary.db_naming_mode || 0);
+      }
       renderDemoServersSettingsList();
     }
   }
+}
+
+function parseDemoServerQuickText(rawText) {
+  const result = {
+    name: "",
+    ftp_host: "",
+    web_domain: "",
+    ftp_user: "",
+    ftp_pass: "",
+    da_port: "",
+    ftp_root: "",
+  };
+  if (!rawText || !rawText.trim()) return result;
+
+  const text = rawText
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
+    .replace(/\[([^\]]+)\]\((?:mailto:)?([^)]+)\)/g, "$1")
+    .trim();
+
+  // 1. Try JSON first
+  try {
+    const obj = JSON.parse(text);
+    if (typeof obj === "object" && obj !== null) {
+      result.ftp_host = String(obj.ftp_host || obj.host || obj.hostname || obj.server || "").trim();
+      result.web_domain = String(obj.web_domain || obj.domain || "").trim();
+      result.ftp_user = String(obj.ftp_user || obj.user || obj.username || "").trim();
+      result.ftp_pass = String(obj.ftp_pass || obj.pass || obj.password || "").trim();
+      result.da_port = String(obj.da_port || obj.port || "").trim();
+      result.ftp_root = String(obj.ftp_root || obj.root || "").trim();
+      result.name = String(obj.name || "").trim();
+      return result;
+    }
+  } catch (_) {}
+
+  const normalizeKey = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/^[-*•\s]+/, "")
+      .replace(/[:：=\t]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const extractIp = (str) => {
+    const m = String(str || "").match(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/);
+    return m ? m[1] : "";
+  };
+
+  const cleanHostVal = (str) => {
+    const s = String(str || "").trim();
+    const ip = extractIp(s);
+    if (ip) return ip;
+    return s
+      .split(/\s+(?:hoặc|hay|or)\s+|[,;\s]+/i)[0]
+      .replace(/^(?:https?|ftp):\/\//i, "")
+      .replace(/\/.*$/, "")
+      .split(":")[0]
+      .trim();
+  };
+
+  const cleanDomainVal = (str) =>
+    cleanHostVal(str).replace(/^(?:ftp\.|www\.)/i, "").trim();
+
+  const keyLabels = [
+    "tài khoản ftp", "ftp username", "username ftp", "ftp user", "user ftp",
+    "directadmin user", "cpanel user", "hosting user", "user hosting", "panel user",
+    "user server", "server user", "da user", "user da", "tên đăng nhập", "tài khoản",
+    "user name", "username", "user",
+    "mật khẩu ftp", "ftp password", "password ftp", "ftp pass", "pass ftp",
+    "directadmin pass", "cpanel pass", "hosting pass", "pass hosting", "panel pass",
+    "server password", "password server", "server pass", "pass server", "mật khẩu server",
+    "password da", "da pass", "pass da", "mật khẩu", "password", "pass",
+    "link đăng nhập", "url đăng nhập", "link quản trị", "link hosting", "link server",
+    "hosting url", "control panel", "directadmin", "cpanel", "link login",
+    "ftp server", "ftp host", "host name", "hostname", "server name",
+    "server ip", "ip server", "host ip", "ip host", "ftp ip", "máy chủ", "host", "server", "ip",
+    "web domain", "tên miền", "website", "domain",
+    "directadmin port", "port directadmin", "api port", "da port", "port", "cổng",
+    "đường dẫn ftp root", "đường dẫn ftp", "ftp root", "root path",
+  ];
+
+  const keyPattern = keyLabels
+    .map((k) => k.replace(/\s+/g, "\\s*"))
+    .join("|");
+  const fullKeyRegex = new RegExp(`^(?:${keyPattern})$`, "i");
+  const inlineRegex = new RegExp(
+    `^[-*•\\s]*(${keyPattern})(?:\\s*[:：=]\\s*|\\t+|\\s+)(.+)$`,
+    "i"
+  );
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  const pairs = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Title line: "Hosting cho tên miền demo92.nasanivietnam.net"
+    if (/hosting\s+cho\s+tên\s+miền/i.test(line)) {
+      const afterTitle = line.split(/hosting\s+cho\s+tên\s+miền/i)[1] || "";
+      const d = cleanDomainVal(afterTitle);
+      if (d) result.web_domain = d;
+      continue;
+    }
+
+    // Pure section header lines (not a key-value pair)
+    const headerNorm = normalizeKey(line.replace(/[=_\-\[\]]/g, ""));
+    if (/^(thông\s*tin\s*tài\s*khoản\s*ftp|thông\s*tin\s*ftp|ftp\s*account|ftp\s*information|ftp|hosting|thông\s*tin\s*hosting|thông\s*tin\s*quản\s*trị)$/i.test(headerNorm)) {
+      continue;
+    }
+
+    const norm = normalizeKey(line);
+    if (fullKeyRegex.test(norm)) {
+      const nextLine = lines[i + 1];
+      if (nextLine && !fullKeyRegex.test(normalizeKey(nextLine))) {
+        pairs.push({ key: norm, val: nextLine.trim() });
+        i++;
+      }
+      continue;
+    }
+
+    const m = line.match(inlineRegex);
+    if (m) {
+      const kPart = normalizeKey(m[1]);
+      const vPart = m[2].trim();
+      if (vPart && !fullKeyRegex.test(normalizeKey(vPart))) {
+        pairs.push({ key: kPart, val: vPart });
+      }
+    }
+  }
+
+  for (const { key, val } of pairs) {
+    if (/^(web\s*domain|tên\s*miền|website|domain)$/i.test(key)) {
+      const d = cleanDomainVal(val);
+      if (d) result.web_domain = d;
+    } else if (/^(link\s*đăng\s*nhập|url\s*đăng\s*nhập|link\s*quản\s*trị|link\s*hosting|link\s*server|hosting\s*url|control\s*panel|directadmin|cpanel|link\s*login)$/i.test(key)) {
+      const portM = val.match(/:(\d{2,5})\b/);
+      if (portM && !result.da_port) result.da_port = portM[1];
+      const hostCandidate = cleanHostVal(val);
+      if (hostCandidate && !result.ftp_host) result.ftp_host = hostCandidate;
+    } else if (/^(ftp\s*server|ftp\s*host|host\s*name|hostname|server\s*name|server\s*ip|ip\s*server|host\s*ip|ip\s*host|ftp\s*ip|máy\s*chủ|host|server|ip)$/i.test(key)) {
+      const portM = val.match(/:(\d{2,5})\b/);
+      if (portM && !result.da_port) result.da_port = portM[1];
+      const h = cleanHostVal(val);
+      if (h) result.ftp_host = h;
+    } else if (/user|tài\s*khoản|tên\s*đăng\s*nhập/i.test(key)) {
+      const u = val.trim();
+      if (u) result.ftp_user = u;
+    } else if (/pass|mật\s*khẩu/i.test(key)) {
+      const p = val.trim();
+      if (p) result.ftp_pass = p;
+    } else if (/port|cổng/i.test(key)) {
+      const portM = val.match(/\d{2,5}/);
+      if (portM) result.da_port = portM[0];
+    } else if (/ftp\s*root|root\s*path|đường\s*dẫn/i.test(key)) {
+      const r = val.trim();
+      if (r) result.ftp_root = r;
+    }
+  }
+
+  return result;
 }
 
 function renderDemoServersSettingsList() {
@@ -565,7 +828,7 @@ function renderDemoServersSettingsList() {
   if (!appState.demoServers || appState.demoServers.length === 0) {
     container.innerHTML = `
       <div style="padding: 24px; text-align: center; border: 1px dashed var(--border); border-radius: 8px; color: var(--text-muted);">
-        Chưa có server demo nào được thêm. Bấm <strong>Thêm Server Demo</strong> hoặc <strong>Dán nhanh</strong> để bắt đầu.
+        Chưa có server demo nào được thêm. Bấm <strong>Thêm Server Demo</strong> để bắt đầu.
       </div>
     `;
     return;
@@ -574,15 +837,17 @@ function renderDemoServersSettingsList() {
   container.innerHTML = appState.demoServers.map((srv, idx) => {
     const isDefault = srv.id === appState.defaultDemoId || (!appState.defaultDemoId && idx === 0);
     const borderStyle = isDefault ? "border: 1px solid var(--accent); background: rgba(99, 102, 241, 0.04);" : "border: 1px solid var(--border); background: var(--surface);";
+    const cardTitle = srv.web_domain || srv.ftp_host || srv.name || ("Server Demo #" + (idx + 1));
     return `
       <div class="demo-server-card" data-srv-id="${srv.id}" style="${borderStyle} border-radius: 10px; padding: 14px 16px; margin-bottom: 4px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 15px; font-weight: 700; color: var(--text);">${escapeHtml(srv.name || "Server Demo #" + (idx + 1))}</span>
+            <span class="srv-card-title" data-srv-id="${srv.id}" style="font-size: 15px; font-weight: 700; color: var(--text);">${escapeHtml(cardTitle)}</span>
             ${isDefault ? '<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 11px; padding: 2px 7px; border-radius: 4px; font-weight: 700;">⭐ MẶC ĐỊNH</span>' : ''}
           </div>
           <div style="display: flex; gap: 6px;">
             ${!isDefault ? `<button type="button" class="btn btn-ghost btn-xs btn-set-default" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px;">⭐ Đặt mặc định</button>` : ''}
+            <button type="button" class="btn btn-ghost btn-xs btn-quick-paste-srv" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px;">📋 Dán nhanh</button>
             <button type="button" class="btn btn-ghost btn-xs btn-test-conn" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px;">🔌 Test kết nối</button>
             <button type="button" class="btn btn-ghost btn-xs btn-del-srv" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px; color: #ef4444;">🗑️ Xóa</button>
           </div>
@@ -590,42 +855,31 @@ function renderDemoServersSettingsList() {
 
         <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
           <div class="field" style="margin-bottom: 0;">
-            <label style="font-size: 11px; color: var(--text-muted);">Tên gợi nhớ máy chủ</label>
-            <input type="text" class="input srv-input" data-srv-id="${srv.id}" data-field="name" value="${escapeHtml(srv.name || '')}" placeholder="Server Demo 1" style="height: 32px; font-size: 12px;" />
+            <label style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Host / IP</label>
+            <input type="text" class="input srv-input" data-srv-id="${srv.id}" data-field="ftp_host" value="${escapeHtml(srv.ftp_host || '')}" placeholder="210.2.64.70" style="height: 32px; font-size: 12px;" />
           </div>
           <div class="field" style="margin-bottom: 0;">
-            <label style="font-size: 11px; color: var(--text-muted);">Host FTP / IP máy chủ</label>
-            <input type="text" class="input srv-input" data-srv-id="${srv.id}" data-field="ftp_host" value="${escapeHtml(srv.ftp_host || '')}" placeholder="ftp.domain.com hoặc 123.45.67.89" style="height: 32px; font-size: 12px;" />
-          </div>
-          <div class="field" style="margin-bottom: 0;">
-            <label style="font-size: 11px; color: var(--text-muted);">Tên miền Web Demo (Domain)</label>
+            <label style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Tên miền (Mặc định)</label>
             <input type="text" class="input srv-input" data-srv-id="${srv.id}" data-field="web_domain" value="${escapeHtml(srv.web_domain || '')}" placeholder="demo.domain.com" style="height: 32px; font-size: 12px;" />
           </div>
           <div class="field" style="margin-bottom: 0;">
-            <label style="font-size: 11px; color: var(--text-muted);">FTP / DirectAdmin Username</label>
-            <input type="text" class="input srv-input" data-srv-id="${srv.id}" data-field="ftp_user" value="${escapeHtml(srv.ftp_user || '')}" placeholder="admin hoặc da_user" style="height: 32px; font-size: 12px;" />
+            <label style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Username</label>
+            <input type="text" class="input srv-input" data-srv-id="${srv.id}" data-field="ftp_user" value="${escapeHtml(srv.ftp_user || '')}" placeholder="demo92y2026" style="height: 32px; font-size: 12px;" />
           </div>
           <div class="field" style="margin-bottom: 0;">
-            <label style="font-size: 11px; color: var(--text-muted);">Mật khẩu (FTP / DirectAdmin)</label>
+            <label style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Password</label>
             <div class="input-group">
               <input type="password" class="input srv-input" data-srv-id="${srv.id}" data-field="ftp_pass" value="${escapeHtml(srv.ftp_pass || '')}" placeholder="••••••••" style="height: 32px; font-size: 12px;" />
               <button class="icon-btn h32 btn-toggle-pass" type="button" title="Hiện / Ẩn"><i data-icon="eye" data-size="13"></i></button>
             </div>
           </div>
           <div class="field" style="margin-bottom: 0;">
-            <label style="font-size: 11px; color: var(--text-muted);">Port DirectAdmin API</label>
-            <input type="text" class="input srv-input" data-srv-id="${srv.id}" data-field="da_port" value="${escapeHtml(srv.da_port || '2222')}" placeholder="2222" style="height: 32px; font-size: 12px;" />
-          </div>
-          <div class="field" style="margin-bottom: 0; grid-column: span 2;">
-            <label style="font-size: 11px; color: var(--text-muted);">Đường dẫn FTP Root</label>
-            <input type="text" class="input srv-input" data-srv-id="${srv.id}" data-field="ftp_root" value="${escapeHtml(srv.ftp_root || '/domains/{domain}/public_html')}" placeholder="/domains/{domain}/public_html" style="height: 32px; font-size: 12px;" />
+            <label style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Port (DA)</label>
+            <input type="text" class="input srv-input" data-srv-id="${srv.id}" data-field="da_port" value="${escapeHtml(srv.da_port || '2222')}" placeholder="1111" style="height: 32px; font-size: 12px;" />
           </div>
           <div class="field" style="margin-bottom: 0;">
-            <label style="font-size: 11px; color: var(--text-muted);">Quy tắc tạo Database DirectAdmin</label>
-            <select class="select srv-input" data-srv-id="${srv.id}" data-field="db_naming_mode" style="height: 32px; font-size: 12px;">
-              <option value="0" ${Number(srv.db_naming_mode) === 0 ? 'selected' : ''}>Standard ({user}_{dbname})</option>
-              <option value="1" ${Number(srv.db_naming_mode) === 1 ? 'selected' : ''}>Direct ({dbname})</option>
-            </select>
+            <label style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">FTP Root</label>
+            <input type="text" class="input srv-input" data-srv-id="${srv.id}" data-field="ftp_root" value="${escapeHtml(srv.ftp_root || '/domains/{domain}/public_html')}" placeholder="/domains/{domain}/public_html" style="height: 32px; font-size: 12px;" />
           </div>
         </div>
       </div>
@@ -643,6 +897,15 @@ function renderDemoServersSettingsList() {
       const targetSrv = appState.demoServers.find((s) => s.id === sId);
       if (targetSrv && field) {
         targetSrv[field] = e.target.value;
+        if (field === "ftp_user") {
+          targetSrv.da_user = e.target.value;
+        }
+        if (field === "web_domain" || field === "ftp_host") {
+          const nextTitle = targetSrv.web_domain || targetSrv.ftp_host || targetSrv.name || "Server Demo";
+          targetSrv.name = nextTitle;
+          const titleEl = container.querySelector(`.srv-card-title[data-srv-id="${sId}"]`);
+          if (titleEl) titleEl.textContent = nextTitle;
+        }
       }
     });
   });
@@ -655,6 +918,35 @@ function renderDemoServersSettingsList() {
       if (inp) {
         inp.type = inp.type === "password" ? "text" : "password";
       }
+    });
+  });
+
+  // Quick paste per-server button
+  container.querySelectorAll(".btn-quick-paste-srv").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-id");
+      const srv = appState.demoServers.find((s) => s.id === id);
+      if (!srv) return;
+      appState.activeQuickPasteServerId = id;
+      const titleEl = document.getElementById("quickPasteServerTitle");
+      if (titleEl) {
+        titleEl.textContent = `Dán nhanh cấu hình → ${srv.name || "Server Demo"}`;
+      }
+      const textarea = document.getElementById("txtQuickPasteServer");
+      if (textarea) {
+        let clipText = "";
+        try {
+          if (navigator.clipboard && navigator.clipboard.readText) {
+            clipText = await navigator.clipboard.readText();
+          }
+        } catch (_) {}
+        textarea.value = clipText || "";
+      }
+      openModal("modalQuickPasteServer");
+      setTimeout(() => {
+        textarea?.focus();
+        textarea?.select();
+      }, 30);
     });
   });
 
@@ -734,6 +1026,7 @@ function bindGeneralEvents() {
   document.getElementById("btnAddDemoServer")?.addEventListener("click", () => {
     const newId = "srv_" + Date.now();
     const newIdx = appState.demoServers.length + 1;
+    const globalDbMode = Number(document.getElementById("cfgGlobalDbNamingMode")?.value || 0);
     appState.demoServers.push({
       id: newId,
       name: `Server Demo #${newIdx}`,
@@ -744,77 +1037,10 @@ function bindGeneralEvents() {
       ftp_root: "/domains/{domain}/public_html",
       da_user: "",
       da_port: "2222",
-      db_naming_mode: 0
+      db_naming_mode: globalDbMode
     });
     if (!appState.defaultDemoId) appState.defaultDemoId = newId;
     renderDemoServersSettingsList();
-  });
-
-  // Quick Paste Demo Server Button
-  document.getElementById("btnQuickPasteServer")?.addEventListener("click", async () => {
-    let clipText = "";
-    try {
-      if (navigator.clipboard && navigator.clipboard.readText) {
-        clipText = await navigator.clipboard.readText();
-      }
-    } catch (_) {}
-
-    const text = prompt("Dán thông tin cấu hình FTP / DirectAdmin vào đây:\n(Hỗ trợ định dạng dạng: Host: ..., User: ..., Pass: ..., Domain: ... hoặc JSON)", clipText || "");
-    if (!text || !text.trim()) return;
-
-    let parsed = {
-      id: "srv_" + Date.now(),
-      name: "Server Demo " + (appState.demoServers.length + 1),
-      ftp_host: "",
-      web_domain: "",
-      ftp_user: "",
-      ftp_pass: "",
-      ftp_root: "/domains/{domain}/public_html",
-      da_user: "",
-      da_port: "2222",
-      db_naming_mode: 0
-    };
-
-    // Try JSON
-    try {
-      const obj = JSON.parse(text);
-      if (typeof obj === "object" && obj !== null) {
-        parsed.ftp_host = obj.ftp_host || obj.host || obj.server || "";
-        parsed.web_domain = obj.web_domain || obj.domain || "";
-        parsed.ftp_user = obj.ftp_user || obj.user || obj.username || "";
-        parsed.ftp_pass = obj.ftp_pass || obj.pass || obj.password || "";
-        parsed.da_port = obj.da_port || obj.port || "2222";
-        parsed.ftp_root = obj.ftp_root || "/domains/{domain}/public_html";
-        parsed.name = obj.name || `Server ${parsed.web_domain || parsed.ftp_host}`;
-      }
-    } catch (_) {
-      // Regex parsing lines
-      const hostMatch = text.match(/(?:host|server|máy chủ|ftp)[:\s=]+([^\r\n]+)/i);
-      const userMatch = text.match(/(?:user|username|tài khoản)[:\s=]+([^\r\n]+)/i);
-      const passMatch = text.match(/(?:pass|password|mật khẩu)[:\s=]+([^\r\n]+)/i);
-      const domainMatch = text.match(/(?:domain|tên miền|web)[:\s=]+([^\r\n]+)/i);
-      const portMatch = text.match(/(?:port|cổng)[:\s=]+([^\r\n]+)/i);
-
-      if (hostMatch) parsed.ftp_host = hostMatch[1].trim();
-      if (userMatch) parsed.ftp_user = userMatch[1].trim();
-      if (passMatch) parsed.ftp_pass = passMatch[1].trim();
-      if (domainMatch) parsed.web_domain = domainMatch[1].trim();
-      if (portMatch) parsed.da_port = portMatch[1].trim();
-      parsed.da_user = parsed.ftp_user;
-      if (parsed.web_domain || parsed.ftp_host) {
-        parsed.name = `Server ${parsed.web_domain || parsed.ftp_host}`;
-      }
-    }
-
-    if (!parsed.ftp_host && !parsed.ftp_user) {
-      showToast("Không tìm thấy thông tin Host hoặc User hợp lệ trong nội dung đã dán!", "warning");
-      return;
-    }
-
-    appState.demoServers.push(parsed);
-    if (!appState.defaultDemoId) appState.defaultDemoId = parsed.id;
-    renderDemoServersSettingsList();
-    showToast(`Đã nhận diện thành công server: ${parsed.name}`, "success");
   });
 
   // Browse Directory handlers for RBW Pro Card 3
@@ -855,6 +1081,23 @@ function bindGeneralEvents() {
     if (inp) inp.type = inp.type === "password" ? "text" : "password";
   });
 
+  document.getElementById("btnColorPicker")?.addEventListener("click", triggerColorPicker);
+  document.getElementById("btnTestColorPicker")?.addEventListener("click", triggerColorPicker);
+
+  document.getElementById("cfgColorHotkey")?.addEventListener("keydown", (e) => {
+    if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
+    if (!e.ctrlKey && !e.altKey && !e.shiftKey && !/^F\d{1,2}$/i.test(e.key)) return;
+    e.preventDefault();
+    const parts = [];
+    if (e.ctrlKey) parts.push("Ctrl");
+    if (e.altKey) parts.push("Alt");
+    if (e.shiftKey) parts.push("Shift");
+    let k = e.key.length === 1 ? e.key.toUpperCase() : e.key.toUpperCase();
+    if (k === " ") k = "Space";
+    parts.push(k);
+    e.target.value = parts.join("+");
+  });
+
   // Save General & RBW Pro Settings
   document.getElementById("btnSaveGeneral")?.addEventListener("click", async () => {
     const newSettings = {
@@ -875,6 +1118,16 @@ function bindGeneralEvents() {
       activeMysqlVersion: document.getElementById("selMysqlVersion")?.value || appState.settings.activeMysqlVersion || "",
     };
 
+    const globalDbNamingMode = Number(document.getElementById("cfgGlobalDbNamingMode")?.value || 0);
+    appState.demoServers = (appState.demoServers || []).map((s, idx) => ({
+      ...s,
+      name: s.web_domain || s.ftp_host || s.name || `Server Demo #${idx + 1}`,
+      da_user: s.da_user || s.ftp_user || "",
+      ftp_root: s.ftp_root || "/domains/{domain}/public_html",
+      da_port: s.da_port || "2222",
+      db_naming_mode: globalDbNamingMode,
+    }));
+
     const defaultSrv = appState.demoServers.find((s) => s.id === appState.defaultDemoId) || appState.demoServers[0] || {};
 
     const newDemo = {
@@ -885,9 +1138,12 @@ function bindGeneralEvents() {
       FtpRootPath: defaultSrv.ftp_root || "/domains/{domain}/public_html",
       DaUser: defaultSrv.da_user || defaultSrv.ftp_user || "",
       DaPort: defaultSrv.da_port || "2222",
-      DbNamingMode: Number(defaultSrv.db_naming_mode) || 0,
+      DbNamingMode: globalDbNamingMode,
       FontFolderPath: document.getElementById("cfgFontSourcePath")?.value.trim() || "",
     };
+
+    const sourcePathVal = document.getElementById("cfgSourcePath")?.value.trim() || "";
+    const derivedSourceFolderName = sourcePathVal.split(/[\\/]/).filter(Boolean).pop() || "";
 
     const proPayload = {
       demo_list: appState.demoServers,
@@ -899,15 +1155,16 @@ function bindGeneralEvents() {
       ftp_root: defaultSrv.ftp_root || "/domains/{domain}/public_html",
       da_user: defaultSrv.da_user || defaultSrv.ftp_user || "",
       da_port: defaultSrv.da_port || "2222",
-      db_naming_mode: Number(defaultSrv.db_naming_mode) || 0,
-      source_path: document.getElementById("cfgSourcePath")?.value.trim() || "",
-      source_folder_name: document.getElementById("cfgSourceFolderName")?.value.trim() || "",
+      db_naming_mode: globalDbNamingMode,
+      source_path: sourcePathVal,
+      source_folder_name: derivedSourceFolderName,
       source_db_name: document.getElementById("cfgSourceDbName")?.value.trim() || "",
       editor_path: document.getElementById("cfgEditorPath")?.value.trim() || "",
       font_source_path: document.getElementById("cfgFontSourcePath")?.value.trim() || "",
       images_pool_path: document.getElementById("cfgImagesPoolPath")?.value.trim() || "",
       month_folder_format: document.getElementById("cfgMonthFolderFormat")?.value || "YYYY_MM",
       gemini_api_key: document.getElementById("cfgGeminiKey")?.value.trim() || "",
+      gemini_key: document.getElementById("cfgGeminiKey")?.value.trim() || "",
     };
 
     try {
@@ -1400,6 +1657,17 @@ function bindMailEvents() {
 }
 
 /* STORE DOWNLOADS */
+async function refreshStoreItems() {
+  renderStoreItems(appState.activeStoreCategory);
+  try {
+    const items = await tauriInvoke("get_store_items");
+    if (Array.isArray(items)) {
+      appState.storeItems = items;
+      renderStoreItems(appState.activeStoreCategory);
+    }
+  } catch (_) {}
+}
+
 function renderStoreItems(category) {
   const catMeta = {
     php: { icon: "code", tile: "tile-violet" },
@@ -1459,6 +1727,7 @@ function openModal(id) {
 }
 
 function closeModal(id) {
+  if (id === "modalDeployDemo") stopMainDeployTimer();
   document.getElementById(id)?.classList.remove("open");
 }
 
@@ -1528,10 +1797,60 @@ function bindModalEvents() {
     showToast("Đã lưu cấu hình Node.js", "success");
   });
 
+  document.getElementById("btnApplyQuickPasteServer")?.addEventListener("click", () => {
+    const targetId = appState.activeQuickPasteServerId;
+    const srv = appState.demoServers.find((s) => s.id === targetId);
+    if (!srv) {
+      closeModal("modalQuickPasteServer");
+      return;
+    }
+
+    const rawText = document.getElementById("txtQuickPasteServer")?.value || "";
+    const parsed = parseDemoServerQuickText(rawText);
+    const hasData =
+      parsed.ftp_host ||
+      parsed.ftp_user ||
+      parsed.ftp_pass ||
+      parsed.web_domain ||
+      parsed.da_port ||
+      parsed.ftp_root;
+
+    if (!hasData) {
+      showToast("Không nhận diện được thông tin Host, User, Password hoặc Domain hợp lệ!", "warning");
+      return;
+    }
+
+    if (parsed.ftp_host) srv.ftp_host = parsed.ftp_host;
+    if (parsed.web_domain) srv.web_domain = parsed.web_domain;
+    if (parsed.ftp_user) {
+      srv.ftp_user = parsed.ftp_user;
+      srv.da_user = parsed.ftp_user;
+    }
+    if (parsed.ftp_pass) srv.ftp_pass = parsed.ftp_pass;
+    if (parsed.da_port) srv.da_port = parsed.da_port;
+    if (parsed.ftp_root) srv.ftp_root = parsed.ftp_root;
+
+    if (parsed.name) {
+      srv.name = parsed.name;
+    } else if (parsed.web_domain || parsed.ftp_host) {
+      srv.name = parsed.web_domain || parsed.ftp_host;
+    }
+
+    closeModal("modalQuickPasteServer");
+    renderDemoServersSettingsList();
+    showToast(`Đã cập nhật nhanh thông tin cho [${srv.name || "Server Demo"}]`, "success");
+  });
+
   document.getElementById("btnStartDeploy")?.addEventListener("click", async () => {
     if (!appState.activeDeploySite) return;
-    document.getElementById("deployConsoleLog").textContent = "Đang chuẩn bị tiến trình...\n";
-    document.getElementById("deployProgressBar").style.width = "5%";
+    resetMainDeployStatus("Đang chuẩn bị tiến trình Deploy...", true);
+    const sp = document.getElementById("mainDeploySpinner");
+    const st = document.getElementById("mainDeployStatusText");
+    if (sp) sp.style.display = "inline-block";
+    if (st) st.style.color = "#38bdf8";
+    document.getElementById("deployProgressBar").style.width = "8%";
+    setMainDeployStep(1, "active");
+    startMainDeployTimer();
     await tauriInvoke("start_deploy_demo", {
       siteName: appState.activeDeploySite,
       sslEnabled: document.getElementById("chkDeploySsl").checked,
@@ -1626,20 +1945,95 @@ function bindModalEvents() {
   initProSuiteEvents();
 }
 
+let mainDeployTimerId = null;
+
+function startMainDeployTimer() {
+  stopMainDeployTimer();
+  const timerEl = document.getElementById("mainDeployTimer");
+  let sec = 0;
+  if (timerEl) timerEl.textContent = "⏱️ 00:00";
+  mainDeployTimerId = setInterval(() => {
+    sec++;
+    const mins = String(Math.floor(sec / 60)).padStart(2, "0");
+    const secs = String(sec % 60).padStart(2, "0");
+    if (timerEl) timerEl.textContent = `⏱️ ${mins}:${secs}`;
+  }, 1000);
+}
+
+function stopMainDeployTimer() {
+  if (mainDeployTimerId) {
+    clearInterval(mainDeployTimerId);
+    mainDeployTimerId = null;
+  }
+  const sp = document.getElementById("mainDeploySpinner");
+  if (sp) sp.style.display = "none";
+}
+
+function setMainDeployStep(stepNum, state, subText = null) {
+  const row = document.querySelector(`#mainDeploySteps .step-row[data-step="${stepNum}"]`);
+  if (!row) return;
+  row.classList.remove("is-waiting", "is-active", "is-done", "is-error");
+  row.classList.add(`is-${state}`);
+  const iconEl = row.querySelector(".step-icon");
+  const subEl = row.querySelector(".step-sub");
+  if (subText && subEl) subEl.textContent = subText;
+  if (iconEl) {
+    if (state === "active") iconEl.innerHTML = '<span class="step-spinner"></span>';
+    else if (state === "done") iconEl.textContent = "✅";
+    else if (state === "error") iconEl.textContent = "❌";
+    else iconEl.textContent = "⚪";
+  }
+}
+
+function resetMainDeployStatus(statusText, ready = true) {
+  stopMainDeployTimer();
+  const bar = document.getElementById("deployProgressBar");
+  const st = document.getElementById("mainDeployStatusText");
+  const sp = document.getElementById("mainDeploySpinner");
+  const banner = document.getElementById("mainDeployBanner");
+  const timerEl = document.getElementById("mainDeployTimer");
+  const logBox = document.getElementById("deployConsoleLog");
+  if (bar) {
+    bar.style.width = "0%";
+    bar.style.background = "linear-gradient(90deg, #00d2d3, #10b981)";
+  }
+  if (st) {
+    st.textContent = statusText;
+    st.style.color = ready ? "var(--text-3)" : "#f87171";
+  }
+  if (sp) sp.style.display = "none";
+  if (timerEl) timerEl.textContent = "⏱️ 00:00s";
+  if (banner) {
+    banner.style.display = "none";
+    banner.innerHTML = "";
+  }
+  if (logBox) logBox.textContent = statusText;
+  const defaultSubs = [
+    "Export dữ liệu SQL từ máy trạm localhost",
+    "Nén tệp mã nguồn & cấu hình .env cho Hosting",
+    "Kiểm tra / tạo Database đích trên Hosting",
+    "Upload payload.zip & bridge.php lên Server",
+    "Giải nén, nạp Database & dọn dẹp Bridge",
+  ];
+  for (let i = 1; i <= 5; i++) setMainDeployStep(i, "waiting", defaultSubs[i - 1]);
+}
+
 async function openDeployModal(siteName) {
   appState.activeDeploySite = siteName;
   const info = await tauriInvoke("get_deploy_data", { siteName });
-  document.getElementById("deployModalTitle").textContent = `Deploy Demo — ${siteName}`;
+  document.getElementById("deployModalTitle").textContent = `🚀 Deploy Demo — ${siteName}`;
   document.getElementById("lblDeployTargetUrl").textContent = info.targetUrl;
   document.getElementById("lblDeployLocalDb").textContent = info.localDbName || "(Không có)";
   document.getElementById("lblDeployTargetDb").textContent = info.targetDbName;
   document.getElementById("chkDeploySsl").checked = info.sslEnabled;
   document.getElementById("txtCustomDbSuffix").value = info.customDbSuffix || "";
   document.getElementById("grpCustomDbSuffix").style.display = info.dbNamingMode === 1 ? "flex" : "none";
-  document.getElementById("deployProgressBar").style.width = "0%";
-  document.getElementById("deployConsoleLog").textContent = info.configReady
-    ? "Sẵn sàng kết nối FTP & DirectAdmin để Deploy..."
-    : "Chưa cấu hình đủ thông tin FTP/Domain trong mục Cài đặt chung!";
+  resetMainDeployStatus(
+    info.configReady
+      ? "Sẵn sàng kết nối FTP & DirectAdmin để Deploy..."
+      : "Chưa cấu hình đủ thông tin FTP/Domain trong mục Cài đặt chung!",
+    info.configReady,
+  );
   openModal("modalDeployDemo");
 }
 
@@ -1746,13 +2140,41 @@ function bindRealtimeListeners() {
     const payload = event.payload;
     const logBox = document.getElementById("deployConsoleLog");
     const bar = document.getElementById("deployProgressBar");
+    const st = document.getElementById("mainDeployStatusText");
+    const banner = document.getElementById("mainDeployBanner");
     if (logBox) {
       logBox.textContent += `\n${payload.message}`;
       logBox.scrollTop = logBox.scrollHeight;
     }
     if (bar) bar.style.width = `${payload.progress}%`;
+    if (st) st.textContent = payload.message;
+
+    const p = Number(payload.progress || 0);
     if (payload.done) {
+      stopMainDeployTimer();
+      if (payload.success) {
+        for (let i = 1; i <= 5; i++) setMainDeployStep(i, "done");
+        if (st) st.style.color = "#34d399";
+        if (banner) {
+          banner.style.display = "block";
+          banner.innerHTML = `<div style="margin-top:8px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:10px 12px;color:#34d399;font-size:12.5px;font-weight:600">🎉 ${payload.message}</div>`;
+        }
+      } else {
+        const errStep = p >= 85 ? 5 : p >= 70 ? 4 : p >= 55 ? 3 : p >= 30 ? 2 : 1;
+        for (let i = 1; i < errStep; i++) setMainDeployStep(i, "done");
+        setMainDeployStep(errStep, "error", payload.message);
+        if (st) st.style.color = "#f87171";
+        if (bar) bar.style.background = "linear-gradient(90deg, #ef4444, #f87171)";
+        if (banner) {
+          banner.style.display = "block";
+          banner.innerHTML = `<div style="margin-top:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 12px;color:#fca5a5;font-size:12.5px;font-weight:600">⚠️ ${payload.message}</div>`;
+        }
+      }
       await refreshSitesList();
+    } else {
+      const step = p >= 88 ? 5 : p >= 70 ? 4 : p >= 55 ? 3 : p >= 30 ? 2 : 1;
+      for (let i = 1; i < step; i++) setMainDeployStep(i, "done");
+      setMainDeployStep(step, "active", payload.message);
     }
   });
 
@@ -1786,6 +2208,24 @@ function bindRealtimeListeners() {
         setHeaderStatus("Danh sách phiên bản Offline");
         if (sub) sub.textContent = "Không có kết nối mạng — đang hiển thị danh sách phiên bản dự phòng";
       }
+    }
+  });
+
+  tauriListen("color-picked", (event) => {
+    const payload = event.payload || {};
+    if (payload.value) {
+      showToast(`🎨 Đã copy mã màu: ${payload.value}`, "success");
+      setHeaderStatus(`Đã copy màu ${payload.value}`);
+    }
+  });
+
+  tauriListen("color-picker-status", (event) => {
+    refreshColorPickerStatusUI(event.payload || null);
+  });
+
+  tauriListen("color-picker-error", (event) => {
+    if (event.payload) {
+      showToast("Lỗi lấy mã màu: " + event.payload, "error");
     }
   });
 }

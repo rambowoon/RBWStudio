@@ -1,13 +1,10 @@
-use crate::config;
 use base64::Engine;
 use chrono::Local;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
 use std::thread;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,50 +30,20 @@ pub struct CaughtEmail {
 }
 
 static SMTP_RUNNING: AtomicBool = AtomicBool::new(false);
-static EMAIL_LOCK: Mutex<()> = Mutex::new(());
-
 pub fn load_emails() -> Vec<CaughtEmail> {
-    let _guard = EMAIL_LOCK.lock().unwrap();
-    let path = config::get_data_file_path("caught_emails.json");
-    if path.exists() {
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(list) = serde_json::from_str::<Vec<CaughtEmail>>(&content) {
-                return list;
-            }
-        }
-    }
-    Vec::new()
-}
-
-pub fn save_emails(list: &[CaughtEmail]) -> Result<(), String> {
-    let _guard = EMAIL_LOCK.lock().unwrap();
-    let path = config::get_data_file_path("caught_emails.json");
-    let json = serde_json::to_string_pretty(list).map_err(|e| e.to_string())?;
-    fs::write(path, json).map_err(|e| e.to_string())
+    crate::db::load_caught_emails()
 }
 
 pub fn mark_email_read(id: &str) -> Result<Vec<CaughtEmail>, String> {
-    let mut list = load_emails();
-    for mail in &mut list {
-        if mail.id == id {
-            mail.is_read = true;
-        }
-    }
-    save_emails(&list)?;
-    Ok(list)
+    crate::db::mark_caught_email_read(id).map_err(|e| e.to_string())
 }
 
 pub fn delete_email(id: &str) -> Result<Vec<CaughtEmail>, String> {
-    let mut list = load_emails();
-    list.retain(|m| m.id != id);
-    save_emails(&list)?;
-    Ok(list)
+    crate::db::delete_caught_email(id).map_err(|e| e.to_string())
 }
 
 pub fn clear_all_emails() -> Result<Vec<CaughtEmail>, String> {
-    let empty: Vec<CaughtEmail> = Vec::new();
-    save_emails(&empty)?;
-    Ok(empty)
+    crate::db::clear_all_caught_emails().map_err(|e| e.to_string())
 }
 
 pub fn start_smtp_server() {
@@ -313,8 +280,6 @@ fn process_and_store_email(sender: &str, recipients: &str, raw_data: &str) {
         is_read: false,
     };
 
-    let mut list = load_emails();
-    list.insert(0, email);
-    let _ = save_emails(&list);
+    let _ = crate::db::insert_caught_email(&email);
 }
 

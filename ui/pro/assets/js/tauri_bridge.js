@@ -11,6 +11,17 @@
         return null;
     }
 
+    function callInvoke(cmd, args) {
+        const inv = getInvoke();
+        if (!inv) return Promise.reject(new Error("Tauri invoke unavailable"));
+        return new Promise((resolve, reject) => {
+            inv(cmd, args).then(
+                (val) => window.setTimeout(() => resolve(val), 0),
+                (err) => window.setTimeout(() => reject(err), 0)
+            );
+        });
+    }
+
     function fileToBase64(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -85,7 +96,7 @@
             const serialized = await serializeBody(init ? init.body : null);
 
             try {
-                const res = await invoke("rbw_pro_dispatch", {
+                const res = await callInvoke("rbw_pro_dispatch", {
                     req: {
                         endpoint,
                         method,
@@ -151,7 +162,7 @@
         ) {
             img.dataset.rbwResolved = "1";
             try {
-                const dataUrl = await invoke("rbw_pro_load_image", { url: rawSrc });
+                const dataUrl = await callInvoke("rbw_pro_load_image", { url: rawSrc });
                 if (dataUrl && typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
                     img.src = dataUrl;
                 }
@@ -199,7 +210,7 @@
             const sp = new URLSearchParams(href.split("?")[1] || "");
             const file = sp.get("file") || "converted_images.zip";
             try {
-                const res = await invoke("rbw_pro_dispatch", {
+                const res = await callInvoke("rbw_pro_dispatch", {
                     req: {
                         endpoint: "converter.php",
                         method: "GET",

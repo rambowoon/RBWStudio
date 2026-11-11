@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod color_picker;
 mod config;
 mod db;
 mod deploy;
@@ -85,15 +86,52 @@ async fn get_service_status() -> ServiceStatus {
 }
 
 #[tauri::command]
-async fn save_general_settings(settings: AppSettings, demo_config: DemoGlobalConfig) -> Result<ServiceStatus, String> {
+async fn save_general_settings(app: AppHandle, settings: AppSettings, demo_config: DemoGlobalConfig) -> Result<ServiceStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
         config::save_app_settings(&settings)?;
         config::save_demo_config(&demo_config)?;
         services::generate_vhosts_configs(&settings);
+        color_picker::reload_hotkey(&app);
         Ok(services::get_service_status())
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn start_color_picker(app: AppHandle, hide_tray: Option<bool>) -> Result<(), String> {
+    color_picker::launch_picker(app, hide_tray.unwrap_or(false)).await
+}
+
+#[tauri::command]
+fn get_color_picker_status() -> color_picker::ColorPickerStatus {
+    color_picker::get_status()
+}
+
+#[tauri::command]
+fn get_picker_data() -> Result<color_picker::PickerInitData, String> {
+    color_picker::get_picker_payload()
+}
+
+#[tauri::command]
+fn get_picker_image() -> Result<tauri::ipc::Response, String> {
+    let bytes = color_picker::get_picker_bmp_bytes()?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
+fn show_picker_window(app: AppHandle) -> Result<(), String> {
+    color_picker::show_picker_window(&app)
+}
+
+#[tauri::command]
+fn finish_color_picker(app: AppHandle, value: String, hex: String) -> Result<(), String> {
+    color_picker::finish_picker(&app, &value, &hex)
+}
+
+#[tauri::command]
+fn cancel_color_picker(app: AppHandle) {
+    color_picker::cancel_picker(&app);
 }
 
 #[tauri::command]
@@ -137,6 +175,70 @@ async fn toggle_service(service_name: String, version: String) -> Result<Service
                 if status.mysql_running {
                     services::stop_mysql_service()?;
                 } else {
+                    services::start_mysql_service(&settings)?;
+                }
+            }
+            _ => {}
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(280));
+        Ok(services::get_service_status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn wait_for_port_release(port: u16) {
+    for _ in 0..30 {
+        if !services::is_port_in_use(port) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+#[tauri::command]
+async fn switch_service_version(service_name: String, version: String) -> Result<ServiceStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if version.trim().is_empty() {
+            return Ok(services::get_service_status());
+        }
+
+        let mut settings = config::load_app_settings();
+        let status = services::get_service_status();
+
+        match service_name.as_str() {
+            "web" => {
+                if settings.default_web_server.eq_ignore_ascii_case("Nginx") {
+                    settings.active_nginx_version = version;
+                } else {
+                    settings.active_apache_version = version;
+                }
+                config::save_app_settings(&settings)?;
+                if status.web_running {
+                    services::stop_web_service()?;
+                    wait_for_port_release(settings.web_port);
+                    services::start_web_service(&settings)?;
+                }
+            }
+            "php" => {
+                settings.active_php_version = version;
+                config::save_app_settings(&settings)?;
+                if status.php_running {
+                    services::stop_php_service()?;
+                    wait_for_port_release(settings.php_cgi_port);
+                    services::start_php_service(&settings)?;
+                }
+                if status.web_running {
+                    services::generate_vhosts_configs(&settings);
+                }
+            }
+            "mysql" => {
+                settings.active_mysql_version = version;
+                config::save_app_settings(&settings)?;
+                if status.mysql_running {
+                    services::stop_mysql_service()?;
+                    wait_for_port_release(settings.mysql_port);
                     services::start_mysql_service(&settings)?;
                 }
             }
@@ -218,6 +320,11 @@ async fn set_sites_root(folder_path: String) -> Result<Vec<SiteInfo>, String> {
         config::save_text_file("sites_root.txt", &folder_path)?;
         let settings = config::load_app_settings();
         services::generate_vhosts_configs(&settings);
+        if services::is_port_in_use(settings.web_port) {
+            let _ = services::stop_web_service();
+            wait_for_port_release(settings.web_port);
+            let _ = services::start_web_service(&settings);
+        }
         Ok(sites::get_sites_list())
     })
     .await
@@ -1004,6 +1111,7 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let _ = setup_tray(app.handle());
+            color_picker::start_hotkey_listener(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1034,6 +1142,7 @@ fn main() {
             get_service_status,
             save_general_settings,
             toggle_service,
+            switch_service_version,
             start_all_services,
             stop_all_services,
             read_service_config,
@@ -1098,7 +1207,14 @@ fn main() {
             pro_restore_snapshot,
             pro_delete_snapshot,
             rbw_pro_dispatch,
-            rbw_pro_load_image
+            rbw_pro_load_image,
+            start_color_picker,
+            get_color_picker_status,
+            get_picker_data,
+            get_picker_image,
+            show_picker_window,
+            finish_color_picker,
+            cancel_color_picker
         ])
         .run(tauri::generate_context!())
         .expect("Lỗi khởi chạy ứng dụng RBWStudio");

@@ -176,6 +176,21 @@ const App = {
 	},
 
 	async showProjectDetail(name, category) {
+		const projItem =
+			(this.projects && this.projects.find((p) => p.name === name)) ||
+			null;
+		const effectiveCat =
+			category !== undefined && category !== null && category !== ""
+				? category
+				: (projItem && projItem.category) || this.currentCategory || "";
+
+		this.currentCategory = effectiveCat;
+		this.currentProjectName = name;
+		this.currentProject = name;
+
+		const curInput = document.getElementById("d_current-project");
+		if (curInput) curInput.value = name;
+
 		this.hideAllViews();
 		document.getElementById("view-project-detail").style.display = "block";
 
@@ -206,14 +221,38 @@ const App = {
 		}
 		const pathEl = document.getElementById("detail-project-path");
 		if (pathEl)
-			pathEl.innerText = `${category || "Dự án"} / Cấu hình & Deploy`;
-		this.currentCategory = category;
-		this.currentProjectName = name;
+			pathEl.innerText = `${effectiveCat || "Dự án"} / Cấu hình & Deploy`;
 
-		const data = await Api.getProjectConfig(name, category);
-		if (data.status === "success") {
-			const config = data.data || {};
+		if (typeof UI !== "undefined" && UI.resetProjectSubTabs) {
+			UI.resetProjectSubTabs(name);
+		}
+
+		const applyDetailConfigToUI = (rawCfg, historyOverride) => {
+			const config = Object.assign(
+				{},
+				projItem
+					? {
+							php_version: projItem.php_version,
+							php_display: projItem.php_display,
+							is_custom_php: !!(
+								projItem.php_is_custom || projItem.is_custom_php
+							),
+							size_formatted: projItem.size_formatted,
+							is_config_php: projItem.is_config_php,
+							has_config_php: projItem.has_config_php,
+							nasani_info: projItem.nasani_info,
+						}
+					: {},
+				rawCfg || {},
+			);
+			if (Array.isArray(historyOverride) && !config.history) {
+				config.history = historyOverride;
+			}
 			this.currentProjectConfig = config;
+			if (projItem) {
+				projItem.config = config;
+			}
+
 			const hasDemo = !!(config.deployed && config.deployed.demo);
 			const hasProd = !!(config.deployed && config.deployed.production);
 			const statusEl = document.getElementById("detail-project-status");
@@ -222,10 +261,14 @@ const App = {
 				if (hasProd) {
 					statusEl.innerText = "● PRODUCTION";
 					statusEl.className = "badge-env badge-env-prod";
+					statusEl.style.background = "";
+					statusEl.style.color = "";
 					statusEl.title = "Trạng thái: Production đang chạy";
 				} else if (hasDemo) {
 					statusEl.innerText = "● DEMO";
 					statusEl.className = "badge-env badge-env-demo";
+					statusEl.style.background = "";
+					statusEl.style.color = "";
 					statusEl.title = "Trạng thái: Demo đang chạy";
 				} else {
 					statusEl.innerText = "○ CHƯA DEPLOY";
@@ -271,10 +314,7 @@ const App = {
 			if (sizeHeaderEl) {
 				const sizeStr =
 					config.size_formatted ||
-					(this.projects
-						? this.projects.find((p) => p.name === name)
-								?.size_formatted
-						: "");
+					(projItem ? projItem.size_formatted : "");
 				if (sizeStr) {
 					sizeHeaderEl.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align:-1px; margin-right:3px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>${sizeStr}`;
 					sizeHeaderEl.title = `Dung lượng mã nguồn dự án: ${sizeStr}`;
@@ -284,13 +324,31 @@ const App = {
 				}
 			}
 
-			UI.fillProjectDetailForm(name, config, category);
+			UI.fillProjectDetailForm(name, config, effectiveCat);
+		};
 
-			const firstTabBtn = document.querySelector(
-				"#sidebar-nav-project .project-side-tab",
-			);
-			if (firstTabBtn) UI.switchProjectTab(firstTabBtn, "d_tab-config");
-		}
+		// 1. Render ngay lập tức bằng dữ liệu dự án hiện có (không để lưu lại DOM của dự án trước)
+		applyDetailConfigToUI(projItem && projItem.config ? projItem.config : {});
+
+		const firstTabBtn =
+			document.querySelector(
+				'.project-master-tabs .project-tab-btn[data-tab="d_tab-config"]',
+			) ||
+			document.querySelector(".project-master-tabs .project-tab-btn") ||
+			document.querySelector("#sidebar-nav-project .project-side-tab");
+		UI.switchProjectTab(firstTabBtn, "d_tab-config");
+
+		// 2. Đồng bộ dữ liệu mới nhất từ SQLite backend
+		try {
+			const data = await Api.getProjectConfig(name, effectiveCat);
+			if (
+				data &&
+				data.status === "success" &&
+				this.currentProjectName === name
+			) {
+				applyDetailConfigToUI(data.data || {}, data.history);
+			}
+		} catch (_) {}
 	},
 
 	showCacheClearer() {
@@ -344,14 +402,16 @@ const App = {
 		}
 
 		try {
-			// Load categories dynamically based on view (strict month vs all folders with numbers)
+			// Load categories and projects concurrently
 			const strict = currentActive === 1;
-			const catData = await Api.getCategories(strict);
+			const [catData, data] = await Promise.all([
+				Api.getCategories(strict),
+				Api.getProjects(category),
+			]);
 			if (catData.status === "success") {
 				UI.renderCategories(catData.data, catData.stats || {});
 			}
 
-			const data = await Api.getProjects(category);
 			if (data.status === "success") {
 				this.projects = data.data || [];
 				this.currentCategoryTotalSize =
@@ -686,8 +746,6 @@ const App = {
 					config.claude_key || "";
 				document.getElementById("g_source_path").value =
 					config.source_path || "";
-				document.getElementById("g_source_folder_name").value =
-					config.source_folder_name || "";
 				document.getElementById("g_source_db_name").value =
 					config.source_db_name || "";
 				document.getElementById("g_editor_path").value =
@@ -1201,9 +1259,11 @@ const App = {
 			document.getElementById("g_claude_key").value;
 		this.globalData.source_path =
 			document.getElementById("g_source_path").value;
-		this.globalData.source_folder_name = document.getElementById(
-			"g_source_folder_name",
-		).value;
+		this.globalData.source_folder_name =
+			this.globalData.source_path
+				.split(/[\\/]/)
+				.filter(Boolean)
+				.pop() || "";
 		this.globalData.source_db_name =
 			document.getElementById("g_source_db_name").value;
 		this.globalData.editor_path =
@@ -1259,18 +1319,25 @@ const App = {
 	},
 
 	async setupLocalSource(name, category, forceOverwriteDb = null) {
-		document.getElementById("deploy-modal-title").innerText =
-			`⚡ Cấu hình Source Local: ${name}`;
-		document.getElementById("log-output").innerHTML = "";
-		document.getElementById("progress-fill").style.width = "10%";
-		document.getElementById("status-text").innerText = "Đang khởi chạy...";
-		document.getElementById("deploy-footer").style.display = "none";
+		UI.setupDeployModal({
+			icon: "🗄️",
+			title: "Cấu hình Source Local & Database",
+			project: name,
+			category: category || "",
+			targetDesc: "Khởi tạo Database Local, import SQL & cấu hình .env",
+			steps: [
+				{ title: "1. Kết nối & kiểm tra MySQL/MariaDB", sub: "Kiểm tra dịch vụ DB & tên Database mục tiêu" },
+				{ title: "2. Quét & import dữ liệu SQL", sub: "Tạo Database và nạp tệp .sql vào localhost" },
+				{ title: "3. Cấu hình .env & config.php", sub: "Cập nhật SITE_PATH, DB_DATABASE và lưu SQLite" },
+			],
+		});
 		UI.showModal("deploy-modal");
 
 		UI.updateDeployStatus(
 			"Đang xử lý...",
-			35,
-			"🔍 Đang quét file SQL, tạo Database & cấu hình .env...",
+			40,
+			"🔍 Đang kiểm tra MySQL, tạo Database & nạp tệp SQL...",
+			2,
 		);
 
 		try {
@@ -1463,12 +1530,29 @@ const App = {
 		await this._deployFlow(name, "deploy", this.currentCategory);
 	},
 
+	_isDeploying: false,
+
 	async handleDeployDemo(name, category, options) {
+		if (this._isDeploying) return;
+		this._isDeploying = true;
+
+		UI.setupDeployModal({
+			icon: "🔎",
+			title: "Kiểm tra & Deploy Demo",
+			project: name,
+			category: category || "",
+			targetDesc: "Xác minh Database & kết nối DirectAdmin trước khi Deploy",
+			steps: [
+				{ title: "1. Kiểm tra Database DirectAdmin", sub: "Xác minh Database & thông số kết nối Server Demo" },
+				{ title: "2. Chuẩn bị đóng gói & tải lên", sub: "Kiểm tra dữ liệu hiện có trên Server Demo" },
+			],
+		});
 		UI.showModal("deploy-modal");
 		UI.updateDeployStatus(
 			"Đang kiểm tra...",
-			10,
+			35,
 			"Đang xác minh Database trên DirectAdmin...",
+			1,
 		);
 
 		try {
@@ -1480,15 +1564,17 @@ const App = {
 						name,
 						category,
 						manual_db_suffix: options.manual_db_suffix,
+						demo_server_id: options.demo_server_id,
 					}),
 				})
 			).json();
 
 			if (checkRes.status === "error") {
+				this._isDeploying = false;
 				UI.updateDeployStatus(
 					"Lỗi!",
 					10,
-					`<span style="color:var(--danger)">❌ ${checkRes.message}</span>`,
+					`❌ ${checkRes.message}`,
 				);
 				document.getElementById("deploy-footer").style.display = "flex";
 				return;
@@ -1498,6 +1584,7 @@ const App = {
 			const passwordUpdated = !!checkRes.password_updated;
 
 			if (checkRes.action === "prompt_confirm") {
+				this._isDeploying = false;
 				UI.hideModal("deploy-modal");
 
 				document.getElementById("db-confirm-message").innerText =
@@ -1506,40 +1593,57 @@ const App = {
 
 				document.getElementById("btn-db-overwrite").onclick =
 					async () => {
+						if (this._isDeploying) return;
+						this._isDeploying = true;
 						UI.hideModal("deploy-db-confirm-modal");
-						await this._deployFlow(name, "deployDemo", category, {
-							...options,
-							clear_db: 1,
-							db_pass: dbPass,
-							password_updated: passwordUpdated,
-						});
+						try {
+							await this._deployFlow(name, "deployDemo", category, {
+								...options,
+								create_db: false,
+								clear_db: 1,
+								db_pass: dbPass,
+								password_updated: passwordUpdated,
+							});
+						} finally {
+							this._isDeploying = false;
+						}
 					};
 
 				document.getElementById("btn-db-skip").onclick = async () => {
+					if (this._isDeploying) return;
+					this._isDeploying = true;
 					UI.hideModal("deploy-db-confirm-modal");
+					try {
+						await this._deployFlow(name, "deployDemo", category, {
+							...options,
+							export_upload: false,
+							create_db: false,
+							clear_db: 0,
+							db_pass: dbPass,
+							password_updated: passwordUpdated,
+						});
+					} finally {
+						this._isDeploying = false;
+					}
+				};
+			} else {
+				try {
 					await this._deployFlow(name, "deployDemo", category, {
 						...options,
-						export_upload: false, // Bỏ qua import database
-						create_db: false, // Không cần tạo lại
 						clear_db: 0,
 						db_pass: dbPass,
 						password_updated: passwordUpdated,
 					});
-				};
-			} else {
-				UI.hideModal("deploy-modal");
-				await this._deployFlow(name, "deployDemo", category, {
-					...options,
-					clear_db: 0,
-					db_pass: dbPass,
-					password_updated: passwordUpdated,
-				});
+				} finally {
+					this._isDeploying = false;
+				}
 			}
 		} catch (err) {
+			this._isDeploying = false;
 			UI.updateDeployStatus(
 				"Lỗi kết nối!",
 				10,
-				`<span style="color:var(--danger)">❌ Không thể kết nối tới API kiểm tra.</span>`,
+				"❌ Không thể kết nối tới API kiểm tra.",
 			);
 			document.getElementById("deploy-footer").style.display = "flex";
 		}
@@ -1553,19 +1657,17 @@ const App = {
 			document.getElementById("custom_demo_domain").value = "";
 		document.getElementById("pre_deploy_ssl").checked = false;
 		document.getElementById("pre_deploy_pack_upload").checked = true;
-		if (!this.globalData) {
-			try {
-				const res = await (
-					await fetch("api.php?action=getGlobalConfig")
-				).json();
-				if (res.status === "success") {
-					this.globalData =
-						Array.isArray(res.data) && res.data.length === 0
-							? {}
-							: res.data;
-				}
-			} catch (e) {}
-		}
+		try {
+			const res = await (
+				await fetch("api.php?action=getGlobalConfig")
+			).json();
+			if (res.status === "success") {
+				this.globalData =
+					Array.isArray(res.data) && res.data.length === 0
+						? {}
+						: res.data;
+			}
+		} catch (e) {}
 
 		if (document.getElementById("pre_deploy_use_7zip")) {
 			document.getElementById("pre_deploy_use_7zip").checked = true;
@@ -1576,21 +1678,29 @@ const App = {
 
 		// Populate demo server selector
 		const demoSelect = document.getElementById("pre_deploy_demo_server_id");
-		if (demoSelect && this.globalData && this.globalData.demo_list) {
+		if (demoSelect) {
 			demoSelect.innerHTML = "";
-			const defaultId = this.globalData.default_demo_id || "demo_1785834732693";
-			this.globalData.demo_list.forEach((demo) => {
-				const option = document.createElement("option");
-				option.value = demo.id;
-				option.innerText =
-					demo.name +
-					" (" +
-					demo.web_domain +
-					")" +
-					(demo.id === defaultId ? " ⭐" : "");
-				if (demo.id === defaultId) option.selected = true;
-				demoSelect.appendChild(option);
-			});
+			const list = (this.globalData && Array.isArray(this.globalData.demo_list))
+				? this.globalData.demo_list
+				: [];
+			if (list.length === 0) {
+				const opt = document.createElement("option");
+				opt.value = "";
+				opt.innerText = "⚠️ Chưa cấu hình Server Demo (vào Cài đặt chung)";
+				demoSelect.appendChild(opt);
+			} else {
+				const defaultId = this.globalData.default_demo_id || (list[0] && list[0].id) || "";
+				list.forEach((demo) => {
+					const option = document.createElement("option");
+					option.value = demo.id;
+					option.innerText =
+						(demo.name || demo.web_domain || "Server Demo") +
+						(demo.web_domain ? " (" + demo.web_domain + ")" : "") +
+						(demo.id === defaultId ? " ⭐" : "");
+					if (demo.id === defaultId) option.selected = true;
+					demoSelect.appendChild(option);
+				});
+			}
 		}
 
 		UI.showModal("pre-deploy-modal");
@@ -1636,19 +1746,17 @@ const App = {
 	},
 
 	async deployDbDemo(name, category) {
-		if (!this.globalData) {
-			try {
-				const res = await (
-					await fetch("api.php?action=getGlobalConfig")
-				).json();
-				if (res.status === "success") {
-					this.globalData =
-						Array.isArray(res.data) && res.data.length === 0
-							? {}
-							: res.data;
-				}
-			} catch (e) {}
-		}
+		try {
+			const res = await (
+				await fetch("api.php?action=getGlobalConfig")
+			).json();
+			if (res.status === "success") {
+				this.globalData =
+					Array.isArray(res.data) && res.data.length === 0
+						? {}
+						: res.data;
+			}
+		} catch (e) {}
 
 		document.getElementById("pre-deploy-project-desc").innerText =
 			`Dự án: ${name} (${category}) - Chỉ Deploy Database`;
@@ -1664,21 +1772,29 @@ const App = {
 
 		// Populate demo server selector
 		const demoSelect = document.getElementById("pre_deploy_demo_server_id");
-		if (demoSelect && this.globalData && this.globalData.demo_list) {
+		if (demoSelect) {
 			demoSelect.innerHTML = "";
-			const defaultId = this.globalData.default_demo_id || "demo_1785834732693";
-			this.globalData.demo_list.forEach((demo) => {
-				const option = document.createElement("option");
-				option.value = demo.id;
-				option.innerText =
-					demo.name +
-					" (" +
-					demo.web_domain +
-					")" +
-					(demo.id === defaultId ? " ⭐" : "");
-				if (demo.id === defaultId) option.selected = true;
-				demoSelect.appendChild(option);
-			});
+			const list = (this.globalData && Array.isArray(this.globalData.demo_list))
+				? this.globalData.demo_list
+				: [];
+			if (list.length === 0) {
+				const opt = document.createElement("option");
+				opt.value = "";
+				opt.innerText = "⚠️ Chưa cấu hình Server Demo (vào Cài đặt chung)";
+				demoSelect.appendChild(opt);
+			} else {
+				const defaultId = this.globalData.default_demo_id || (list[0] && list[0].id) || "";
+				list.forEach((demo) => {
+					const option = document.createElement("option");
+					option.value = demo.id;
+					option.innerText =
+						(demo.name || demo.web_domain || "Server Demo") +
+						(demo.web_domain ? " (" + demo.web_domain + ")" : "") +
+						(demo.id === defaultId ? " ⭐" : "");
+					if (demo.id === defaultId) option.selected = true;
+					demoSelect.appendChild(option);
+				});
+			}
 		}
 
 		UI.showModal("pre-deploy-modal");
@@ -1739,15 +1855,24 @@ const App = {
 		);
 		if (!confirmed) return;
 
+		UI.setupDeployModal({
+			icon: "⚡",
+			title: "Tích hợp AMP NASANI",
+			project: name,
+			category: category || "",
+			targetDesc: "Cài đặt views, routes, helpers và thẻ amphtml",
+			steps: [
+				{ title: "1. Copy giao diện & tài nguyên AMP", sub: "Sao chép views, assets, helpers AMP vào dự án" },
+				{ title: "2. Cập nhật cấu hình & Routes", sub: "Cập nhật config/app.php, web.php, Func.php" },
+				{ title: "3. Hoàn tất tích hợp AMP", sub: "Thêm thẻ amphtml & kiểm tra hoàn chỉnh" },
+			],
+		});
 		UI.showModal("deploy-modal");
-		document.getElementById("deploy-project-name").innerText =
-			name + " (AMP Integration)";
-		document.getElementById("log-output").innerHTML = "";
-		document.getElementById("deploy-footer").style.display = "none";
 		UI.updateDeployStatus(
 			"Đang tích hợp AMP...",
-			20,
+			35,
 			"Đang chạy integrate script...",
+			2,
 		);
 
 		try {
@@ -1880,6 +2005,33 @@ const App = {
 		document.getElementById("ssl-footer").style.display = "none";
 		document.getElementById("ssl-confirm-footer").style.display = "flex";
 		document.getElementById("ssl-status-icon").style.display = "none";
+		const bar = document.getElementById("ssl-progress-bar");
+		if (bar) bar.style.width = "0%";
+		const setSslStep = (idx, state) => {
+			const el = document.getElementById(`ssl-step-${idx}`);
+			if (!el) return;
+			const ic = el.querySelector(".shot-step-icon");
+			if (state === "active") {
+				el.style.opacity = "1";
+				el.style.color = "#38bdf8";
+				if (ic) ic.innerHTML = '<span class="spinner-small" style="width:13px;height:13px;border:2px solid rgba(255,255,255,0.2);border-top-color:#38bdf8;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block"></span>';
+			} else if (state === "done") {
+				el.style.opacity = "1";
+				el.style.color = "#34d399";
+				if (ic) ic.innerHTML = "✅";
+			} else if (state === "error") {
+				el.style.opacity = "1";
+				el.style.color = "#f87171";
+				if (ic) ic.innerHTML = "❌";
+			} else {
+				el.style.opacity = "0.55";
+				el.style.color = "var(--muted)";
+				if (ic) ic.innerHTML = "⚪";
+			}
+		};
+		setSslStep(1, "waiting");
+		setSslStep(2, "waiting");
+		setSslStep(3, "waiting");
 		document.getElementById("ssl-status-text").innerText =
 			"Xác nhận cài đặt SSL Let's Encrypt cho tên miền dự án.";
 
@@ -1887,11 +2039,13 @@ const App = {
 
 		const startBtn = document.getElementById("ssl-start-btn");
 		startBtn.onclick = async () => {
-			document.getElementById("ssl-confirm-footer").style.display =
-				"none";
-			document.getElementById("ssl-status-icon").style.display = "block";
+			document.getElementById("ssl-confirm-footer").style.display = "none";
+			document.getElementById("ssl-status-icon").style.display = "inline-block";
 			document.getElementById("ssl-status-text").innerText =
 				"Đang gửi yêu cầu cài đặt (2048-bit)...";
+			setSslStep(1, "done");
+			setSslStep(2, "active");
+			if (bar) bar.style.width = "50%";
 
 			try {
 				const res = await (
@@ -1904,25 +2058,28 @@ const App = {
 
 				const logOutput = document.getElementById("ssl-log-output");
 				if (res.status === "success") {
+					setSslStep(2, "done");
+					setSslStep(3, "done");
+					if (bar) bar.style.width = "100%";
 					document.getElementById("ssl-status-text").innerText =
 						"Cài đặt thành công!";
-					logOutput.innerHTML = `<span style="color:#34d399">${res.message}</span>`;
+					logOutput.innerHTML = `<div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:10px 12px;color:#34d399;font-weight:600">🎉 ${res.message}</div>`;
 					confetti({
 						particleCount: 100,
 						spread: 70,
 						origin: { y: 0.6 },
 					});
 				} else {
+					setSslStep(2, "error");
 					document.getElementById("ssl-status-text").innerText =
 						"Cài đặt thất bại";
-					logOutput.innerHTML = `<span style="color:#f87171">${res.message}</span>`;
+					logOutput.innerHTML = `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 12px;color:#fca5a5;font-weight:600">⚠️ ${res.message}</div>`;
 				}
-				document.getElementById("ssl-status-icon").style.display =
-					"none";
+				document.getElementById("ssl-status-icon").style.display = "none";
 				document.getElementById("ssl-footer").style.display = "flex";
 			} catch (err) {
-				document.getElementById("ssl-status-text").innerText =
-					"Lỗi kết nối";
+				setSslStep(2, "error");
+				document.getElementById("ssl-status-text").innerText = "Lỗi kết nối";
 				document.getElementById("ssl-footer").style.display = "flex";
 			}
 		};
@@ -2011,19 +2168,64 @@ const App = {
 		customInitiator = "Khởi tạo quy trình...",
 	) {
 		const jobId = "job_" + Date.now();
-		document.getElementById("deploy-project-name").innerText =
-			name + (category ? ` (${category})` : "");
-		document.getElementById("log-output").innerHTML = "";
-		document.getElementById("deploy-footer").style.display = "none";
+		const presets = {
+			deployNewProject: {
+				icon: "🚀",
+				title: "Đúc dự án mới",
+				targetDesc: customInitiator || "Copy Source mẫu & khởi tạo Database tự động",
+				steps: [
+					{ title: "1. Sao chép mã nguồn mẫu", sub: "Copy Source gốc vào thư mục dự án" },
+					{ title: "2. Tích hợp .agents & chuẩn bị SQL", sub: "Tìm tệp .sql hoặc trích xuất từ Database nguồn" },
+					{ title: "3. Khởi tạo MySQL Database mới", sub: "Kiểm tra MariaDB/MySQL và tạo Database dự án" },
+					{ title: "4. Import SQL & cấu hình môi trường", sub: "Nạp dữ liệu bảng, cập nhật .env / config.php" },
+					{ title: "5. Hoàn tất & lưu hồ sơ dự án", sub: "Dọn tệp SQL tạm & ghi cấu hình vào SQLite" },
+				],
+			},
+			deployDemo: {
+				icon: "☁️",
+				title: "Deploy lên Server Demo",
+				targetDesc: customInitiator,
+				steps: [
+					{ title: "1. Đóng gói mã nguồn & xuất SQL", sub: "Chuẩn bị dữ liệu dự án Local" },
+					{ title: "2. Kết nối DirectAdmin & FTP", sub: "Tạo Database và tải gói mã nguồn lên Server Demo" },
+					{ title: "3. Giải nén, import DB & hoàn tất", sub: "Cấu hình môi trường trên Demo Server" },
+				],
+			},
+			publishToProduction: {
+				icon: "🌐",
+				title: "Xuất bản lên Production",
+				targetDesc: customInitiator,
+				steps: [
+					{ title: "1. Cấu hình bảo mật & Cloudflare", sub: "Khởi tạo key bảo mật và DNS/Turnstile" },
+					{ title: "2. Khởi tạo DB & chuyển mã nguồn", sub: "Cloud Transfer từ Demo sang Production" },
+					{ title: "3. Hoàn tất xuất bản", sub: "Đồng bộ cấu hình và lưu lịch sử" },
+				],
+			},
+		};
+		const preset = presets[action] || {
+			icon: "⚙️",
+			title: "Đang triển khai...",
+			targetDesc: customInitiator,
+			steps: null,
+		};
+		UI.setupDeployModal({
+			...preset,
+			project: name,
+			category: category || "",
+		});
 		UI.showModal("deploy-modal");
-		UI.updateDeployStatus("Đang chuẩn bị...", 10, customInitiator);
+		UI.updateDeployStatus("Đang chuẩn bị...", 10, customInitiator, 1);
 
 		let progress = 15;
 		let processedLogsCount = 0;
 		let isFinished = false;
+		let isPolling = false;
+		let cleanedUp = false;
 
 		const cleanUpJob = async () => {
 			if (pollInterval) clearInterval(pollInterval);
+			if (cleanedUp) return;
+			cleanedUp = true;
 			try {
 				await fetch(`api.php?action=deleteLog&jobId=${jobId}`);
 			} catch (e) {
@@ -2043,33 +2245,41 @@ const App = {
 			}
 		};
 
-		// Khởi động vòng lặp lấy log (Polling)
+		// Khởi động vòng lặp lấy log (Polling) với khóa chống chạy chồng
 		const pollInterval = setInterval(async () => {
-			if (isFinished) return;
+			if (isFinished || isPolling) return;
+			isPolling = true;
 			try {
 				const res = await (
 					await fetch(`api.php?action=getLogs&jobId=${jobId}`)
 				).json();
 				if (
 					res.status === "success" &&
+					Array.isArray(res.logs) &&
 					res.logs.length > processedLogsCount
 				) {
-					// Chỉ lấy các dòng log mới
 					const newLogs = res.logs.slice(processedLogsCount);
+					processedLogsCount = res.logs.length;
 					newLogs.forEach((item) => {
 						if (item.status === "info") {
+							if (typeof item.progress === "number") {
+								progress = Math.max(progress, item.progress);
+							} else {
+								progress = Math.min(progress + 12, 95);
+							}
 							UI.updateDeployStatus(
 								"Đang xử lý...",
 								progress,
 								`> ${item.log}`,
+								item.step || null,
 							);
-							progress = Math.min(progress + 12, 95);
 						} else if (item.status === "success") {
 							isFinished = true;
 							UI.updateDeployStatus(
 								"Thành công!",
 								100,
-								`✅ ${item.message || item.log}`,
+								`${item.message || item.log}`,
+								item.step || null,
 							);
 							if (item.logs)
 								item.logs.forEach((l) =>
@@ -2101,17 +2311,19 @@ const App = {
 							UI.updateDeployStatus(
 								"Lỗi!",
 								progress,
-								`<span style="color:var(--danger)">❌ ${item.message || item.log || "Có lỗi xảy ra"}</span>`,
+								`${item.message || item.log || "Có lỗi xảy ra"}`,
+								item.step || null,
 							);
 							cleanUpJob();
 						}
 					});
-					processedLogsCount = res.logs.length;
 				}
 			} catch (e) {
 				console.error("Polling error:", e);
+			} finally {
+				isPolling = false;
 			}
-		}, 700);
+		}, 350);
 
 		try {
 			const response = await fetch(`api.php?action=${action}`, {
@@ -2135,7 +2347,6 @@ const App = {
 				action === "downloadPackage";
 
 			if (!isBackgroundAction || (result && result.status === "error")) {
-				// Khi request chính hoàn tất, đợi thêm 1 chút để polling lấy nốt log cuối
 				setTimeout(async () => {
 					if (isFinished) return;
 					isFinished = true;
@@ -2146,7 +2357,7 @@ const App = {
 						UI.updateDeployStatus(
 							"Lỗi!",
 							progress,
-							`<span style="color:var(--danger)">❌ ${result.message || "Thực thi thất bại"}</span>`,
+							`${result.message || "Thực thi thất bại"}`,
 						);
 					} else if (!response.ok) {
 						UI.updateDeployStatus(
@@ -2155,13 +2366,18 @@ const App = {
 							`API trả về HTTP code: ${response.status}`,
 						);
 					} else {
+						UI.updateDeployStatus(
+							"Thành công!",
+							100,
+							`${(result && result.message) || "Triển khai dự án thành công!"}`,
+						);
 						confetti({
 							particleCount: 150,
 							spread: 70,
 							origin: { y: 0.6 },
 						});
 					}
-				}, 1500);
+				}, 400);
 			}
 		} catch (err) {
 			const isBackgroundAction =
@@ -2727,12 +2943,10 @@ const App = {
 
 		// Timer bắt đầu chạy
 		let elapsedSeconds = 0;
-		if (timerEl) timerEl.innerText = "⏱️ 00:00s";
+		if (timerEl) timerEl.innerText = "⏱️ 00:00";
 		const timerInterval = setInterval(() => {
 			elapsedSeconds++;
-			const secStr =
-				elapsedSeconds < 10 ? "0" + elapsedSeconds : elapsedSeconds;
-			if (timerEl) timerEl.innerText = `⏱️ 00:${secStr}s`;
+			if (timerEl) timerEl.innerText = UI.formatDuration(elapsedSeconds);
 		}, 1000);
 
 		// Animation tuần tự giả lập các giai đoạn backend đang thực thi
@@ -2981,7 +3195,7 @@ const App = {
 		const originalHtml = btn ? btn.innerHTML : "";
 		if (btn) {
 			btn.disabled = true;
-			btn.innerHTML = "⏳ Đang chụp...";
+			btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`;
 		}
 
 		try {
@@ -3188,7 +3402,7 @@ const App = {
 			bodyEl.innerHTML = `
 				<div style="text-align:center; padding: 30px 10px;">
 					<div class="spinner" style="margin: 0 auto 15px auto; width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #5FF0BE; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-					<div style="font-size: 1rem; color: #fff; font-weight: 600; margin-bottom: 6px;">Đang quét các phân vùng Demo...</div>
+					<div style="font-size: 1rem; color: var(--text); font-weight: 600; margin-bottom: 6px;">Đang quét các phân vùng Demo...</div>
 					<div style="font-size: 0.8rem; color: var(--muted);">Đang kết nối FTP để kiểm tra thư mục mã nguồn trên tất cả các server Demo</div>
 				</div>
 			`;
@@ -3219,19 +3433,19 @@ const App = {
 					}
 
 					const serverText = item.server_name
-						? `<span style="color:#38bdf8; font-size:0.78rem;">${item.server_name}</span>`
+						? `<span style="color:#38bdf8; font-size:0.78rem; white-space:nowrap;">${item.server_name}</span>`
 						: `<span style="color:var(--muted); font-size:0.78rem;">—</span>`;
 					const folderText = item.matched_folder
-						? `<code style="font-size:0.75rem; color:${statusColor}; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;">${item.matched_folder}</code>`
+						? `<code style="font-size:0.75rem; color:${statusColor}; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; word-break:break-all;">${item.matched_folder}</code>`
 						: `<span style="color:var(--muted); font-size:0.75rem;">—</span>`;
 
 					rowsHtml += `
-						<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-							<td style="padding: 9px 8px; font-size: 0.8rem; color: #94a3b8;">${idx + 1}</td>
-							<td style="padding: 9px 8px; font-weight: 600; font-size: 0.85rem; color: #fff;">${item.name}</td>
-							<td style="padding: 9px 8px;">${badge}</td>
-							<td style="padding: 9px 8px;">${serverText}</td>
-							<td style="padding: 9px 8px;">${folderText}</td>
+						<tr style="border-bottom: 1px solid var(--border);">
+							<td style="padding: 9px 10px; font-size: 0.8rem; color: var(--muted); white-space:nowrap;">${idx + 1}</td>
+							<td style="padding: 9px 10px; font-weight: 600; font-size: 0.85rem; color: var(--text);">${item.name}</td>
+							<td style="padding: 9px 10px; white-space:nowrap;">${badge}</td>
+							<td style="padding: 9px 10px;">${serverText}</td>
+							<td style="padding: 9px 10px;">${folderText}</td>
 						</tr>
 					`;
 				});
@@ -3239,9 +3453,9 @@ const App = {
 				if (bodyEl) {
 					bodyEl.innerHTML = `
 						<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px;">
-							<div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; text-align: center;">
+							<div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; text-align: center;">
 								<div style="font-size: 0.72rem; color: var(--muted); margin-bottom: 4px;">Tổng dự án</div>
-								<div style="font-size: 1.25rem; font-weight: 700; color: #fff;">${res.total}</div>
+								<div style="font-size: 1.25rem; font-weight: 700; color: var(--text);">${res.total}</div>
 							</div>
 							<div style="background: rgba(95, 240, 190, 0.06); border: 1px solid rgba(95, 240, 190, 0.25); border-radius: 8px; padding: 10px 12px; text-align: center;">
 								<div style="font-size: 0.72rem; color: #5FF0BE; margin-bottom: 4px;">🌿 Đã Up Demo</div>
@@ -3257,15 +3471,15 @@ const App = {
 							</div>
 						</div>
 
-						<div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+						<div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto;">
 							<table style="width: 100%; border-collapse: collapse; text-align: left;">
 								<thead>
 									<tr style="background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); font-size: 0.75rem; color: var(--muted); text-transform: uppercase;">
-										<th style="padding: 8px;">#</th>
-										<th style="padding: 8px;">Dự án</th>
-										<th style="padding: 8px;">Trạng thái</th>
-										<th style="padding: 8px;">Phân vùng Demo</th>
-										<th style="padding: 8px;">Thư mục nhận diện</th>
+										<th style="padding: 10px; white-space:nowrap;">#</th>
+										<th style="padding: 10px; white-space:nowrap;">Dự án</th>
+										<th style="padding: 10px; white-space:nowrap;">Trạng thái</th>
+										<th style="padding: 10px; white-space:nowrap;">Phân vùng Demo</th>
+										<th style="padding: 10px; white-space:nowrap;">Thư mục nhận diện</th>
 									</tr>
 								</thead>
 								<tbody>

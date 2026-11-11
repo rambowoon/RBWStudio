@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities for RBWStack",
-  "windows": ["main"],
+  "windows": ["main", "color_picker", "tray"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

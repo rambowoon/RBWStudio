@@ -869,17 +869,36 @@ header {
 }
 
 .project-search-wrap input {
-    background: transparent;
-    border: none;
-    outline: none;
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
     color: var(--text);
     font-size: 0.82rem;
     width: 155px;
-    transition: width 0.2s ease;
+    height: 100%;
+    transition: none;
 }
 
 .project-search-wrap input:focus {
-    width: 200px;
+    width: 155px;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.btn-toolbar-icon {
+    width: 34px !important;
+    height: 34px !important;
+    min-width: 34px !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 8px !important;
+    flex-shrink: 0;
 }
 
 .project-search-wrap input::placeholder {
@@ -1676,12 +1695,16 @@ header {
     align-items: center;
     z-index: 1000;
     padding: 20px;
+    overflow-y: auto;
 }
 
 .modal {
     background: var(--modal-bg);
     width: 100%;
     max-width: 500px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    margin: auto;
     border-radius: 16px;
     border: 1px solid var(--border);
     padding: 28px;
@@ -1759,6 +1782,11 @@ select:focus {
     font-size: 0.7rem;
     font-weight: 800;
     text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    line-height: 1.2;
 }
 
 .badge-ok {
@@ -1770,6 +1798,7 @@ select:focus {
     font-weight: 700;
     font-size: 0.7rem;
     letter-spacing: 0.3px;
+    white-space: nowrap;
 }
 
 .badge-prod {
@@ -1781,6 +1810,7 @@ select:focus {
     font-weight: 700;
     font-size: 0.7rem;
     letter-spacing: 0.3px;
+    white-space: nowrap;
 }
 
 .badge-pending {
@@ -1792,22 +1822,24 @@ select:focus {
     font-weight: 700;
     font-size: 0.7rem;
     letter-spacing: 0.3px;
+    white-space: nowrap;
 }
 
 #log-output {
-    background: #000;
+    background: #0d1117;
     color: var(--success);
-    font-family: monospace;
-    font-size: 0.8rem;
-    padding: 15px;
+    font-family: var(--mono, monospace);
+    font-size: 0.76rem;
+    padding: 10px 12px;
     border-radius: 8px;
-    margin-top: 15px;
-    height: 150px;
+    margin-top: 8px;
+    max-height: 140px;
     overflow-y: auto;
     width: 100%;
     white-space: pre-wrap;
     word-break: break-word;
     border: 1px solid var(--border);
+    line-height: 1.5;
 }
 
 .progress-container {
