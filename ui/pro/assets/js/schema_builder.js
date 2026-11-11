@@ -1797,26 +1797,40 @@ const SchemaBuilder = {
 	},
 
 	initStructureDragAndDrop() {
-		const items = document.querySelectorAll("#sb-structure-items .sb-structure-item");
-		let draggedItem = null;
+		const container = document.getElementById("sb-structure-items");
+		if (!container) return;
 
+		const items = container.querySelectorAll(".sb-structure-item");
+		let isDragging = false;
+		let dragSource = null;
+		let startY = 0;
+
+		const clearHighlights = () => {
+			items.forEach((i) => {
+				i.classList.remove("dragging", "drag-over-top", "drag-over-bottom");
+			});
+		};
+
+		// --- 1. HTML5 Native Drag & Drop ---
 		items.forEach((item) => {
 			item.addEventListener("dragstart", (e) => {
-				draggedItem = item;
+				dragSource = item;
 				item.classList.add("dragging");
 				e.dataTransfer.effectAllowed = "move";
-				e.dataTransfer.setData("text/plain", item.dataset.key);
+				try {
+					e.dataTransfer.setData("text/plain", item.dataset.key);
+				} catch (_) {}
 			});
 
 			item.addEventListener("dragend", () => {
-				if (draggedItem) draggedItem.classList.remove("dragging");
-				draggedItem = null;
-				items.forEach((i) => i.classList.remove("drag-over-top", "drag-over-bottom"));
+				clearHighlights();
+				dragSource = null;
 			});
 
 			item.addEventListener("dragover", (e) => {
 				e.preventDefault();
-				if (!draggedItem || draggedItem === item) return;
+				e.dataTransfer.dropEffect = "move";
+				if (!dragSource || dragSource === item) return;
 
 				const rect = item.getBoundingClientRect();
 				const midY = rect.top + rect.height / 2;
@@ -1827,24 +1841,107 @@ const SchemaBuilder = {
 					item.classList.add("drag-over-bottom");
 					item.classList.remove("drag-over-top");
 				}
-				e.dataTransfer.dropEffect = "move";
 			});
 
-			item.addEventListener("dragleave", () => {
-				item.classList.remove("drag-over-top", "drag-over-bottom");
+			item.addEventListener("dragleave", (e) => {
+				if (!item.contains(e.relatedTarget)) {
+					item.classList.remove("drag-over-top", "drag-over-bottom");
+				}
 			});
 
 			item.addEventListener("drop", (e) => {
 				e.preventDefault();
-				item.classList.remove("drag-over-top", "drag-over-bottom");
-				if (!draggedItem || draggedItem === item) return;
+				e.stopPropagation();
+				if (!dragSource || dragSource === item) {
+					clearHighlights();
+					return;
+				}
 
-				const sourceKey = draggedItem.dataset.key;
+				const sourceKey = dragSource.dataset.key;
 				const targetKey = item.dataset.key;
 				const rect = item.getBoundingClientRect();
 				const placeBefore = e.clientY < rect.top + rect.height / 2;
+				clearHighlights();
+				dragSource = null;
 
 				SchemaBuilder.reorderModules(sourceKey, targetKey, placeBefore);
+			});
+		});
+
+		// --- 2. Pointer Events Drag & Drop (100% tin cậy trên WebView2/Desktop) ---
+		let currentTarget = null;
+		let currentPlaceBefore = true;
+
+		const onPointerMove = (e) => {
+			if (!dragSource) return;
+
+			const dist = Math.abs(e.clientY - startY);
+			if (!isDragging && dist > 4) {
+				isDragging = true;
+				dragSource.classList.add("dragging");
+				document.body.style.userSelect = "none";
+				document.body.style.cursor = "grabbing";
+			}
+
+			if (!isDragging) return;
+
+			// Tìm phần tử bên dưới con trỏ
+			const elem = document.elementFromPoint(e.clientX, e.clientY);
+			const targetItem = elem ? elem.closest("#sb-structure-items .sb-structure-item") : null;
+
+			items.forEach((i) => i.classList.remove("drag-over-top", "drag-over-bottom"));
+
+			if (targetItem && targetItem !== dragSource) {
+				const rect = targetItem.getBoundingClientRect();
+				currentPlaceBefore = e.clientY < rect.top + rect.height / 2;
+				if (currentPlaceBefore) {
+					targetItem.classList.add("drag-over-top");
+				} else {
+					targetItem.classList.add("drag-over-bottom");
+				}
+				currentTarget = targetItem;
+			} else {
+				currentTarget = null;
+			}
+		};
+
+		const onPointerUp = (e) => {
+			window.removeEventListener("pointermove", onPointerMove);
+			window.removeEventListener("pointerup", onPointerUp);
+			window.removeEventListener("pointercancel", onPointerUp);
+			document.body.style.userSelect = "";
+			document.body.style.cursor = "";
+
+			if (isDragging && dragSource && currentTarget && dragSource !== currentTarget) {
+				const sourceKey = dragSource.dataset.key;
+				const targetKey = currentTarget.dataset.key;
+				const placeBefore = currentPlaceBefore;
+				clearHighlights();
+				isDragging = false;
+				dragSource = null;
+				currentTarget = null;
+				SchemaBuilder.reorderModules(sourceKey, targetKey, placeBefore);
+			} else {
+				clearHighlights();
+				isDragging = false;
+				dragSource = null;
+				currentTarget = null;
+			}
+		};
+
+		items.forEach((item) => {
+			item.addEventListener("pointerdown", (e) => {
+				// Không bắt sự kiện khi click vào nút ↑ hoặc ↓
+				if (e.target.closest("button") || e.button !== 0) return;
+
+				dragSource = item;
+				startY = e.clientY;
+				isDragging = false;
+				currentTarget = null;
+
+				window.addEventListener("pointermove", onPointerMove);
+				window.addEventListener("pointerup", onPointerUp);
+				window.addEventListener("pointercancel", onPointerUp);
 			});
 		});
 	},

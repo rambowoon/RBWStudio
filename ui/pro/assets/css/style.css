@@ -2762,59 +2762,21 @@ select:focus {
 .sb-label {
     display: flex;
     align-items: center;
-    gap: 9px;
-    font-size: 0.8rem;
-    color: #e2e8f0;
+    gap: 7px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text, #f1f5f9);
+    letter-spacing: 0.3px;
     flex: 1;
     cursor: pointer;
     min-width: 0;
 }
 
-.sb-field-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 7px;
-    background: rgba(255, 255, 255, 0.05);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.85rem;
-    flex-shrink: 0;
-}
-
-.sb-field-icon-sm {
+.sb-field-name {
     font-size: 0.82rem;
-    flex-shrink: 0;
-}
-
-.sb-field-texts {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    line-height: 1.25;
-}
-
-.sb-field-title {
-    font-size: 0.78rem;
     font-weight: 700;
     color: var(--text, #f1f5f9);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.sb-field-code {
-    font-size: 0.65rem;
-    font-family: var(--mono, monospace);
-    color: var(--muted);
-    opacity: 0.85;
-}
-
-.sb-input-head .sb-field-code {
-    margin-left: 4px;
-    background: rgba(255, 255, 255, 0.06);
-    padding: 1px 5px;
-    border-radius: 4px;
+    letter-spacing: 0.3px;
 }
 
 .sb-field-actions {
@@ -6091,6 +6053,8 @@ input:checked+.sb-slider:before {
     border: 1px solid var(--border);
     cursor: grab;
     user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
     transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
     position: relative;
 }
@@ -6105,35 +6069,42 @@ input:checked+.sb-slider:before {
 }
 
 .sb-structure-item.dragging {
-    opacity: 0.35;
-    background: var(--primary-glow);
-    border: 1px dashed var(--primary);
-    transform: scale(0.98);
+    opacity: 0.45;
+    background: rgba(var(--primary-rgb, 168, 85, 247), 0.15);
+    border: 1.5px dashed var(--primary);
+    transform: scale(0.99);
 }
 
 .sb-structure-item.drag-over-top {
-    border-top: 2px solid var(--primary) !important;
+    border-top: 3px solid var(--primary) !important;
+    box-shadow: 0 -4px 12px rgba(var(--primary-rgb, 168, 85, 247), 0.35) !important;
 }
 
 .sb-structure-item.drag-over-bottom {
-    border-bottom: 2px solid var(--primary) !important;
+    border-bottom: 3px solid var(--primary) !important;
+    box-shadow: 0 4px 12px rgba(var(--primary-rgb, 168, 85, 247), 0.35) !important;
 }
 
 .sb-drag-handle {
     display: flex;
     align-items: center;
     justify-content: center;
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.35);
     cursor: grab;
     padding: 4px;
     margin-right: 4px;
-    border-radius: 4px;
+    border-radius: 6px;
     transition: color 0.15s ease, background 0.15s ease;
+    touch-action: none;
+}
+
+.sb-drag-handle svg {
+    pointer-events: none;
 }
 
 .sb-structure-item:hover .sb-drag-handle {
     color: var(--primary);
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.08);
 }
 
 /* ===== SYNC CENTER, DIFF VIEWER & BACKUP HISTORY MODAL ===== */

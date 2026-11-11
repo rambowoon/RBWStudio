@@ -1,48 +1,4 @@
 const SchemaComponents = {
-	FIELD_META: {
-		slug: { icon: "🔗", title: "Đường dẫn (Slug)" },
-		seo: { icon: "🔍", title: "Cấu hình SEO" },
-		schema: { icon: "📊", title: "Schema JSON-LD" },
-		copy: { icon: "📋", title: "Cho phép Copy" },
-		view: { icon: "👁️", title: "Lượt xem (View)" },
-		datePublish: { icon: "📅", title: "Ngày xuất bản" },
-		tags: { icon: "🏷️", title: "Thẻ Tags" },
-		comment: { icon: "💬", title: "Bình luận" },
-		code: { icon: "🔢", title: "Mã SP (Code)" },
-		regular_price: { icon: "💰", title: "Giá gốc" },
-		sale_price: { icon: "🔥", title: "Giá khuyến mãi" },
-		discount: { icon: "🏷️", title: "% Giảm giá" },
-		name: { icon: "✏️", title: "Tiêu đề (Name)" },
-		desc: { icon: "📄", title: "Mô tả ngắn" },
-		desc_cke: { icon: "✨", title: "Soạn thảo Mô tả (CKE)" },
-		content: { icon: "📝", title: "Nội dung chi tiết" },
-		content_cke: { icon: "✨", title: "Soạn thảo Nội dung (CKE)" },
-		show_images: { icon: "🖼️", title: "Sử dụng Hình ảnh" },
-		properties: { icon: "🧩", title: "Thuộc tính (Properties)" },
-		file: { icon: "📎", title: "Tập tin đính kèm" },
-		send_email: { icon: "✉️", title: "Gửi Email" },
-		amp: { icon: "⚡", title: "Trang AMP" },
-		title_main: { icon: "🏷️", title: "Tiêu đề Module chính" },
-		index: { icon: "🌐", title: "Loại trang danh sách" },
-		detail: { icon: "📄", title: "Loại trang chi tiết" },
-		title: { icon: "🔤", title: "Tiêu đề (Lang key)" },
-		bre: { icon: "🧭", title: "Breadcrumb key" },
-		controller: { icon: "⚙️", title: "Controller xử lý" },
-		method: { icon: "📡", title: "Phương thức HTTP" },
-		vi: { icon: "🇻🇳", title: "Slug Tiếng Việt" },
-		en: { icon: "🇬🇧", title: "Slug Tiếng Anh" },
-	},
-
-	getFieldMeta(fieldKey) {
-		const baseKey = fieldKey
-			.replace(/(_categories_cke|_brand_cke)$/, "_cke")
-			.replace(/(_categories|_brand|_photo)$/, "");
-		const found = this.FIELD_META[fieldKey] || this.FIELD_META[baseKey];
-		if (found) return found;
-		const cleanLabel = baseKey.replace(/_/g, " ").toUpperCase();
-		return { icon: "🔹", title: cleanLabel };
-	},
-
 	renderField(fieldKey, fieldValue, currentPath) {
 		const type = typeof fieldValue;
 		if (type === "boolean") {
@@ -59,18 +15,25 @@ const SchemaComponents = {
 		const div = document.createElement("div");
 		div.className = `sb-field sb-field-toggle ${value ? "is-checked" : ""}`;
 		const id = "field-" + path.join("-");
-		const meta = this.getFieldMeta(fieldKey);
+		let label = fieldKey
+			.replace(/(_categories|_photo)$/, "")
+			.replace(/_/g, " ")
+			.toUpperCase();
+
+		let icon = "";
+		if (fieldKey.includes("comment")) icon = "💬 ";
+		if (fieldKey.includes("copy")) icon = "📋 ";
+		if (fieldKey.includes("tags")) icon = "🏷️ ";
+		if (fieldKey.includes("view")) icon = "👁️ ";
+		if (fieldKey.includes("slug")) icon = "🔗 ";
 
 		div.innerHTML = `
             <label class="sb-label" for="${id}">
-                <span class="sb-field-icon">${meta.icon}</span>
-                <span class="sb-field-texts">
-                    <span class="sb-field-title">${meta.title}</span>
-                    <span class="sb-field-code">${fieldKey}</span>
-                </span>
+                ${icon ? `<span>${icon}</span>` : ""}
+                <span>${label}</span>
             </label>
             <div class="sb-field-actions">
-                <button type="button" class="btn-del-opt" title="Xóa thuộc tính ${fieldKey}" onclick="SchemaBuilder.deleteOption('${path.join(".")}')">×</button>
+                <button type="button" class="btn-del-opt" title="Xóa" onclick="SchemaBuilder.deleteOption('${path.join(".")}')">×</button>
                 <label class="sb-switch">
                     <input type="checkbox" id="${id}" ${value ? "checked" : ""} onchange="this.closest('.sb-field-toggle')?.classList.toggle('is-checked', this.checked); SchemaBuilder.updateData('${path.join(".")}', this.checked)">
                     <span class="sb-slider"></span>
@@ -84,16 +47,17 @@ const SchemaComponents = {
 		const div = document.createElement("div");
 		div.className = "sb-field sb-field-input";
 		const id = "field-" + path.join("-");
-		const meta = this.getFieldMeta(fieldKey);
+		let label = fieldKey
+			.replace(/(_categories|_photo)$/, "")
+			.replace(/_/g, " ")
+			.toUpperCase();
 
 		div.innerHTML = `
             <div class="sb-input-head">
                 <label class="sb-label" for="${id}">
-                    <span class="sb-field-icon-sm">${meta.icon}</span>
-                    <span class="sb-field-title">${meta.title}</span>
-                    <span class="sb-field-code">${fieldKey}</span>
+                    <span>${label}</span>
                 </label>
-                <button type="button" class="btn-del-opt" title="Xóa thuộc tính ${fieldKey}" onclick="SchemaBuilder.deleteOption('${path.join(".")}')">×</button>
+                <button type="button" class="btn-del-opt" title="Xóa" onclick="SchemaBuilder.deleteOption('${path.join(".")}')">×</button>
             </div>
             <input type="text" id="${id}" class="form-control sb-text-input" value="${value}" onchange="SchemaBuilder.updateData('${path.join(".")}', this.value)">
         `;
@@ -147,20 +111,12 @@ const SchemaComponents = {
 			return this.createOptions2Editor(key, data, path);
 		}
 
-		const nestedTitles = {
-			website: "🌐 Cấu hình Website & Định tuyến",
-			type: "📑 Loại hiển thị (Object / Article)",
-			route: "🛣️ Cấu hình Route",
-			slugs: "🔗 Đường dẫn đa ngôn ngữ (Slugs)",
-		};
-		const displayNestedTitle = nestedTitles[key] || `📁 ${key.toUpperCase()}`;
-
 		const div = document.createElement("div");
 		div.className = `sb-nested sb-nested-${key}`;
 
 		const headEl = document.createElement("div");
 		headEl.className = "sb-nested-head";
-		headEl.innerHTML = `<span class="sb-nested-title">${displayNestedTitle}</span>`;
+		headEl.innerHTML = `<span class="sb-nested-title">${key.toUpperCase()}</span>`;
 
 		const headActions = document.createElement("div");
 		headActions.className = "sb-nested-actions";
@@ -199,7 +155,7 @@ const SchemaComponents = {
 		const delBtn = document.createElement("button");
 		delBtn.type = "button";
 		delBtn.className = "btn-del-opt";
-		delBtn.title = `Xóa mục ${key}`;
+		delBtn.title = `Xóa`;
 		delBtn.innerText = "×";
 		delBtn.onclick = () => SchemaBuilder.deleteOption(path.join("."));
 		headActions.appendChild(delBtn);

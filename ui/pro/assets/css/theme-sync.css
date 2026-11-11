@@ -1275,21 +1275,9 @@ html[data-mode="light"] .sb-field-toggle.is-checked {
     border-color: #D8B4FE !important;
 }
 
-html[data-mode="light"] .sb-field-icon {
-    background: #F1F5F9 !important;
-}
-
-html[data-mode="light"] .sb-field-title {
+html[data-mode="light"] .sb-label,
+html[data-mode="light"] .sb-field-name {
     color: #0F172A !important;
-}
-
-html[data-mode="light"] .sb-field-code {
-    color: #64748B !important;
-}
-
-html[data-mode="light"] .sb-input-head .sb-field-code {
-    background: #F1F5F9 !important;
-    color: #475569 !important;
 }
 
 html[data-mode="light"] .sb-text-input {
@@ -1342,4 +1330,29 @@ html[data-mode="light"] .btn-del-opt:hover {
     background: #FEE2E2 !important;
     border-color: #FCA5A5 !important;
     color: #DC2626 !important;
+}
+
+html[data-mode="light"] .sb-structure-item {
+    background: #FFFFFF !important;
+    border: 1px solid #E2E8F0 !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+}
+
+html[data-mode="light"] .sb-structure-item:hover {
+    background: #F8FAFC !important;
+    border-color: #CBD5E1 !important;
+}
+
+html[data-mode="light"] .sb-structure-item.dragging {
+    background: #FAF5FF !important;
+    border: 1.5px dashed var(--primary, #8b5cf6) !important;
+}
+
+html[data-mode="light"] .sb-drag-handle {
+    color: #94A3B8 !important;
+}
+
+html[data-mode="light"] .sb-structure-item:hover .sb-drag-handle {
+    color: var(--primary, #8b5cf6) !important;
+    background: #F1F5F9 !important;
 }
