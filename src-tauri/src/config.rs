@@ -337,17 +337,21 @@ pub fn set_os_auto_start(enabled: bool) {
         use std::process::Command;
         if let Ok(exe) = env::current_exe() {
             let exe_str = exe.to_string_lossy().to_string();
+            // Xóa key cũ RBWStack nếu có
+            let _ = Command::new("reg")
+                .args(["delete", "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "RBWStack", "/f"])
+                .output();
             if enabled {
                 let _ = Command::new("reg")
                     .args([
                         "add",
                         "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
                         "/v",
-                        "RBWStack",
+                        "RBWStudio",
                         "/t",
                         "REG_SZ",
                         "/d",
-                        &format!("\"{}\"", exe_str),
+                        &format!("\"{}\" --autostart", exe_str),
                         "/f",
                     ])
                     .output();
@@ -357,7 +361,7 @@ pub fn set_os_auto_start(enabled: bool) {
                         "delete",
                         "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
                         "/v",
-                        "RBWStack",
+                        "RBWStudio",
                         "/f",
                     ])
                     .output();

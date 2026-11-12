@@ -1086,6 +1086,29 @@ fn main() {
         .setup(|app| {
             let _ = setup_tray(app.handle());
             color_picker::start_hotkey_listener(app.handle().clone());
+
+            let args: Vec<String> = std::env::args().collect();
+            let is_autostart = args.iter().any(|a| a == "--autostart" || a == "-a");
+
+            let settings = config::load_app_settings();
+
+            // Nếu khởi động cùng Windows (hoặc cấu hình auto_start bật)
+            if is_autostart || settings.auto_start {
+                // Tự động start tất cả dịch vụ (PHP, Web, MySQL)
+                std::thread::spawn(move || {
+                    let _ = services::start_php_service(&settings);
+                    let _ = services::start_web_service(&settings);
+                    let _ = services::start_mysql_service(&settings);
+                });
+
+                // Ẩn cửa sổ chính xuống khay hệ thống nếu chạy từ autostart
+                if is_autostart {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.hide();
+                    }
+                }
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
