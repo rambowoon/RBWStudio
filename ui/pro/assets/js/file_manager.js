@@ -1,130 +1,158 @@
 var FileManager = {
-    currentPath: '/',
-    currentEnv: 'demo',
-    lastProject: null,
-    baseUrl: '',
-    rawFiles: [],
-    lastFindIndex: -1,
-    treeCache: {},
-    selectedItems: new Map(), // key: path, val: { path, isDir, name }
-    currentRenderedFiles: [],
-    lastClickedIndex: -1,
+	currentPath: "/",
+	currentEnv: "demo",
+	lastProject: null,
+	baseUrl: "",
+	rawFiles: [],
+	lastFindIndex: -1,
+	treeCache: {},
+	selectedItems: new Map(), // key: path, val: { path, isDir, name }
+	currentRenderedFiles: [],
+	lastClickedIndex: -1,
 
-    getDefaultEnv() {
-        const config = (typeof App !== 'undefined' && App.currentProjectConfig) ? App.currentProjectConfig : {};
-        const prod = config.prod || {};
-        const deployedProd = config.deployed?.production || {};
-        if (prod.ftp_host || prod.web_domain || prod.ftp_user || prod.da_user || deployedProd.ftp_host || deployedProd.url) {
-            return 'prod';
-        }
-        const ftpHost = document.getElementById('d_ftp_host')?.value?.trim();
-        const webDomain = document.getElementById('d_web_domain')?.value?.trim();
-        const ftpUser = document.getElementById('d_ftp_user')?.value?.trim();
-        if (ftpHost || webDomain || ftpUser) {
-            return 'prod';
-        }
-        return 'demo';
-    },
+	getDefaultEnv() {
+		const config =
+			typeof App !== "undefined" && App.currentProjectConfig
+				? App.currentProjectConfig
+				: {};
+		const prod = config.prod || {};
+		const deployedProd = config.deployed?.production || {};
+		if (
+			prod.ftp_host ||
+			prod.web_domain ||
+			prod.ftp_user ||
+			prod.da_user ||
+			deployedProd.ftp_host ||
+			deployedProd.url
+		) {
+			return "prod";
+		}
+		const ftpHost = document.getElementById("d_ftp_host")?.value?.trim();
+		const webDomain = document
+			.getElementById("d_web_domain")
+			?.value?.trim();
+		const ftpUser = document.getElementById("d_ftp_user")?.value?.trim();
+		if (ftpHost || webDomain || ftpUser) {
+			return "prod";
+		}
+		return "demo";
+	},
 
-    updateEnvUI(env) {
-        document.querySelectorAll('.fm-env-btn').forEach(btn => {
-            btn.classList.remove('active');
-            btn.style.background = 'transparent';
-            btn.style.color = '#94a3b8';
-        });
-        const activeBtn = document.getElementById(`fm-env-btn-${env}`);
-        if (activeBtn) {
-            activeBtn.classList.add('active');
-            activeBtn.style.background = (env === 'prod') ? '#f59e0b' : 'var(--primary, #00d2d3)';
-            activeBtn.style.color = '#000';
-        }
-        const desc = document.getElementById('fm-header-desc');
-        if (desc) {
-            desc.innerHTML = (env === 'prod') 
-                ? '<b style="color:#f59e0b;">🚀 ĐANG KẾT NỐI PRODUCTION HOSTING</b> - Chỉnh sửa file trực tiếp trên Server thật'
-                : 'Duyệt, chỉnh sửa và quản lý file trực tiếp trên Server Demo';
-        }
-    },
+	updateEnvUI(env) {
+		document.querySelectorAll(".fm-env-btn").forEach((btn) => {
+			btn.classList.remove("active");
+			btn.style.background = "transparent";
+			btn.style.color = "#94a3b8";
+		});
+		const activeBtn = document.getElementById(`fm-env-btn-${env}`);
+		if (activeBtn) {
+			activeBtn.classList.add("active");
+			activeBtn.style.background =
+				env === "prod" ? "#f59e0b" : "var(--primary, #00d2d3)";
+			activeBtn.style.color = "#000";
+		}
+		const desc = document.getElementById("fm-header-desc");
+		if (desc) {
+			desc.innerHTML =
+				env === "prod"
+					? '<b style="color:#f59e0b;">🚀 ĐANG KẾT NỐI PRODUCTION HOSTING</b> - Chỉnh sửa file trực tiếp trên Server thật'
+					: "Duyệt, chỉnh sửa và quản lý file trực tiếp trên Server Demo";
+		}
+	},
 
-    resetToDefaultEnv() {
-        const defEnv = this.getDefaultEnv();
-        this.currentEnv = defEnv;
-        this.currentPath = '/';
-        this.treeCache = {};
-        this.updateEnvUI(defEnv);
-    },
-    
-    init() {
-        if (!document.getElementById('detail-project-name')?.innerText || !App.currentCategory) return;
-        const currentProject = document.getElementById('detail-project-name')?.innerText;
-        if (this.lastProject !== currentProject) {
-            this.lastProject = currentProject;
-            this.resetToDefaultEnv();
-            this.loadTree(false);
-        } else if (!document.getElementById('fm-tree-children-root')) {
-            this.loadTree(false);
-        }
-        this.loadCurrentPath();
-        this.bindDragDrop();
-        this.ensureSelectionStyles();
-        this.initMarqueeSelection();
-        this.initContextMenu();
-        this.initKeyBindings();
-    },
+	resetToDefaultEnv() {
+		const defEnv = this.getDefaultEnv();
+		this.currentEnv = defEnv;
+		this.currentPath = "/";
+		this.treeCache = {};
+		this.updateEnvUI(defEnv);
+	},
 
-    bindDragDrop() {
-        const pane = document.querySelector('.fm-main-pane');
-        if (!pane || pane.dataset.dndBound === 'true') return;
-        pane.dataset.dndBound = 'true';
+	init() {
+		if (
+			!document.getElementById("detail-project-name")?.innerText ||
+			!App.currentCategory
+		)
+			return;
+		const currentProject = document.getElementById(
+			"detail-project-name",
+		)?.innerText;
+		const projectKey = `${App.currentCategory}::${currentProject}`;
+		if (this.lastProject !== projectKey) {
+			this.lastProject = projectKey;
+			this.resetToDefaultEnv();
+			this.loadTree(false);
+		} else if (!document.getElementById("fm-tree-children-root")) {
+			this.loadTree(false);
+		}
+		this.loadCurrentPath();
+		this.bindDragDrop();
+		this.ensureSelectionStyles();
+		this.initMarqueeSelection();
+		this.initContextMenu();
+		this.initKeyBindings();
+	},
 
-        let dragCounter = 0;
-        pane.addEventListener('dragenter', e => {
-            e.preventDefault();
-            dragCounter++;
-            pane.style.boxShadow = 'inset 0 0 0 2px var(--primary, #00d2d3), 0 0 20px rgba(0,210,211,0.2)';
-            pane.style.borderRadius = '10px';
-        });
-        pane.addEventListener('dragover', e => {
-            e.preventDefault();
-        });
-        pane.addEventListener('dragleave', e => {
-            e.preventDefault();
-            dragCounter--;
-            if (dragCounter <= 0) {
-                dragCounter = 0;
-                pane.style.boxShadow = 'none';
-            }
-        });
-        pane.addEventListener('drop', async e => {
-            e.preventDefault();
-            dragCounter = 0;
-            pane.style.boxShadow = 'none';
-            const files = await this.extractFilesFromDataTransfer(e.dataTransfer);
-            if (files && files.length > 0) {
-                const isFolder = files.some(f => f.webkitRelativePath && f.webkitRelativePath.includes('/'));
-                this.uploadFilesQueue(files, isFolder);
-            }
-        });
-    },
+	bindDragDrop() {
+		const pane = document.querySelector(".fm-main-pane");
+		if (!pane || pane.dataset.dndBound === "true") return;
+		pane.dataset.dndBound = "true";
 
-    setEnv(env) {
-        if (this.currentEnv === env) return;
-        this.currentEnv = env;
-        this.updateEnvUI(env);
-        this.currentPath = '/';
-        this.treeCache = {};
-        this.loadTree(true);
-        this.loadCurrentPath();
-    },
+		let dragCounter = 0;
+		pane.addEventListener("dragenter", (e) => {
+			e.preventDefault();
+			dragCounter++;
+			pane.style.boxShadow =
+				"inset 0 0 0 2px var(--primary, #00d2d3), 0 0 20px rgba(0,210,211,0.2)";
+			pane.style.borderRadius = "10px";
+		});
+		pane.addEventListener("dragover", (e) => {
+			e.preventDefault();
+		});
+		pane.addEventListener("dragleave", (e) => {
+			e.preventDefault();
+			dragCounter--;
+			if (dragCounter <= 0) {
+				dragCounter = 0;
+				pane.style.boxShadow = "none";
+			}
+		});
+		pane.addEventListener("drop", async (e) => {
+			e.preventDefault();
+			dragCounter = 0;
+			pane.style.boxShadow = "none";
+			const files = await this.extractFilesFromDataTransfer(
+				e.dataTransfer,
+			);
+			if (files && files.length > 0) {
+				const isFolder = files.some(
+					(f) =>
+						f.webkitRelativePath &&
+						f.webkitRelativePath.includes("/"),
+				);
+				this.uploadFilesQueue(files, isFolder);
+			}
+		});
+	},
 
-    loadTree(forceRefresh = false) {
-        if (forceRefresh) {
-            this.treeCache = {};
-        }
-        const container = document.getElementById('fm-tree-container');
-        if (!container) return;
-        
-        container.innerHTML = `
+	setEnv(env) {
+		if (this.currentEnv === env) return;
+		this.currentEnv = env;
+		this.updateEnvUI(env);
+		this.currentPath = "/";
+		this.treeCache = {};
+		this.loadTree(true);
+		this.loadCurrentPath();
+	},
+
+	loadTree(forceRefresh = false) {
+		if (forceRefresh) {
+			this.treeCache = {};
+		}
+		const container = document.getElementById("fm-tree-container");
+		if (!container) return;
+
+		container.innerHTML = `
             <style>
                 .fm-tree-node {
                     display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 6px;
@@ -147,7 +175,7 @@ var FileManager = {
                 }
             </style>
             <div class="fm-tree-item" id="tree-item-root">
-                <div class="fm-tree-node ${this.currentPath === '/' ? 'active' : ''}" data-path="/" onclick="FileManager.selectTreeNode('/', this)">
+                <div class="fm-tree-node ${this.currentPath === "/" ? "active" : ""}" data-path="/" onclick="FileManager.selectTreeNode('/', this)">
                     <span class="fm-tree-toggle" onclick="FileManager.toggleTreeNode('/', this, event)">▼</span>
                     <span class="fm-tree-icon">📂</span>
                     <span class="fm-tree-label">root (/)</span>
@@ -157,101 +185,116 @@ var FileManager = {
                 </div>
             </div>
         `;
-        
-        // If root dirs are already in cache, render immediately
-        if (this.treeCache['/'] && this.treeCache['/'].length > 0) {
-            this.renderTreeChildren('root', '/', this.treeCache['/']);
-        } else if (forceRefresh) {
-            this.fetchTreeDirs('/', (dirs) => {
-                this.renderTreeChildren('root', '/', dirs);
-            });
-        }
-    },
 
-    fetchTreeDirs(path, callback) {
-        if (this.treeCache[path] && this.treeCache[path].length > 0) {
-            callback(this.treeCache[path]);
-            return;
-        }
-        
-        const projectName = document.getElementById('detail-project-name')?.innerText;
-        if (!projectName || !App.currentCategory) {
-            callback([]);
-            return;
-        }
-        
-        fetch('api.php?action=fmList', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: projectName,
-                category: App.currentCategory,
-                path: path,
-                env: this.currentEnv
-            })
-        }).then(r => r.json()).then(res => {
-            if (res.status === 'success') {
-                const dirs = (res.data || []).filter(f => f.is_dir).map(f => ({
-                    name: f.name,
-                    has_subdirs: f.has_subdirs !== false
-                }));
-                if (dirs.length > 0) {
-                    this.treeCache[path] = dirs;
-                }
-                callback(dirs);
-            } else {
-                callback([]);
-            }
-        }).catch(() => callback([]));
-    },
+		// If root dirs are already in cache, render immediately
+		if (this.treeCache["/"] && this.treeCache["/"].length > 0) {
+			this.renderTreeChildren("root", "/", this.treeCache["/"]);
+		} else if (forceRefresh) {
+			this.fetchTreeDirs("/", (dirs) => {
+				this.renderTreeChildren("root", "/", dirs);
+			});
+		}
+	},
 
-    renderTreeChildren(containerSuffix, parentPath, dirs) {
-        const wrap = document.getElementById(`fm-tree-children-${containerSuffix}`);
-        if (!wrap) return;
-        
-        if (!dirs || dirs.length === 0) {
-            if (parentPath === '/') {
-                wrap.innerHTML = `<div style="padding: 3px 8px; color: var(--text-muted, #64748b); font-size: 11px; font-style: italic;">(Thư mục trống)</div>`;
-            } else {
-                wrap.innerHTML = '';
-                wrap.style.display = 'none';
-                const parentItem = wrap.closest('.fm-tree-item');
-                if (parentItem) {
-                    const toggle = parentItem.querySelector('.fm-tree-toggle');
-                    if (toggle) toggle.style.visibility = 'hidden';
-                    const icon = parentItem.querySelector('.fm-tree-icon');
-                    if (icon) icon.innerText = '📁';
-                }
-            }
-            return;
-        }
+	fetchTreeDirs(path, callback) {
+		if (this.treeCache[path] && this.treeCache[path].length > 0) {
+			callback(this.treeCache[path]);
+			return;
+		}
 
-        const parentItem = wrap.closest('.fm-tree-item');
-        if (parentItem) {
-            const toggle = parentItem.querySelector('.fm-tree-toggle');
-            if (toggle) toggle.style.visibility = 'visible';
-        }
-        
-        dirs.sort((a, b) => {
-            const nameA = typeof a === 'object' ? a.name : a;
-            const nameB = typeof b === 'object' ? b.name : b;
-            return nameA.localeCompare(nameB);
-        });
-        
-        let html = '';
-        dirs.forEach(item => {
-            const dirName = typeof item === 'object' ? item.name : item;
-            const hasSubdirs = typeof item === 'object' ? item.has_subdirs : true;
-            const fullPath = (parentPath === '/' ? '' : parentPath) + '/' + dirName;
-            const safeId = 'tree-' + fullPath.replace(/[^a-zA-Z0-9_-]/g, '_');
-            const isActive = this.currentPath === fullPath;
-            
-            const toggleVisibility = hasSubdirs ? 'style="visibility: visible;"' : 'style="visibility: hidden;"';
-            const toggleAction = hasSubdirs ? `FileManager.toggleTreeNode('${this.escapeHtml(fullPath)}', this, event)` : 'event.stopPropagation()';
-            
-            html += `
+		const projectName = document.getElementById(
+			"detail-project-name",
+		)?.innerText;
+		if (!projectName || !App.currentCategory) {
+			callback([]);
+			return;
+		}
+
+		fetch("api.php?action=fmList", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: projectName,
+				category: App.currentCategory,
+				path: path,
+				env: this.currentEnv,
+			}),
+		})
+			.then((r) => r.json())
+			.then((res) => {
+				if (res.status === "success") {
+					const dirs = (res.data || [])
+						.filter((f) => f.is_dir)
+						.map((f) => ({
+							name: f.name,
+							has_subdirs: f.has_subdirs !== false,
+						}));
+					if (dirs.length > 0) {
+						this.treeCache[path] = dirs;
+					}
+					callback(dirs);
+				} else {
+					callback([]);
+				}
+			})
+			.catch(() => callback([]));
+	},
+
+	renderTreeChildren(containerSuffix, parentPath, dirs) {
+		const wrap = document.getElementById(
+			`fm-tree-children-${containerSuffix}`,
+		);
+		if (!wrap) return;
+
+		if (!dirs || dirs.length === 0) {
+			if (parentPath === "/") {
+				wrap.innerHTML = `<div style="padding: 3px 8px; color: var(--text-muted, #64748b); font-size: 11px; font-style: italic;">(Thư mục trống)</div>`;
+			} else {
+				wrap.innerHTML = "";
+				wrap.style.display = "none";
+				const parentItem = wrap.closest(".fm-tree-item");
+				if (parentItem) {
+					const toggle = parentItem.querySelector(".fm-tree-toggle");
+					if (toggle) toggle.style.visibility = "hidden";
+					const icon = parentItem.querySelector(".fm-tree-icon");
+					if (icon) icon.innerText = "📁";
+				}
+			}
+			return;
+		}
+
+		const parentItem = wrap.closest(".fm-tree-item");
+		if (parentItem) {
+			const toggle = parentItem.querySelector(".fm-tree-toggle");
+			if (toggle) toggle.style.visibility = "visible";
+		}
+
+		dirs.sort((a, b) => {
+			const nameA = typeof a === "object" ? a.name : a;
+			const nameB = typeof b === "object" ? b.name : b;
+			return nameA.localeCompare(nameB);
+		});
+
+		let html = "";
+		dirs.forEach((item) => {
+			const dirName = typeof item === "object" ? item.name : item;
+			const hasSubdirs =
+				typeof item === "object" ? item.has_subdirs : true;
+			const fullPath =
+				(parentPath === "/" ? "" : parentPath) + "/" + dirName;
+			const safeId = "tree-" + fullPath.replace(/[^a-zA-Z0-9_-]/g, "_");
+			const isActive = this.currentPath === fullPath;
+
+			const toggleVisibility = hasSubdirs
+				? 'style="visibility: visible;"'
+				: 'style="visibility: hidden;"';
+			const toggleAction = hasSubdirs
+				? `FileManager.toggleTreeNode('${this.escapeHtml(fullPath)}', this, event)`
+				: "event.stopPropagation()";
+
+			html += `
                 <div class="fm-tree-item" id="${safeId}">
-                    <div class="fm-tree-node ${isActive ? 'active' : ''}" data-path="${this.escapeHtml(fullPath)}" onclick="FileManager.selectTreeNode('${this.escapeHtml(fullPath)}', this)">
+                    <div class="fm-tree-node ${isActive ? "active" : ""}" data-path="${this.escapeHtml(fullPath)}" onclick="FileManager.selectTreeNode('${this.escapeHtml(fullPath)}', this)">
                         <span class="fm-tree-toggle" ${toggleVisibility} onclick="${toggleAction}">▶</span>
                         <span class="fm-tree-icon">📁</span>
                         <span class="fm-tree-label" title="${this.escapeHtml(dirName)}">${this.escapeHtml(dirName)}</span>
@@ -259,277 +302,426 @@ var FileManager = {
                     <div id="fm-tree-children-${safeId}" class="fm-tree-children" style="padding-left: 12px; display: none;"></div>
                 </div>
             `;
-        });
-        
-        wrap.innerHTML = html;
-        this.highlightActiveTreeNode();
-    },
+		});
 
-    toggleTreeNode(path, el, event) {
-        if (event) event.stopPropagation();
-        const safeId = path === '/' ? 'root' : ('tree-' + path.replace(/[^a-zA-Z0-9_-]/g, '_'));
-        const childrenWrap = document.getElementById(`fm-tree-children-${safeId}`);
-        if (!childrenWrap) return;
-        
-        const isHidden = childrenWrap.style.display === 'none';
-        if (isHidden) {
-            childrenWrap.style.display = 'block';
-            el.innerText = '▼';
-            const icon = el.nextElementSibling;
-            if (icon && icon.classList.contains('fm-tree-icon')) icon.innerText = '📂';
-            
-            if (!childrenWrap.dataset.loaded) {
-                childrenWrap.innerHTML = `<div style="padding: 4px 8px; color: var(--text-muted, #888); font-size: 11px;">Đang tải...</div>`;
-                this.fetchTreeDirs(path, (dirs) => {
-                    childrenWrap.dataset.loaded = 'true';
-                    if (dirs.length === 0) {
-                        el.style.visibility = 'hidden';
-                        if (icon && icon.classList.contains('fm-tree-icon')) icon.innerText = '📁';
-                        childrenWrap.innerHTML = '';
-                        childrenWrap.style.display = 'none';
-                    } else {
-                        this.renderTreeChildren(safeId, path, dirs);
-                    }
-                });
-            }
-        } else {
-            childrenWrap.style.display = 'none';
-            el.innerText = '▶';
-            const icon = el.nextElementSibling;
-            if (icon && icon.classList.contains('fm-tree-icon')) icon.innerText = '📁';
-        }
-    },
+		wrap.innerHTML = html;
+		this.highlightActiveTreeNode();
+	},
 
-    selectTreeNode(path, nodeEl) {
-        this.navigateTo(path);
-    },
+	toggleTreeNode(path, el, event) {
+		if (event) event.stopPropagation();
+		const safeId =
+			path === "/"
+				? "root"
+				: "tree-" + path.replace(/[^a-zA-Z0-9_-]/g, "_");
+		const childrenWrap = document.getElementById(
+			`fm-tree-children-${safeId}`,
+		);
+		if (!childrenWrap) return;
 
-    highlightActiveTreeNode() {
-        document.querySelectorAll('.fm-tree-node').forEach(n => {
-            if (n.dataset.path === this.currentPath) {
-                n.classList.add('active');
-            } else {
-                n.classList.remove('active');
-            }
-        });
-    },
+		const isHidden = childrenWrap.style.display === "none";
+		if (isHidden) {
+			childrenWrap.style.display = "block";
+			el.innerText = "▼";
+			const icon = el.nextElementSibling;
+			if (icon && icon.classList.contains("fm-tree-icon"))
+				icon.innerText = "📂";
 
-    loadCurrentPath() {
-        const tbody = document.getElementById('fm-file-list');
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:30px; color:var(--muted);">Đang tải danh sách file...</td></tr>`;
-        this.updateBreadcrumb();
-        this.highlightActiveTreeNode();
-        
-        fetch('api.php?action=fmList', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: document.getElementById('detail-project-name')?.innerText,
-                category: App.currentCategory,
-                path: this.currentPath,
-                env: this.currentEnv
-            })
-        }).then(res => res.json()).then(res => {
-            if (res.status === 'success') {
-                this.baseUrl = res.baseUrl || '';
-                this.rawFiles = res.data || [];
-                
-                // Directly sync directories to treeCache and update the tree node
-                const dirs = (this.rawFiles || []).filter(f => f.is_dir).map(f => ({
-                    name: f.name,
-                    has_subdirs: f.has_subdirs !== false
-                }));
-                this.treeCache[this.currentPath] = dirs;
-                
-                const containerSuffix = this.currentPath === '/' ? 'root' : ('tree-' + this.currentPath.replace(/[^a-zA-Z0-9_-]/g, '_'));
-                const wrap = document.getElementById(`fm-tree-children-${containerSuffix}`);
-                if (wrap) {
-                    wrap.dataset.loaded = 'true';
-                    this.renderTreeChildren(containerSuffix, this.currentPath, dirs);
-                }
+			if (!childrenWrap.dataset.loaded) {
+				childrenWrap.innerHTML = `<div style="padding: 4px 8px; color: var(--text-muted, #888); font-size: 11px;">Đang tải...</div>`;
+				this.fetchTreeDirs(path, (dirs) => {
+					childrenWrap.dataset.loaded = "true";
+					if (dirs.length === 0) {
+						el.style.visibility = "hidden";
+						if (icon && icon.classList.contains("fm-tree-icon"))
+							icon.innerText = "📁";
+						childrenWrap.innerHTML = "";
+						childrenWrap.style.display = "none";
+					} else {
+						this.renderTreeChildren(safeId, path, dirs);
+					}
+				});
+			}
+		} else {
+			childrenWrap.style.display = "none";
+			el.innerText = "▶";
+			const icon = el.nextElementSibling;
+			if (icon && icon.classList.contains("fm-tree-icon"))
+				icon.innerText = "📁";
+		}
+	},
 
-                const searchInput = document.getElementById('fm-search-input');
-                if (searchInput && searchInput.value) {
-                    this.filterList(searchInput.value);
-                } else {
-                    this.renderList(this.rawFiles);
-                }
-            } else {
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:30px; color:var(--danger);">${res.message || 'Lỗi tải danh sách file'}</td></tr>`;
-            }
-        }).catch(err => {
-            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:30px; color:var(--danger);">Lỗi kết nối</td></tr>`;
-        });
-    },
+	selectTreeNode(path, nodeEl) {
+		this.navigateTo(path);
+	},
 
-    updateBreadcrumb() {
-        const wrap = document.getElementById('fm-breadcrumb');
-        let html = `<span style="cursor:pointer; color:var(--primary);" onclick="FileManager.navigateTo('/')">/ root</span>`;
-        
-        let parts = this.currentPath.split('/').filter(p => p.trim() !== '');
-        let accumPath = '';
-        
-        parts.forEach(part => {
-            accumPath += '/' + part;
-            html += ` <span style="color:var(--muted);">/</span> <span style="cursor:pointer; color:var(--primary);" onclick="FileManager.navigateTo('${accumPath}')">${part}</span>`;
-        });
-        
-        wrap.innerHTML = html;
-    },
+	highlightActiveTreeNode() {
+		document.querySelectorAll(".fm-tree-node").forEach((n) => {
+			if (n.dataset.path === this.currentPath) {
+				n.classList.add("active");
+			} else {
+				n.classList.remove("active");
+			}
+		});
+	},
 
-    navigateTo(path) {
-        this.currentPath = path;
-        if (!this.currentPath.startsWith('/')) this.currentPath = '/' + this.currentPath;
-        const searchInput = document.getElementById('fm-search-input');
-        if (searchInput) searchInput.value = '';
-        this.highlightActiveTreeNode();
-        this.loadCurrentPath();
-    },
+	loadCurrentPath() {
+		const tbody = document.getElementById("fm-file-list");
+		tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:30px; color:var(--muted);">Đang tải danh sách file...</td></tr>`;
+		this.updateBreadcrumb();
+		this.highlightActiveTreeNode();
 
-    filterList(query) {
-        if (!query || !query.trim()) {
-            this.renderList(this.rawFiles);
-            return;
-        }
-        const q = query.toLowerCase().trim();
-        const filtered = (this.rawFiles || []).filter(f => f.name.toLowerCase().includes(q));
-        this.renderList(filtered);
-    },
+		fetch("api.php?action=fmList", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: document.getElementById("detail-project-name")?.innerText,
+				category: App.currentCategory,
+				path: this.currentPath,
+				env: this.currentEnv,
+			}),
+		})
+			.then((res) => res.json())
+			.then((res) => {
+				if (res.status === "success") {
+					this.baseUrl = res.baseUrl || "";
+					this.rawFiles = res.data || [];
 
-    formatBytes(bytes, decimals = 2) {
-        if (!+bytes) return '0 Bytes';
-        const k = 1024;
-        const dm = decimals < 0 ? 0 : decimals;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
-    },
+					// Directly sync directories to treeCache and update the tree node
+					const dirs = (this.rawFiles || [])
+						.filter((f) => f.is_dir)
+						.map((f) => ({
+							name: f.name,
+							has_subdirs: f.has_subdirs !== false,
+						}));
+					this.treeCache[this.currentPath] = dirs;
 
-    isEditable(filename) {
-        const lower = filename.toLowerCase();
-        if (lower.startsWith('.') || lower.includes('htaccess') || lower.includes('env')) return true;
-        const ext = lower.split('.').pop();
-        const textExts = [
-            'php', 'html', 'htm', 'css', 'scss', 'less', 'js', 'json', 'txt', 'md', 
-            'env', 'htaccess', 'sql', 'xml', 'yml', 'yaml', 'ini', 'conf', 'config',
-            'svg', 'sh', 'bat', 'log', 'lock', 'blade', 'phtml'
-        ];
-        return textExts.includes(ext);
-    },
+					const containerSuffix =
+						this.currentPath === "/"
+							? "root"
+							: "tree-" +
+								this.currentPath.replace(
+									/[^a-zA-Z0-9_-]/g,
+									"_",
+								);
+					const wrap = document.getElementById(
+						`fm-tree-children-${containerSuffix}`,
+					);
+					if (wrap) {
+						wrap.dataset.loaded = "true";
+						this.renderTreeChildren(
+							containerSuffix,
+							this.currentPath,
+							dirs,
+						);
+					}
 
-    isImage(filename) {
-        const ext = filename.toLowerCase().split('.').pop();
-        return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico', 'avif', 'bmp'].includes(ext);
-    },
+					const searchInput =
+						document.getElementById("fm-search-input");
+					if (searchInput && searchInput.value) {
+						this.filterList(searchInput.value);
+					} else {
+						this.renderList(this.rawFiles);
+					}
+				} else {
+					tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:30px; color:var(--danger);">${res.message || "Lỗi tải danh sách file"}</td></tr>`;
+				}
+			})
+			.catch((err) => {
+				tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:30px; color:var(--danger);">Lỗi kết nối</td></tr>`;
+			});
+	},
 
-    getFileMeta(filename, isDir) {
-        if (isDir) {
-            return {
-                badge: '<span style="font-size: 1.25rem;">📁</span>',
-                nameColor: 'var(--primary, #00d2d3)',
-                isDir: true
-            };
-        }
-        
-        const lower = filename.toLowerCase();
-        const ext = lower.split('.').pop();
-        
-        const makeBadge = (label, bg, color, border) => `
+	updateBreadcrumb() {
+		const wrap = document.getElementById("fm-breadcrumb");
+		let html = `<span style="cursor:pointer; color:var(--primary);" onclick="FileManager.navigateTo('/')">/ root</span>`;
+
+		let parts = this.currentPath.split("/").filter((p) => p.trim() !== "");
+		let accumPath = "";
+
+		parts.forEach((part) => {
+			accumPath += "/" + part;
+			html += ` <span style="color:var(--muted);">/</span> <span style="cursor:pointer; color:var(--primary);" onclick="FileManager.navigateTo('${accumPath}')">${part}</span>`;
+		});
+
+		wrap.innerHTML = html;
+	},
+
+	navigateTo(path) {
+		this.currentPath = path;
+		if (!this.currentPath.startsWith("/"))
+			this.currentPath = "/" + this.currentPath;
+		const searchInput = document.getElementById("fm-search-input");
+		if (searchInput) searchInput.value = "";
+		this.highlightActiveTreeNode();
+		this.loadCurrentPath();
+	},
+
+	filterList(query) {
+		if (!query || !query.trim()) {
+			this.renderList(this.rawFiles);
+			return;
+		}
+		const q = query.toLowerCase().trim();
+		const filtered = (this.rawFiles || []).filter((f) =>
+			f.name.toLowerCase().includes(q),
+		);
+		this.renderList(filtered);
+	},
+
+	formatBytes(bytes, decimals = 2) {
+		if (!+bytes) return "0 Bytes";
+		const k = 1024;
+		const dm = decimals < 0 ? 0 : decimals;
+		const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+	},
+
+	isEditable(filename) {
+		const lower = filename.toLowerCase();
+		if (
+			lower.startsWith(".") ||
+			lower.includes("htaccess") ||
+			lower.includes("env")
+		)
+			return true;
+		const ext = lower.split(".").pop();
+		const textExts = [
+			"php",
+			"html",
+			"htm",
+			"css",
+			"scss",
+			"less",
+			"js",
+			"json",
+			"txt",
+			"md",
+			"env",
+			"htaccess",
+			"sql",
+			"xml",
+			"yml",
+			"yaml",
+			"ini",
+			"conf",
+			"config",
+			"svg",
+			"sh",
+			"bat",
+			"log",
+			"lock",
+			"blade",
+			"phtml",
+		];
+		return textExts.includes(ext);
+	},
+
+	isImage(filename) {
+		const ext = filename.toLowerCase().split(".").pop();
+		return [
+			"jpg",
+			"jpeg",
+			"png",
+			"gif",
+			"webp",
+			"svg",
+			"ico",
+			"avif",
+			"bmp",
+		].includes(ext);
+	},
+
+	getFileMeta(filename, isDir) {
+		if (isDir) {
+			return {
+				badge: '<span style="font-size: 1.25rem;">📁</span>',
+				nameColor: "var(--primary, #00d2d3)",
+				isDir: true,
+			};
+		}
+
+		const lower = filename.toLowerCase();
+		const ext = lower.split(".").pop();
+
+		const makeBadge = (label, bg, color, border) => `
             <span style="display:inline-flex; align-items:center; justify-content:center; width:34px; height:22px; border-radius:5px; background:${bg}; color:${color}; border:1px solid ${border}; font-size:10px; font-weight:800; font-family:var(--mono, monospace); letter-spacing:0.5px;">${label}</span>
         `;
-        
-        if (lower.endsWith('.blade.php') || ext === 'php') {
-            return {
-                badge: makeBadge('PHP', 'rgba(99,102,241,0.15)', '#818cf8', 'rgba(129,140,248,0.3)'),
-                nameColor: '#c7d2fe'
-            };
-        }
-        if (['js', 'ts', 'jsx', 'tsx', 'mjs', 'cjs'].includes(ext)) {
-            return {
-                badge: makeBadge('JS', 'rgba(245,158,11,0.15)', '#fbbf24', 'rgba(251,191,36,0.3)'),
-                nameColor: '#fef08a'
-            };
-        }
-        if (['css', 'scss', 'sass', 'less'].includes(ext)) {
-            return {
-                badge: makeBadge('CSS', 'rgba(14,165,233,0.15)', '#38bdf8', 'rgba(56,189,248,0.3)'),
-                nameColor: '#bae6fd'
-            };
-        }
-        if (['html', 'htm', 'phtml'].includes(ext)) {
-            return {
-                badge: makeBadge('HTML', 'rgba(249,115,22,0.15)', '#fb923c', 'rgba(251,146,60,0.3)'),
-                nameColor: '#fed7aa'
-            };
-        }
-        if (['json', 'lock', 'env', 'config', 'ini', 'yml', 'yaml'].includes(ext) || lower.startsWith('.env') || lower.includes('htaccess')) {
-            const label = lower.includes('htaccess') ? 'HTA' : (lower.startsWith('.env') ? 'ENV' : ext.toUpperCase().slice(0, 4));
-            return {
-                badge: makeBadge(label, 'rgba(16,185,129,0.15)', '#34d399', 'rgba(52,211,153,0.3)'),
-                nameColor: '#a7f3d0'
-            };
-        }
-        if (['sql', 'db', 'sqlite', 'dat'].includes(ext)) {
-            return {
-                badge: makeBadge('SQL', 'rgba(234,179,8,0.15)', '#fde047', 'rgba(253,224,71,0.3)'),
-                nameColor: '#fef9c3'
-            };
-        }
-        if (['md', 'txt', 'log', 'pdf', 'doc', 'docx'].includes(ext)) {
-            return {
-                badge: makeBadge(ext.toUpperCase().slice(0, 3), 'rgba(168,85,247,0.15)', '#c084fc', 'rgba(192,132,252,0.3)'),
-                nameColor: '#e9d5ff'
-            };
-        }
-        if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
-            return {
-                badge: makeBadge('ZIP', 'rgba(239,68,68,0.15)', '#f87171', 'rgba(248,113,113,0.3)'),
-                nameColor: '#fecaca'
-            };
-        }
-        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico', 'avif'].includes(ext)) {
-            return {
-                badge: makeBadge('IMG', 'rgba(236,72,153,0.15)', '#f472b6', 'rgba(244,114,182,0.3)'),
-                nameColor: '#fbcfe8'
-            };
-        }
-        
-        return {
-            badge: makeBadge('FILE', 'rgba(255,255,255,0.06)', '#94a3b8', 'rgba(255,255,255,0.12)'),
-            nameColor: '#dfe6e9'
-        };
-    },
 
-    formatDate(dateStr) {
-        if (!dateStr || dateStr === '-') return '-';
-        if (dateStr.includes('/')) return dateStr;
-        
-        const months = {
-            'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04', 'may': '05', 'jun': '06',
-            'jul': '07', 'aug': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12'
-        };
-        
-        const parts = dateStr.trim().split(/\s+/);
-        if (parts.length === 3) {
-            const m = months[parts[0].toLowerCase()];
-            if (m) {
-                const day = parts[1].padStart(2, '0');
-                if (parts[2].includes(':')) {
-                    const currentYear = new Date().getFullYear();
-                    return `${day}/${m}/${currentYear} ${parts[2]}`;
-                } else {
-                    return `${day}/${m}/${parts[2]}`;
-                }
-            }
-        }
-        return dateStr;
-    },
+		if (lower.endsWith(".blade.php") || ext === "php") {
+			return {
+				badge: makeBadge(
+					"PHP",
+					"rgba(99,102,241,0.15)",
+					"#818cf8",
+					"rgba(129,140,248,0.3)",
+				),
+				nameColor: "#c7d2fe",
+			};
+		}
+		if (["js", "ts", "jsx", "tsx", "mjs", "cjs"].includes(ext)) {
+			return {
+				badge: makeBadge(
+					"JS",
+					"rgba(245,158,11,0.15)",
+					"#fbbf24",
+					"rgba(251,191,36,0.3)",
+				),
+				nameColor: "#fef08a",
+			};
+		}
+		if (["css", "scss", "sass", "less"].includes(ext)) {
+			return {
+				badge: makeBadge(
+					"CSS",
+					"rgba(14,165,233,0.15)",
+					"#38bdf8",
+					"rgba(56,189,248,0.3)",
+				),
+				nameColor: "#bae6fd",
+			};
+		}
+		if (["html", "htm", "phtml"].includes(ext)) {
+			return {
+				badge: makeBadge(
+					"HTML",
+					"rgba(249,115,22,0.15)",
+					"#fb923c",
+					"rgba(251,146,60,0.3)",
+				),
+				nameColor: "#fed7aa",
+			};
+		}
+		if (
+			["json", "lock", "env", "config", "ini", "yml", "yaml"].includes(
+				ext,
+			) ||
+			lower.startsWith(".env") ||
+			lower.includes("htaccess")
+		) {
+			const label = lower.includes("htaccess")
+				? "HTA"
+				: lower.startsWith(".env")
+					? "ENV"
+					: ext.toUpperCase().slice(0, 4);
+			return {
+				badge: makeBadge(
+					label,
+					"rgba(16,185,129,0.15)",
+					"#34d399",
+					"rgba(52,211,153,0.3)",
+				),
+				nameColor: "#a7f3d0",
+			};
+		}
+		if (["sql", "db", "sqlite", "dat"].includes(ext)) {
+			return {
+				badge: makeBadge(
+					"SQL",
+					"rgba(234,179,8,0.15)",
+					"#fde047",
+					"rgba(253,224,71,0.3)",
+				),
+				nameColor: "#fef9c3",
+			};
+		}
+		if (["md", "txt", "log", "pdf", "doc", "docx"].includes(ext)) {
+			return {
+				badge: makeBadge(
+					ext.toUpperCase().slice(0, 3),
+					"rgba(168,85,247,0.15)",
+					"#c084fc",
+					"rgba(192,132,252,0.3)",
+				),
+				nameColor: "#e9d5ff",
+			};
+		}
+		if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) {
+			return {
+				badge: makeBadge(
+					"ZIP",
+					"rgba(239,68,68,0.15)",
+					"#f87171",
+					"rgba(248,113,113,0.3)",
+				),
+				nameColor: "#fecaca",
+			};
+		}
+		if (
+			[
+				"jpg",
+				"jpeg",
+				"png",
+				"gif",
+				"webp",
+				"svg",
+				"ico",
+				"avif",
+			].includes(ext)
+		) {
+			return {
+				badge: makeBadge(
+					"IMG",
+					"rgba(236,72,153,0.15)",
+					"#f472b6",
+					"rgba(244,114,182,0.3)",
+				),
+				nameColor: "#fbcfe8",
+			};
+		}
 
-    ensureSelectionStyles() {
-        if (document.getElementById('fm-selection-styles')) return;
-        const style = document.createElement('style');
-        style.id = 'fm-selection-styles';
-        style.textContent = `
+		return {
+			badge: makeBadge(
+				"FILE",
+				"rgba(255,255,255,0.06)",
+				"#94a3b8",
+				"rgba(255,255,255,0.12)",
+			),
+			nameColor: "#dfe6e9",
+		};
+	},
+
+	formatDate(dateStr) {
+		if (!dateStr || dateStr === "-") return "-";
+		if (dateStr.includes("/")) return dateStr;
+
+		const months = {
+			jan: "01",
+			feb: "02",
+			mar: "03",
+			apr: "04",
+			may: "05",
+			jun: "06",
+			jul: "07",
+			aug: "08",
+			sep: "09",
+			oct: "10",
+			nov: "11",
+			dec: "12",
+		};
+
+		const parts = dateStr.trim().split(/\s+/);
+		if (parts.length === 3) {
+			const m = months[parts[0].toLowerCase()];
+			if (m) {
+				const day = parts[1].padStart(2, "0");
+				if (parts[2].includes(":")) {
+					const currentYear = new Date().getFullYear();
+					return `${day}/${m}/${currentYear} ${parts[2]}`;
+				} else {
+					return `${day}/${m}/${parts[2]}`;
+				}
+			}
+		}
+		return dateStr;
+	},
+
+	ensureSelectionStyles() {
+		if (document.getElementById("fm-selection-styles")) return;
+		const style = document.createElement("style");
+		style.id = "fm-selection-styles";
+		style.textContent = `
             .fm-row-item {
                 user-select: none;
                 -webkit-user-select: none;
@@ -600,70 +792,79 @@ var FileManager = {
                 border: 1px solid rgba(255, 255, 255, 0.08);
             }
         `;
-        document.head.appendChild(style);
-    },
+		document.head.appendChild(style);
+	},
 
-    renderList(files) {
-        const tbody = document.getElementById('fm-file-list');
-        this.currentRenderedFiles = files || [];
-        
-        if (!files || files.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--muted);">Thư mục trống</td></tr>`;
-            this.updateSelectionUI();
-            return;
-        }
+	renderList(files) {
+		const tbody = document.getElementById("fm-file-list");
+		this.currentRenderedFiles = files || [];
 
-        // Sort: folders first, then files by name
-        files.sort((a, b) => {
-            if (a.is_dir && !b.is_dir) return -1;
-            if (!a.is_dir && b.is_dir) return 1;
-            return a.name.localeCompare(b.name);
-        });
+		if (!files || files.length === 0) {
+			tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--muted);">Thư mục trống</td></tr>`;
+			this.updateSelectionUI();
+			return;
+		}
 
-        let html = '';
-        files.forEach((f, idx) => {
-            const meta = this.getFileMeta(f.name, f.is_dir);
-            let icon = meta.badge;
-            const size = f.is_dir ? '-' : this.formatBytes(f.size);
-            const path = (this.currentPath === '/' ? '' : this.currentPath) + '/' + f.name;
-            const fileUrl = this.baseUrl ? (this.baseUrl + (this.currentPath === '/' ? '' : this.currentPath) + '/' + encodeURIComponent(f.name)) : '';
-            const displayDate = this.formatDate(f.date);
-            const isSelected = this.selectedItems.has(path);
-            
-            let actions = '';
-            const btnStyle = "padding: 4px 10px; font-size: 11.5px; border-radius: 6px; font-weight: 500; transition: all 0.2s ease; border: 1px solid transparent; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.03);";
-            
-            if (f.is_dir) {
-                actions = `
+		// Sort: folders first, then files by name
+		files.sort((a, b) => {
+			if (a.is_dir && !b.is_dir) return -1;
+			if (!a.is_dir && b.is_dir) return 1;
+			return a.name.localeCompare(b.name);
+		});
+
+		let html = "";
+		files.forEach((f, idx) => {
+			const meta = this.getFileMeta(f.name, f.is_dir);
+			let icon = meta.badge;
+			const size = f.is_dir ? "-" : this.formatBytes(f.size);
+			const path =
+				(this.currentPath === "/" ? "" : this.currentPath) +
+				"/" +
+				f.name;
+			const fileUrl = this.baseUrl
+				? this.baseUrl +
+					(this.currentPath === "/" ? "" : this.currentPath) +
+					"/" +
+					encodeURIComponent(f.name)
+				: "";
+			const displayDate = this.formatDate(f.date);
+			const isSelected = this.selectedItems.has(path);
+
+			let actions = "";
+			const btnStyle =
+				"padding: 4px 10px; font-size: 11.5px; border-radius: 6px; font-weight: 500; transition: all 0.2s ease; border: 1px solid transparent; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.03);";
+
+			if (f.is_dir) {
+				actions = `
                     <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.navigateTo('${path}')" title="Mở" style="${btnStyle} color: #74b9ff;" onmouseover="this.style.background='rgba(116,185,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">📂 Mở</button>
                     <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.deleteItem('${path}', true)" title="Xóa" style="${btnStyle} color: #ff7675;" onmouseover="this.style.background='rgba(255,118,117,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">🗑️ Xóa</button>
                 `;
-            } else {
-                if (this.isImage(f.name) && fileUrl) {
-                    icon = `<img src="${fileUrl}" style="width:32px; height:32px; object-fit:cover; border-radius:5px; border:1px solid rgba(255,255,255,0.15); cursor:pointer; vertical-align:middle; display:inline-block; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='none'" onclick="event.stopPropagation(); FileManager.previewImage('${fileUrl}', '${this.escapeHtml(f.name)}')" onerror="this.outerHTML='${meta.badge}'">`;
-                    actions += `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.previewImage('${fileUrl}', '${this.escapeHtml(f.name)}')" title="Xem ảnh" style="${btnStyle} color: #00cec9;" onmouseover="this.style.background='rgba(0,206,201,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">👁️ Xem</button>`;
-                }
-                if (this.isEditable(f.name)) {
-                    actions += `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.editFile('${path}')" title="Sửa nhanh" style="${btnStyle} color: #a29bfe;" onmouseover="this.style.background='rgba(162,155,254,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">📝 Sửa</button>`;
-                    actions += `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.openInEditor('${path}')" title="Mở trong Antigravity IDE" style="${btnStyle} color: #ffeaa7;" onmouseover="this.style.background='rgba(255,234,167,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">⚡ IDE</button>`;
-                }
-                actions += `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.deleteItem('${path}', false)" title="Xóa" style="${btnStyle} color: #ff7675;" onmouseover="this.style.background='rgba(255,118,117,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">🗑️ Xóa</button>`;
-            }
+			} else {
+				if (this.isImage(f.name) && fileUrl) {
+					icon = `<img src="${fileUrl}" style="width:32px; height:32px; object-fit:cover; border-radius:5px; border:1px solid rgba(255,255,255,0.15); cursor:pointer; vertical-align:middle; display:inline-block; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='none'" onclick="event.stopPropagation(); FileManager.previewImage('${fileUrl}', '${this.escapeHtml(f.name)}')" onerror="this.outerHTML='${meta.badge}'">`;
+					actions += `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.previewImage('${fileUrl}', '${this.escapeHtml(f.name)}')" title="Xem ảnh" style="${btnStyle} color: #00cec9;" onmouseover="this.style.background='rgba(0,206,201,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">👁️ Xem</button>`;
+				}
+				if (this.isEditable(f.name)) {
+					actions += `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.editFile('${path}')" title="Sửa nhanh" style="${btnStyle} color: #a29bfe;" onmouseover="this.style.background='rgba(162,155,254,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">📝 Sửa</button>`;
+					actions += `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.openInEditor('${path}')" title="Mở trong Antigravity IDE" style="${btnStyle} color: #ffeaa7;" onmouseover="this.style.background='rgba(255,234,167,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">⚡ IDE</button>`;
+				}
+				actions += `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.deleteItem('${path}', false)" title="Xóa" style="${btnStyle} color: #ff7675;" onmouseover="this.style.background='rgba(255,118,117,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">🗑️ Xóa</button>`;
+			}
 
-            html += `
-                <tr class="fm-row-item ${isSelected ? 'fm-row-selected' : ''}" 
+			html += `
+                <tr class="fm-row-item ${isSelected ? "fm-row-selected" : ""}" 
                     data-fm-path="${path}" 
-                    data-fm-is-dir="${f.is_dir ? '1' : '0'}" 
+                    data-fm-is-dir="${f.is_dir ? "1" : "0"}" 
                     data-fm-name="${this.escapeHtml(f.name)}" 
                     data-fm-index="${idx}"
-                    onclick="FileManager.onRowClick(event, '${path}', ${f.is_dir ? 'true' : 'false'}, '${this.escapeHtml(f.name)}', ${idx})"
-                    oncontextmenu="FileManager.onRowContextMenu(event, '${path}', ${f.is_dir ? 'true' : 'false'}, '${this.escapeHtml(f.name)}', ${idx}); return false;"
+                    onclick="FileManager.onRowClick(event, '${path}', ${f.is_dir ? "true" : "false"}, '${this.escapeHtml(f.name)}', ${idx})"
+                    oncontextmenu="FileManager.onRowContextMenu(event, '${path}', ${f.is_dir ? "true" : "false"}, '${this.escapeHtml(f.name)}', ${idx}); return false;"
                     style="border-bottom: 1px solid rgba(255,255,255,0.04); transition: all 0.15s ease; cursor: default;" 
                     onmouseover="if(!this.classList.contains('fm-row-selected')) this.style.backgroundColor='rgba(255,255,255,0.03)';" 
                     onmouseout="if(!this.classList.contains('fm-row-selected')) this.style.backgroundColor='transparent';">
                     
                     <td style="padding: 10px 14px; width: 36px; text-align: center; vertical-align: middle;">
-                        <input type="checkbox" class="fm-item-checkbox" data-path="${path}" ${isSelected ? 'checked' : ''} onclick="FileManager.onItemCheckboxClick(event, '${path}', ${f.is_dir ? 'true' : 'false'}, '${this.escapeHtml(f.name)}')">
+                        <input type="checkbox" class="fm-item-checkbox" data-path="${path}" ${isSelected ? "checked" : ""} onclick="FileManager.onItemCheckboxClick(event, '${path}', ${f.is_dir ? "true" : "false"}, '${this.escapeHtml(f.name)}')">
                     </td>
                     <td style="padding: 10px 12px; width: 36px; text-align: center; vertical-align: middle;">${icon}</td>
                     <td style="padding: 10px 14px; font-weight: 500; vertical-align: middle; font-family: var(--mono, monospace); font-size: 13px;">
@@ -678,226 +879,265 @@ var FileManager = {
                     </td>
                 </tr>
             `;
-        });
-        tbody.innerHTML = html;
-        this.updateSelectionUI();
-    },
+		});
+		tbody.innerHTML = html;
+		this.updateSelectionUI();
+	},
 
-    onItemCheckboxClick(event, path, isDir, name) {
-        event.stopPropagation();
-        if (event.target.checked) {
-            this.selectedItems.set(path, { path, isDir, name });
-        } else {
-            this.selectedItems.delete(path);
-        }
-        this.updateSelectionUI();
-    },
+	onItemCheckboxClick(event, path, isDir, name) {
+		event.stopPropagation();
+		if (event.target.checked) {
+			this.selectedItems.set(path, { path, isDir, name });
+		} else {
+			this.selectedItems.delete(path);
+		}
+		this.updateSelectionUI();
+	},
 
-    toggleSelectAll(checked) {
-        if (checked) {
-            this.currentRenderedFiles.forEach(f => {
-                const path = (this.currentPath === '/' ? '' : this.currentPath) + '/' + f.name;
-                this.selectedItems.set(path, { path, isDir: f.is_dir, name: f.name });
-            });
-        } else {
-            this.selectedItems.clear();
-        }
-        this.updateSelectionUI();
-    },
+	toggleSelectAll(checked) {
+		if (checked) {
+			this.currentRenderedFiles.forEach((f) => {
+				const path =
+					(this.currentPath === "/" ? "" : this.currentPath) +
+					"/" +
+					f.name;
+				this.selectedItems.set(path, {
+					path,
+					isDir: f.is_dir,
+					name: f.name,
+				});
+			});
+		} else {
+			this.selectedItems.clear();
+		}
+		this.updateSelectionUI();
+	},
 
-    onRowClick(event, path, isDir, name, index) {
-        // Skip if clicked on link, button, input, or image preview
-        const tag = event.target.tagName.toLowerCase();
-        if (['input', 'button', 'a', 'img'].includes(tag) || event.target.closest('button') || event.target.closest('a')) {
-            return;
-        }
+	onRowClick(event, path, isDir, name, index) {
+		// Skip if clicked on link, button, input, or image preview
+		const tag = event.target.tagName.toLowerCase();
+		if (
+			["input", "button", "a", "img"].includes(tag) ||
+			event.target.closest("button") ||
+			event.target.closest("a")
+		) {
+			return;
+		}
 
-        if (event.ctrlKey || event.metaKey) {
-            // Toggle item
-            if (this.selectedItems.has(path)) {
-                this.selectedItems.delete(path);
-            } else {
-                this.selectedItems.set(path, { path, isDir, name });
-            }
-            this.lastClickedIndex = index;
-        } else if (event.shiftKey && this.lastClickedIndex !== -1) {
-            // Range select
-            const start = Math.min(this.lastClickedIndex, index);
-            const end = Math.max(this.lastClickedIndex, index);
-            for (let i = start; i <= end; i++) {
-                const item = this.currentRenderedFiles[i];
-                if (item) {
-                    const p = (this.currentPath === '/' ? '' : this.currentPath) + '/' + item.name;
-                    this.selectedItems.set(p, { path: p, isDir: item.is_dir, name: item.name });
-                }
-            }
-        } else {
-            // Single select
-            this.selectedItems.clear();
-            this.selectedItems.set(path, { path, isDir, name });
-            this.lastClickedIndex = index;
-        }
+		if (event.ctrlKey || event.metaKey) {
+			// Toggle item
+			if (this.selectedItems.has(path)) {
+				this.selectedItems.delete(path);
+			} else {
+				this.selectedItems.set(path, { path, isDir, name });
+			}
+			this.lastClickedIndex = index;
+		} else if (event.shiftKey && this.lastClickedIndex !== -1) {
+			// Range select
+			const start = Math.min(this.lastClickedIndex, index);
+			const end = Math.max(this.lastClickedIndex, index);
+			for (let i = start; i <= end; i++) {
+				const item = this.currentRenderedFiles[i];
+				if (item) {
+					const p =
+						(this.currentPath === "/" ? "" : this.currentPath) +
+						"/" +
+						item.name;
+					this.selectedItems.set(p, {
+						path: p,
+						isDir: item.is_dir,
+						name: item.name,
+					});
+				}
+			}
+		} else {
+			// Single select
+			this.selectedItems.clear();
+			this.selectedItems.set(path, { path, isDir, name });
+			this.lastClickedIndex = index;
+		}
 
-        this.updateSelectionUI();
-    },
+		this.updateSelectionUI();
+	},
 
-    updateSelectionUI() {
-        const selectAllCheckbox = document.getElementById('fm-select-all');
-        const count = this.selectedItems.size;
-        const total = this.currentRenderedFiles.length;
+	updateSelectionUI() {
+		const selectAllCheckbox = document.getElementById("fm-select-all");
+		const count = this.selectedItems.size;
+		const total = this.currentRenderedFiles.length;
 
-        if (selectAllCheckbox) {
-            selectAllCheckbox.checked = total > 0 && count === total;
-            selectAllCheckbox.indeterminate = count > 0 && count < total;
-        }
+		if (selectAllCheckbox) {
+			selectAllCheckbox.checked = total > 0 && count === total;
+			selectAllCheckbox.indeterminate = count > 0 && count < total;
+		}
 
-        // Highlight table rows
-        document.querySelectorAll('#fm-file-list tr.fm-row-item').forEach(tr => {
-            const p = tr.dataset.fmPath;
-            const cb = tr.querySelector('.fm-item-checkbox');
-            if (this.selectedItems.has(p)) {
-                tr.classList.add('fm-row-selected');
-                tr.style.backgroundColor = 'rgba(0,210,211,0.12)';
-                if (cb) cb.checked = true;
-            } else {
-                tr.classList.remove('fm-row-selected');
-                tr.style.backgroundColor = 'transparent';
-                if (cb) cb.checked = false;
-            }
-        });
+		// Highlight table rows
+		document
+			.querySelectorAll("#fm-file-list tr.fm-row-item")
+			.forEach((tr) => {
+				const p = tr.dataset.fmPath;
+				const cb = tr.querySelector(".fm-item-checkbox");
+				if (this.selectedItems.has(p)) {
+					tr.classList.add("fm-row-selected");
+					tr.style.backgroundColor = "rgba(0,210,211,0.12)";
+					if (cb) cb.checked = true;
+				} else {
+					tr.classList.remove("fm-row-selected");
+					tr.style.backgroundColor = "transparent";
+					if (cb) cb.checked = false;
+				}
+			});
 
-        // Update Batch Bar
-        const batchBar = document.getElementById('fm-batch-bar');
-        const batchCount = document.getElementById('fm-batch-count');
-        const batchLabel = document.getElementById('fm-batch-label');
+		// Update Batch Bar
+		const batchBar = document.getElementById("fm-batch-bar");
+		const batchCount = document.getElementById("fm-batch-count");
+		const batchLabel = document.getElementById("fm-batch-label");
 
-        if (batchBar && batchCount && batchLabel) {
-            if (count > 0) {
-                let dirCount = 0;
-                let fileCount = 0;
-                this.selectedItems.forEach(it => {
-                    if (it.isDir) dirCount++; else fileCount++;
-                });
-                batchCount.innerText = count;
-                const parts = [];
-                if (dirCount > 0) parts.push(`${dirCount} thư mục`);
-                if (fileCount > 0) parts.push(`${fileCount} tệp`);
-                batchLabel.innerText = `mục đã chọn (${parts.join(', ')})`;
-                batchBar.style.display = 'flex';
-            } else {
-                batchBar.style.display = 'none';
-            }
-        }
-    },
+		if (batchBar && batchCount && batchLabel) {
+			if (count > 0) {
+				let dirCount = 0;
+				let fileCount = 0;
+				this.selectedItems.forEach((it) => {
+					if (it.isDir) dirCount++;
+					else fileCount++;
+				});
+				batchCount.innerText = count;
+				const parts = [];
+				if (dirCount > 0) parts.push(`${dirCount} thư mục`);
+				if (fileCount > 0) parts.push(`${fileCount} tệp`);
+				batchLabel.innerText = `mục đã chọn (${parts.join(", ")})`;
+				batchBar.style.display = "flex";
+			} else {
+				batchBar.style.display = "none";
+			}
+		}
+	},
 
-    clearSelection() {
-        this.selectedItems.clear();
-        this.updateSelectionUI();
-    },
+	clearSelection() {
+		this.selectedItems.clear();
+		this.updateSelectionUI();
+	},
 
-    async deleteSelectedItems() {
-        const items = Array.from(this.selectedItems.values());
-        if (items.length === 0) return;
+	async deleteSelectedItems() {
+		const items = Array.from(this.selectedItems.values());
+		if (items.length === 0) return;
 
-        let dirCount = 0;
-        let fileCount = 0;
-        items.forEach(it => { if (it.isDir) dirCount++; else fileCount++; });
+		let dirCount = 0;
+		let fileCount = 0;
+		items.forEach((it) => {
+			if (it.isDir) dirCount++;
+			else fileCount++;
+		});
 
-        const envLabel = this.currentEnv === 'prod' ? 'Production Server' : 'Demo Server';
-        const parts = [];
-        if (dirCount > 0) parts.push(`<b>${dirCount} thư mục</b>`);
-        if (fileCount > 0) parts.push(`<b>${fileCount} tệp tin</b>`);
+		const envLabel =
+			this.currentEnv === "prod" ? "Production Server" : "Demo Server";
+		const parts = [];
+		if (dirCount > 0) parts.push(`<b>${dirCount} thư mục</b>`);
+		if (fileCount > 0) parts.push(`<b>${fileCount} tệp tin</b>`);
 
-        const msg = `Bạn có chắc chắn muốn xóa vĩnh viễn <b style="color:var(--primary);">${items.length} mục đã chọn</b> (${parts.join(', ')}) không?<br><span style="color:var(--danger); font-size:0.85em;">⚠️ Hành động này sẽ xóa trực tiếp trên ${envLabel} và không thể hoàn tác!</span>`;
-        const confirmed = (typeof UI !== 'undefined' && UI.confirm) ? await UI.confirm(msg) : confirm(`Bạn có chắc chắn muốn xóa ${items.length} mục đã chọn không?`);
-        if (!confirmed) return;
+		const msg = `Bạn có chắc chắn muốn xóa vĩnh viễn <b style="color:var(--primary);">${items.length} mục đã chọn</b> (${parts.join(", ")}) không?<br><span style="color:var(--danger); font-size:0.85em;">⚠️ Hành động này sẽ xóa trực tiếp trên ${envLabel} và không thể hoàn tác!</span>`;
+		const confirmed =
+			typeof UI !== "undefined" && UI.confirm
+				? await UI.confirm(msg)
+				: confirm(
+						`Bạn có chắc chắn muốn xóa ${items.length} mục đã chọn không?`,
+					);
+		if (!confirmed) return;
 
-        UI.showLoading(`Đang dọn sạch và xóa ${items.length} mục đã chọn trên máy chủ...`);
+		UI.showLoading(
+			`Đang dọn sạch và xóa ${items.length} mục đã chọn trên máy chủ...`,
+		);
 
-        fetch('api.php?action=fmDelete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: document.getElementById('detail-project-name')?.innerText,
-                category: App.currentCategory,
-                env: this.currentEnv,
-                items: items
-            })
-        }).then(res => res.json()).then(res => {
-            if (res.status === 'success') {
-                UI.showToast(res.message || 'Xóa thành công', 'success');
-                this.clearSelection();
-                this.loadCurrentPath();
-                this.loadTree(true);
-            } else {
-                UI.showToast('Lỗi: ' + res.message, 'error');
-            }
-        }).catch(err => {
-            UI.showToast('Lỗi kết nối: ' + err.message, 'error');
-        }).finally(() => {
-            UI.hideLoading();
-        });
-    },
+		fetch("api.php?action=fmDelete", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: document.getElementById("detail-project-name")?.innerText,
+				category: App.currentCategory,
+				env: this.currentEnv,
+				items: items,
+			}),
+		})
+			.then((res) => res.json())
+			.then((res) => {
+				if (res.status === "success") {
+					UI.showToast(res.message || "Xóa thành công", "success");
+					this.clearSelection();
+					this.loadCurrentPath();
+					this.loadTree(true);
+				} else {
+					UI.showToast("Lỗi: " + res.message, "error");
+				}
+			})
+			.catch((err) => {
+				UI.showToast("Lỗi kết nối: " + err.message, "error");
+			})
+			.finally(() => {
+				UI.hideLoading();
+			});
+	},
 
-    async deleteItem(path, isDir) {
-        const itemName = path.split('/').pop();
-        this.selectedItems.clear();
-        this.selectedItems.set(path, { path, isDir, name: itemName });
-        this.deleteSelectedItems();
-    },
+	async deleteItem(path, isDir) {
+		const itemName = path.split("/").pop();
+		this.selectedItems.clear();
+		this.selectedItems.set(path, { path, isDir, name: itemName });
+		this.deleteSelectedItems();
+	},
 
-    onRowContextMenu(event, path, isDir, name, index) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!this.selectedItems.has(path)) {
-            this.selectedItems.clear();
-            this.selectedItems.set(path, { path, isDir, name });
-            this.lastClickedIndex = index;
-            this.updateSelectionUI();
-        }
-        this.showContextMenu(event.clientX, event.clientY);
-    },
+	onRowContextMenu(event, path, isDir, name, index) {
+		event.preventDefault();
+		event.stopPropagation();
+		if (!this.selectedItems.has(path)) {
+			this.selectedItems.clear();
+			this.selectedItems.set(path, { path, isDir, name });
+			this.lastClickedIndex = index;
+			this.updateSelectionUI();
+		}
+		this.showContextMenu(event.clientX, event.clientY);
+	},
 
-    initContextMenu() {
-        if (document.getElementById('fm-context-menu')) return;
-        const menu = document.createElement('div');
-        menu.id = 'fm-context-menu';
-        document.body.appendChild(menu);
+	initContextMenu() {
+		if (document.getElementById("fm-context-menu")) return;
+		const menu = document.createElement("div");
+		menu.id = "fm-context-menu";
+		document.body.appendChild(menu);
 
-        document.addEventListener('click', () => this.hideContextMenu());
-        window.addEventListener('blur', () => this.hideContextMenu());
-        window.addEventListener('resize', () => this.hideContextMenu());
-    },
+		document.addEventListener("click", () => this.hideContextMenu());
+		window.addEventListener("blur", () => this.hideContextMenu());
+		window.addEventListener("resize", () => this.hideContextMenu());
+	},
 
-    showContextMenu(x, y) {
-        const menu = document.getElementById('fm-context-menu');
-        if (!menu) return;
+	showContextMenu(x, y) {
+		const menu = document.getElementById("fm-context-menu");
+		if (!menu) return;
 
-        const count = this.selectedItems.size;
-        let html = '';
+		const count = this.selectedItems.size;
+		let html = "";
 
-        if (count === 1) {
-            const firstItem = Array.from(this.selectedItems.values())[0];
-            if (firstItem.isDir) {
-                html += `<div class="fm-ctx-item" onclick="FileManager.navigateTo('${firstItem.path}')"><span>📂 Mở thư mục</span></div>`;
-            } else {
-                if (this.isImage(firstItem.name) && this.baseUrl) {
-                    const imgUrl = this.baseUrl + (firstItem.path.startsWith('/') ? '' : '/') + encodeURIComponent(firstItem.name);
-                    html += `<div class="fm-ctx-item" onclick="FileManager.previewImage('${imgUrl}', '${this.escapeHtml(firstItem.name)}')"><span>👁️ Xem ảnh</span></div>`;
-                }
-                if (this.isEditable(firstItem.name)) {
-                    html += `<div class="fm-ctx-item" onclick="FileManager.editFile('${firstItem.path}')"><span>📝 Sửa nhanh</span></div>`;
-                    html += `<div class="fm-ctx-item" onclick="FileManager.openInEditor('${firstItem.path}')"><span>⚡ Mở Antigravity IDE</span></div>`;
-                }
-            }
-            html += `<div class="fm-ctx-item fm-ctx-danger" onclick="FileManager.deleteSelectedItems()"><span>🗑️ Xóa</span><span class="fm-ctx-key">Del</span></div>`;
-            html += `<div class="fm-ctx-divider"></div>`;
-        } else if (count > 1) {
-            html += `<div class="fm-ctx-item fm-ctx-danger" onclick="FileManager.deleteSelectedItems()"><span>🗑️ Xóa ${count} mục đã chọn</span><span class="fm-ctx-key">Del</span></div>`;
-            html += `<div class="fm-ctx-divider"></div>`;
-        }
+		if (count === 1) {
+			const firstItem = Array.from(this.selectedItems.values())[0];
+			if (firstItem.isDir) {
+				html += `<div class="fm-ctx-item" onclick="FileManager.navigateTo('${firstItem.path}')"><span>📂 Mở thư mục</span></div>`;
+			} else {
+				if (this.isImage(firstItem.name) && this.baseUrl) {
+					const imgUrl =
+						this.baseUrl +
+						(firstItem.path.startsWith("/") ? "" : "/") +
+						encodeURIComponent(firstItem.name);
+					html += `<div class="fm-ctx-item" onclick="FileManager.previewImage('${imgUrl}', '${this.escapeHtml(firstItem.name)}')"><span>👁️ Xem ảnh</span></div>`;
+				}
+				if (this.isEditable(firstItem.name)) {
+					html += `<div class="fm-ctx-item" onclick="FileManager.editFile('${firstItem.path}')"><span>📝 Sửa nhanh</span></div>`;
+					html += `<div class="fm-ctx-item" onclick="FileManager.openInEditor('${firstItem.path}')"><span>⚡ Mở Antigravity IDE</span></div>`;
+				}
+			}
+			html += `<div class="fm-ctx-item fm-ctx-danger" onclick="FileManager.deleteSelectedItems()"><span>🗑️ Xóa</span><span class="fm-ctx-key">Del</span></div>`;
+			html += `<div class="fm-ctx-divider"></div>`;
+		} else if (count > 1) {
+			html += `<div class="fm-ctx-item fm-ctx-danger" onclick="FileManager.deleteSelectedItems()"><span>🗑️ Xóa ${count} mục đã chọn</span><span class="fm-ctx-key">Del</span></div>`;
+			html += `<div class="fm-ctx-divider"></div>`;
+		}
 
-        html += `
+		html += `
             <div class="fm-ctx-item" onclick="FileManager.showCreateDirModal()"><span>📁 Tạo thư mục mới</span></div>
             <div class="fm-ctx-item" onclick="FileManager.triggerUploadFiles()"><span>☁️ Tải lên tệp tin</span></div>
             <div class="fm-ctx-item" onclick="FileManager.triggerUploadFolder()"><span>📁 Tải lên cả thư mục</span></div>
@@ -905,173 +1145,204 @@ var FileManager = {
             <div class="fm-ctx-item" onclick="FileManager.loadCurrentPath(); FileManager.loadTree(true);"><span>🔄 Làm mới</span><span class="fm-ctx-key">F5</span></div>
         `;
 
-        menu.innerHTML = html;
-        menu.style.display = 'block';
+		menu.innerHTML = html;
+		menu.style.display = "block";
 
-        // Position with bounds check
-        const menuWidth = 230;
-        const menuHeight = menu.offsetHeight || 220;
-        const posX = (x + menuWidth > window.innerWidth) ? (window.innerWidth - menuWidth - 10) : x;
-        const posY = (y + menuHeight > window.innerHeight) ? (window.innerHeight - menuHeight - 10) : y;
+		// Position with bounds check
+		const menuWidth = 230;
+		const menuHeight = menu.offsetHeight || 220;
+		const posX =
+			x + menuWidth > window.innerWidth
+				? window.innerWidth - menuWidth - 10
+				: x;
+		const posY =
+			y + menuHeight > window.innerHeight
+				? window.innerHeight - menuHeight - 10
+				: y;
 
-        menu.style.left = `${posX}px`;
-        menu.style.top = `${posY}px`;
-    },
+		menu.style.left = `${posX}px`;
+		menu.style.top = `${posY}px`;
+	},
 
-    hideContextMenu() {
-        const menu = document.getElementById('fm-context-menu');
-        if (menu) menu.style.display = 'none';
-    },
+	hideContextMenu() {
+		const menu = document.getElementById("fm-context-menu");
+		if (menu) menu.style.display = "none";
+	},
 
-    initMarqueeSelection() {
-        const container = document.querySelector('.fm-list-container');
-        if (!container || container.dataset.marqueeInit === 'true') return;
-        container.dataset.marqueeInit = 'true';
+	initMarqueeSelection() {
+		const container = document.querySelector(".fm-list-container");
+		if (!container || container.dataset.marqueeInit === "true") return;
+		container.dataset.marqueeInit = "true";
 
-        let marqueeBox = document.getElementById('fm-marquee-box');
-        if (!marqueeBox) {
-            marqueeBox = document.createElement('div');
-            marqueeBox.id = 'fm-marquee-box';
-            container.appendChild(marqueeBox);
-        }
+		let marqueeBox = document.getElementById("fm-marquee-box");
+		if (!marqueeBox) {
+			marqueeBox = document.createElement("div");
+			marqueeBox.id = "fm-marquee-box";
+			container.appendChild(marqueeBox);
+		}
 
-        let isDragging = false;
-        let startX = 0, startY = 0;
+		let isDragging = false;
+		let startX = 0,
+			startY = 0;
 
-        container.addEventListener('mousedown', e => {
-            // Only left click on empty background
-            if (e.button !== 0) return;
-            const tag = e.target.tagName.toLowerCase();
-            if (['input', 'button', 'a', 'img'].includes(tag) || e.target.closest('button') || e.target.closest('a')) {
-                return;
-            }
+		container.addEventListener("mousedown", (e) => {
+			// Only left click on empty background
+			if (e.button !== 0) return;
+			const tag = e.target.tagName.toLowerCase();
+			if (
+				["input", "button", "a", "img"].includes(tag) ||
+				e.target.closest("button") ||
+				e.target.closest("a")
+			) {
+				return;
+			}
 
-            const rect = container.getBoundingClientRect();
-            startX = e.clientX - rect.left + container.scrollLeft;
-            startY = e.clientY - rect.top + container.scrollTop;
+			const rect = container.getBoundingClientRect();
+			startX = e.clientX - rect.left + container.scrollLeft;
+			startY = e.clientY - rect.top + container.scrollTop;
 
-            isDragging = true;
-            marqueeBox.style.left = `${startX}px`;
-            marqueeBox.style.top = `${startY}px`;
-            marqueeBox.style.width = '0px';
-            marqueeBox.style.height = '0px';
-            marqueeBox.style.display = 'block';
+			isDragging = true;
+			marqueeBox.style.left = `${startX}px`;
+			marqueeBox.style.top = `${startY}px`;
+			marqueeBox.style.width = "0px";
+			marqueeBox.style.height = "0px";
+			marqueeBox.style.display = "block";
 
-            if (!e.ctrlKey && !e.metaKey && !e.target.closest('tr.fm-row-item')) {
-                this.clearSelection();
-            }
-        });
+			if (
+				!e.ctrlKey &&
+				!e.metaKey &&
+				!e.target.closest("tr.fm-row-item")
+			) {
+				this.clearSelection();
+			}
+		});
 
-        window.addEventListener('mousemove', e => {
-            if (!isDragging) return;
-            const rect = container.getBoundingClientRect();
-            const currentX = e.clientX - rect.left + container.scrollLeft;
-            const currentY = e.clientY - rect.top + container.scrollTop;
+		window.addEventListener("mousemove", (e) => {
+			if (!isDragging) return;
+			const rect = container.getBoundingClientRect();
+			const currentX = e.clientX - rect.left + container.scrollLeft;
+			const currentY = e.clientY - rect.top + container.scrollTop;
 
-            const x = Math.min(startX, currentX);
-            const y = Math.min(startY, currentY);
-            const w = Math.abs(currentX - startX);
-            const h = Math.abs(currentY - startY);
+			const x = Math.min(startX, currentX);
+			const y = Math.min(startY, currentY);
+			const w = Math.abs(currentX - startX);
+			const h = Math.abs(currentY - startY);
 
-            marqueeBox.style.left = `${x}px`;
-            marqueeBox.style.top = `${y}px`;
-            marqueeBox.style.width = `${w}px`;
-            marqueeBox.style.height = `${h}px`;
+			marqueeBox.style.left = `${x}px`;
+			marqueeBox.style.top = `${y}px`;
+			marqueeBox.style.width = `${w}px`;
+			marqueeBox.style.height = `${h}px`;
 
-            // Hit test rows
-            const marqueeRect = marqueeBox.getBoundingClientRect();
-            document.querySelectorAll('#fm-file-list tr.fm-row-item').forEach(tr => {
-                const trRect = tr.getBoundingClientRect();
-                const intersect = !(trRect.right < marqueeRect.left || 
-                                    trRect.left > marqueeRect.right || 
-                                    trRect.bottom < marqueeRect.top || 
-                                    trRect.top > marqueeRect.bottom);
-                const path = tr.dataset.fmPath;
-                const isDir = tr.dataset.fmIsDir === '1';
-                const name = tr.dataset.fmName;
+			// Hit test rows
+			const marqueeRect = marqueeBox.getBoundingClientRect();
+			document
+				.querySelectorAll("#fm-file-list tr.fm-row-item")
+				.forEach((tr) => {
+					const trRect = tr.getBoundingClientRect();
+					const intersect = !(
+						trRect.right < marqueeRect.left ||
+						trRect.left > marqueeRect.right ||
+						trRect.bottom < marqueeRect.top ||
+						trRect.top > marqueeRect.bottom
+					);
+					const path = tr.dataset.fmPath;
+					const isDir = tr.dataset.fmIsDir === "1";
+					const name = tr.dataset.fmName;
 
-                if (intersect) {
-                    this.selectedItems.set(path, { path, isDir, name });
-                }
-            });
+					if (intersect) {
+						this.selectedItems.set(path, { path, isDir, name });
+					}
+				});
 
-            this.updateSelectionUI();
-        });
+			this.updateSelectionUI();
+		});
 
-        window.addEventListener('mouseup', () => {
-            if (isDragging) {
-                isDragging = false;
-                marqueeBox.style.display = 'none';
-            }
-        });
+		window.addEventListener("mouseup", () => {
+			if (isDragging) {
+				isDragging = false;
+				marqueeBox.style.display = "none";
+			}
+		});
 
-        // Context menu on empty area
-        container.addEventListener('contextmenu', e => {
-            if (!e.target.closest('tr.fm-row-item')) {
-                e.preventDefault();
-                this.showContextMenu(e.clientX, e.clientY);
-            }
-        });
-    },
+		// Context menu on empty area
+		container.addEventListener("contextmenu", (e) => {
+			if (!e.target.closest("tr.fm-row-item")) {
+				e.preventDefault();
+				this.showContextMenu(e.clientX, e.clientY);
+			}
+		});
+	},
 
-    initKeyBindings() {
-        if (window.fmKeysBound) return;
-        window.fmKeysBound = true;
+	initKeyBindings() {
+		if (window.fmKeysBound) return;
+		window.fmKeysBound = true;
 
-        window.addEventListener('keydown', e => {
-            const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
-            if (['input', 'textarea'].includes(activeTag)) return;
+		window.addEventListener("keydown", (e) => {
+			const activeTag = document.activeElement
+				? document.activeElement.tagName.toLowerCase()
+				: "";
+			if (["input", "textarea"].includes(activeTag)) return;
 
-            if (e.key === 'Delete' || e.key === 'Del') {
-                if (this.selectedItems.size > 0) {
-                    e.preventDefault();
-                    this.deleteSelectedItems();
-                }
-            } else if (e.key === 'Escape') {
-                this.hideContextMenu();
-                this.clearSelection();
-            }
-        });
-    },
+			if (e.key === "Delete" || e.key === "Del") {
+				if (this.selectedItems.size > 0) {
+					e.preventDefault();
+					this.deleteSelectedItems();
+				}
+			} else if (e.key === "Escape") {
+				this.hideContextMenu();
+				this.clearSelection();
+			}
+		});
+	},
 
-    showCreateDirModal() {
-        const name = prompt('Nhập tên thư mục mới:');
-        if (!name) return;
-        
-        const path = (this.currentPath === '/' ? '' : this.currentPath) + '/' + name;
-        UI.showLoading(`Đang tạo thư mục "${name}"...`);
-        
-        fetch('api.php?action=fmCreateDir', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: document.getElementById('detail-project-name')?.innerText,
-                category: App.currentCategory,
-                path: path,
-                env: this.currentEnv
-            })
-        }).then(res => res.json()).then(res => {
-            if (res.status === 'success') {
-                UI.showToast('Tạo thư mục thành công', 'success');
-                this.loadCurrentPath();
-            } else {
-                UI.showToast('Lỗi: ' + (res.message || 'Không thể tạo thư mục'), 'error');
-            }
-        }).catch(err => {
-            UI.showToast('Lỗi kết nối: ' + err.message, 'error');
-        }).finally(() => {
-            UI.hideLoading();
-        });
-    },
+	showCreateDirModal() {
+		const name = prompt("Nhập tên thư mục mới:");
+		if (!name) return;
 
-    showUploadModal() {
-        let existing = document.getElementById('fm-upload-dialog-modal');
-        if (existing) existing.remove();
+		const path =
+			(this.currentPath === "/" ? "" : this.currentPath) + "/" + name;
+		UI.showLoading(`Đang tạo thư mục "${name}"...`);
 
-        const currentPathDisplay = this.currentPath === '/' ? '/' : this.currentPath;
-        const envLabel = this.currentEnv === 'prod' ? 'Production Server' : 'Demo Server';
+		fetch("api.php?action=fmCreateDir", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: document.getElementById("detail-project-name")?.innerText,
+				category: App.currentCategory,
+				path: path,
+				env: this.currentEnv,
+			}),
+		})
+			.then((res) => res.json())
+			.then((res) => {
+				if (res.status === "success") {
+					UI.showToast("Tạo thư mục thành công", "success");
+					this.loadCurrentPath();
+				} else {
+					UI.showToast(
+						"Lỗi: " + (res.message || "Không thể tạo thư mục"),
+						"error",
+					);
+				}
+			})
+			.catch((err) => {
+				UI.showToast("Lỗi kết nối: " + err.message, "error");
+			})
+			.finally(() => {
+				UI.hideLoading();
+			});
+	},
 
-        const modalHtml = `
+	showUploadModal() {
+		let existing = document.getElementById("fm-upload-dialog-modal");
+		if (existing) existing.remove();
+
+		const currentPathDisplay =
+			this.currentPath === "/" ? "/" : this.currentPath;
+		const envLabel =
+			this.currentEnv === "prod" ? "Production Server" : "Demo Server";
+
+		const modalHtml = `
             <div class="modal-overlay" id="fm-upload-dialog-modal" style="display:flex; z-index:9999; background:rgba(6,9,15,0.78); backdrop-filter:blur(8px); animation:modalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);" onclick="if(event.target===this) this.remove()">
                 <div class="modal-content" style="max-width: 540px; width: 92%; background: #131822; border: 1px solid rgba(255,255,255,0.12); border-radius: 18px; box-shadow: 0 24px 60px rgba(0,0,0,0.75); overflow: hidden; display: flex; flex-direction: column;">
                     
@@ -1122,197 +1393,231 @@ var FileManager = {
             </div>
         `;
 
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
+		document.body.insertAdjacentHTML("beforeend", modalHtml);
 
-        // Bind drag & drop in modal
-        const dropzone = document.getElementById('fm-modal-dropzone');
-        if (dropzone) {
-            dropzone.ondragover = e => { e.preventDefault(); dropzone.style.borderColor = 'var(--primary, #00d2d3)'; dropzone.style.background = 'rgba(0,210,211,0.08)'; };
-            dropzone.ondragleave = () => { dropzone.style.borderColor = 'rgba(255,255,255,0.15)'; dropzone.style.background = 'rgba(0,0,0,0.15)'; };
-            dropzone.ondrop = async e => {
-                e.preventDefault();
-                dropzone.style.borderColor = 'rgba(255,255,255,0.15)';
-                dropzone.style.background = 'rgba(0,0,0,0.15)';
-                const modal = document.getElementById('fm-upload-dialog-modal');
-                if (modal) modal.remove();
+		// Bind drag & drop in modal
+		const dropzone = document.getElementById("fm-modal-dropzone");
+		if (dropzone) {
+			dropzone.ondragover = (e) => {
+				e.preventDefault();
+				dropzone.style.borderColor = "var(--primary, #00d2d3)";
+				dropzone.style.background = "rgba(0,210,211,0.08)";
+			};
+			dropzone.ondragleave = () => {
+				dropzone.style.borderColor = "rgba(255,255,255,0.15)";
+				dropzone.style.background = "rgba(0,0,0,0.15)";
+			};
+			dropzone.ondrop = async (e) => {
+				e.preventDefault();
+				dropzone.style.borderColor = "rgba(255,255,255,0.15)";
+				dropzone.style.background = "rgba(0,0,0,0.15)";
+				const modal = document.getElementById("fm-upload-dialog-modal");
+				if (modal) modal.remove();
 
-                const files = await FileManager.extractFilesFromDataTransfer(e.dataTransfer);
-                if (files && files.length > 0) {
-                    FileManager.uploadFilesQueue(files, true);
-                }
-            };
-        }
-    },
+				const files = await FileManager.extractFilesFromDataTransfer(
+					e.dataTransfer,
+				);
+				if (files && files.length > 0) {
+					FileManager.uploadFilesQueue(files, true);
+				}
+			};
+		}
+	},
 
-    triggerUploadFiles() {
-        const modal = document.getElementById('fm-upload-dialog-modal');
-        if (modal) modal.remove();
+	triggerUploadFiles() {
+		const modal = document.getElementById("fm-upload-dialog-modal");
+		if (modal) modal.remove();
 
-        let input = document.getElementById('fm-hidden-input-files');
-        if (!input) {
-            input = document.createElement('input');
-            input.id = 'fm-hidden-input-files';
-            input.type = 'file';
-            input.multiple = true;
-            input.style.display = 'none';
-            document.body.appendChild(input);
-        }
-        input.value = '';
-        input.onchange = e => {
-            if (e.target.files && e.target.files.length > 0) {
-                this.uploadFilesQueue(e.target.files, false);
-            }
-        };
-        input.click();
-    },
+		let input = document.getElementById("fm-hidden-input-files");
+		if (!input) {
+			input = document.createElement("input");
+			input.id = "fm-hidden-input-files";
+			input.type = "file";
+			input.multiple = true;
+			input.style.display = "none";
+			document.body.appendChild(input);
+		}
+		input.value = "";
+		input.onchange = (e) => {
+			if (e.target.files && e.target.files.length > 0) {
+				this.uploadFilesQueue(e.target.files, false);
+			}
+		};
+		input.click();
+	},
 
-    triggerUploadFolder() {
-        const modal = document.getElementById('fm-upload-dialog-modal');
-        if (modal) modal.remove();
+	triggerUploadFolder() {
+		const modal = document.getElementById("fm-upload-dialog-modal");
+		if (modal) modal.remove();
 
-        let input = document.getElementById('fm-hidden-input-folder');
-        if (!input) {
-            input = document.createElement('input');
-            input.id = 'fm-hidden-input-folder';
-            input.type = 'file';
-            input.webkitdirectory = true;
-            input.directory = true;
-            input.multiple = true;
-            input.style.display = 'none';
-            document.body.appendChild(input);
-        }
-        input.value = '';
-        input.onchange = e => {
-            if (e.target.files && e.target.files.length > 0) {
-                this.uploadFilesQueue(e.target.files, true);
-            }
-        };
-        input.click();
-    },
+		let input = document.getElementById("fm-hidden-input-folder");
+		if (!input) {
+			input = document.createElement("input");
+			input.id = "fm-hidden-input-folder";
+			input.type = "file";
+			input.webkitdirectory = true;
+			input.directory = true;
+			input.multiple = true;
+			input.style.display = "none";
+			document.body.appendChild(input);
+		}
+		input.value = "";
+		input.onchange = (e) => {
+			if (e.target.files && e.target.files.length > 0) {
+				this.uploadFilesQueue(e.target.files, true);
+			}
+		};
+		input.click();
+	},
 
-    async extractFilesFromDataTransfer(dataTransfer) {
-        const fileList = [];
-        if (!dataTransfer || !dataTransfer.items) return fileList;
+	async extractFilesFromDataTransfer(dataTransfer) {
+		const fileList = [];
+		if (!dataTransfer || !dataTransfer.items) return fileList;
 
-        const items = dataTransfer.items;
-        const queue = [];
+		const items = dataTransfer.items;
+		const queue = [];
 
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            if (item.kind === 'file') {
-                const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
-                if (entry) {
-                    queue.push(entry);
-                } else {
-                    const f = item.getAsFile();
-                    if (f) fileList.push(f);
-                }
-            }
-        }
+		for (let i = 0; i < items.length; i++) {
+			const item = items[i];
+			if (item.kind === "file") {
+				const entry = item.webkitGetAsEntry
+					? item.webkitGetAsEntry()
+					: null;
+				if (entry) {
+					queue.push(entry);
+				} else {
+					const f = item.getAsFile();
+					if (f) fileList.push(f);
+				}
+			}
+		}
 
-        const readEntry = (entry, path = '') => {
-            return new Promise((resolve) => {
-                if (entry.isFile) {
-                    entry.file(f => {
-                        try {
-                            Object.defineProperty(f, 'webkitRelativePath', {
-                                value: (path ? path + '/' : '') + f.name,
-                                writable: true
-                            });
-                        } catch (err) {}
-                        fileList.push(f);
-                        resolve();
-                    }, () => resolve());
-                } else if (entry.isDirectory) {
-                    const dirReader = entry.createReader();
-                    const readAll = () => {
-                        dirReader.readEntries(async entries => {
-                            if (entries.length === 0) {
-                                resolve();
-                            } else {
-                                for (const child of entries) {
-                                    await readEntry(child, (path ? path + '/' : '') + entry.name);
-                                }
-                                readAll();
-                            }
-                        }, () => resolve());
-                    };
-                    readAll();
-                } else {
-                    resolve();
-                }
-            });
-        };
+		const readEntry = (entry, path = "") => {
+			return new Promise((resolve) => {
+				if (entry.isFile) {
+					entry.file(
+						(f) => {
+							try {
+								Object.defineProperty(f, "webkitRelativePath", {
+									value: (path ? path + "/" : "") + f.name,
+									writable: true,
+								});
+							} catch (err) {}
+							fileList.push(f);
+							resolve();
+						},
+						() => resolve(),
+					);
+				} else if (entry.isDirectory) {
+					const dirReader = entry.createReader();
+					const readAll = () => {
+						dirReader.readEntries(
+							async (entries) => {
+								if (entries.length === 0) {
+									resolve();
+								} else {
+									for (const child of entries) {
+										await readEntry(
+											child,
+											(path ? path + "/" : "") +
+												entry.name,
+										);
+									}
+									readAll();
+								}
+							},
+							() => resolve(),
+						);
+					};
+					readAll();
+				} else {
+					resolve();
+				}
+			});
+		};
 
-        while (queue.length > 0) {
-            const entry = queue.shift();
-            await readEntry(entry);
-        }
+		while (queue.length > 0) {
+			const entry = queue.shift();
+			await readEntry(entry);
+		}
 
-        return fileList;
-    },
+		return fileList;
+	},
 
-    async uploadFilesQueue(filesList, isFolder = false) {
-        if (!filesList || filesList.length === 0) return;
+	async uploadFilesQueue(filesList, isFolder = false) {
+		if (!filesList || filesList.length === 0) return;
 
-        const files = Array.from(filesList);
-        const totalCount = files.length;
-        let successCount = 0;
-        let failCount = 0;
+		const files = Array.from(filesList);
+		const totalCount = files.length;
+		let successCount = 0;
+		let failCount = 0;
 
-        const rootTarget = this.currentPath === '/' ? '' : this.currentPath;
-        const uploadTitle = isFolder ? 'Đang tải lên Thư mục' : 'Đang tải lên Tệp tin';
+		const rootTarget = this.currentPath === "/" ? "" : this.currentPath;
+		const uploadTitle = isFolder
+			? "Đang tải lên Thư mục"
+			: "Đang tải lên Tệp tin";
 
-        this.showUploadProgressModal(uploadTitle, totalCount);
+		this.showUploadProgressModal(uploadTitle, totalCount);
 
-        for (let i = 0; i < totalCount; i++) {
-            const file = files[i];
-            const relPath = file.webkitRelativePath ? file.webkitRelativePath : file.name;
-            const targetFilePath = rootTarget + '/' + relPath;
+		for (let i = 0; i < totalCount; i++) {
+			const file = files[i];
+			const relPath = file.webkitRelativePath
+				? file.webkitRelativePath
+				: file.name;
+			const targetFilePath = rootTarget + "/" + relPath;
 
-            const percent = Math.round((i / totalCount) * 100);
-            this.updateUploadProgressModal(i + 1, totalCount, relPath, percent);
+			const percent = Math.round((i / totalCount) * 100);
+			this.updateUploadProgressModal(i + 1, totalCount, relPath, percent);
 
-            const formData = new FormData();
-            formData.append('name', document.getElementById('detail-project-name')?.innerText);
-            formData.append('category', App.currentCategory);
-            formData.append('path', targetFilePath);
-            formData.append('file', file);
-            formData.append('env', this.currentEnv);
+			const formData = new FormData();
+			formData.append(
+				"name",
+				document.getElementById("detail-project-name")?.innerText,
+			);
+			formData.append("category", App.currentCategory);
+			formData.append("path", targetFilePath);
+			formData.append("file", file);
+			formData.append("env", this.currentEnv);
 
-            try {
-                const res = await fetch('api.php?action=fmUpload', {
-                    method: 'POST',
-                    body: formData
-                }).then(r => r.json());
+			try {
+				const res = await fetch("api.php?action=fmUpload", {
+					method: "POST",
+					body: formData,
+				}).then((r) => r.json());
 
-                if (res.status === 'success') {
-                    successCount++;
-                } else {
-                    failCount++;
-                }
-            } catch (err) {
-                failCount++;
-            }
-        }
+				if (res.status === "success") {
+					successCount++;
+				} else {
+					failCount++;
+				}
+			} catch (err) {
+				failCount++;
+			}
+		}
 
-        this.hideUploadProgressModal();
+		this.hideUploadProgressModal();
 
-        if (failCount === 0) {
-            UI.showToast(`✅ Đã tải lên thành công toàn bộ ${successCount} tệp tin!`, 'success');
-        } else {
-            UI.showToast(`Đã tải lên ${successCount}/${totalCount} tệp (${failCount} tệp lỗi)`, 'warning');
-        }
+		if (failCount === 0) {
+			UI.showToast(
+				`✅ Đã tải lên thành công toàn bộ ${successCount} tệp tin!`,
+				"success",
+			);
+		} else {
+			UI.showToast(
+				`Đã tải lên ${successCount}/${totalCount} tệp (${failCount} tệp lỗi)`,
+				"warning",
+			);
+		}
 
-        this.loadCurrentPath();
-        this.loadTree(true);
-    },
+		this.loadCurrentPath();
+		this.loadTree(true);
+	},
 
-    showUploadProgressModal(title, total) {
-        let existing = document.getElementById('fm-upload-progress-modal');
-        if (existing) existing.remove();
+	showUploadProgressModal(title, total) {
+		let existing = document.getElementById("fm-upload-progress-modal");
+		if (existing) existing.remove();
 
-        const html = `
+		const html = `
             <div class="modal-overlay" id="fm-upload-progress-modal" style="display:flex; z-index:1000002; background:rgba(6,9,15,0.85); backdrop-filter:blur(10px);">
                 <div style="background:linear-gradient(145deg, #151b26, #0d1118); border:1px solid rgba(0,210,211,0.25); padding:26px 32px; border-radius:18px; box-shadow:0 24px 60px rgba(0,0,0,0.8), 0 0 35px rgba(0,210,211,0.12); width:440px; max-width:92%; display:flex; flex-direction:column; gap:16px;">
                     <div style="display:flex; align-items:center; justify-content:space-between;">
@@ -1338,58 +1643,62 @@ var FileManager = {
                 </div>
             </div>
         `;
-        document.body.insertAdjacentHTML('beforeend', html);
-    },
+		document.body.insertAdjacentHTML("beforeend", html);
+	},
 
-    updateUploadProgressModal(current, total, fileName, percent) {
-        const counter = document.getElementById('fm-prog-counter');
-        const percentEl = document.getElementById('fm-prog-percent');
-        const bar = document.getElementById('fm-prog-bar');
-        const fileEl = document.getElementById('fm-prog-file');
+	updateUploadProgressModal(current, total, fileName, percent) {
+		const counter = document.getElementById("fm-prog-counter");
+		const percentEl = document.getElementById("fm-prog-percent");
+		const bar = document.getElementById("fm-prog-bar");
+		const fileEl = document.getElementById("fm-prog-file");
 
-        if (counter) counter.innerText = `Đang tải: ${current} / ${total} tệp`;
-        if (percentEl) percentEl.innerText = `${percent}%`;
-        if (bar) bar.style.width = `${percent}%`;
-        if (fileEl) fileEl.innerText = `📄 ${fileName}`;
-    },
+		if (counter) counter.innerText = `Đang tải: ${current} / ${total} tệp`;
+		if (percentEl) percentEl.innerText = `${percent}%`;
+		if (bar) bar.style.width = `${percent}%`;
+		if (fileEl) fileEl.innerText = `📄 ${fileName}`;
+	},
 
-    hideUploadProgressModal() {
-        const modal = document.getElementById('fm-upload-progress-modal');
-        if (modal) modal.remove();
-    },
+	hideUploadProgressModal() {
+		const modal = document.getElementById("fm-upload-progress-modal");
+		if (modal) modal.remove();
+	},
 
-    editFile(path) {
-        const fileName = path.split('/').pop();
-        UI.showLoading(`Đang tải nội dung file "${fileName}"...`);
-        fetch('api.php?action=fmGet', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: document.getElementById('detail-project-name')?.innerText,
-                category: App.currentCategory,
-                path: path,
-                env: this.currentEnv
-            })
-        }).then(res => res.json()).then(res => {
-            if (res.status === 'success') {
-                this.showEditorModal(path, res.content);
-            } else {
-                UI.showToast('Lỗi: ' + res.message, 'error');
-            }
-        }).catch(err => {
-            UI.showToast('Lỗi kết nối: ' + err.message, 'error');
-        }).finally(() => {
-            UI.hideLoading();
-        });
-    },
+	editFile(path) {
+		const fileName = path.split("/").pop();
+		UI.showLoading(`Đang tải nội dung file "${fileName}"...`);
+		fetch("api.php?action=fmGet", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: document.getElementById("detail-project-name")?.innerText,
+				category: App.currentCategory,
+				path: path,
+				env: this.currentEnv,
+			}),
+		})
+			.then((res) => res.json())
+			.then((res) => {
+				if (res.status === "success") {
+					this.showEditorModal(path, res.content);
+				} else {
+					UI.showToast("Lỗi: " + res.message, "error");
+				}
+			})
+			.catch((err) => {
+				UI.showToast("Lỗi kết nối: " + err.message, "error");
+			})
+			.finally(() => {
+				UI.hideLoading();
+			});
+	},
 
-    showEditorModal(path, content) {
-        // Remove existing if any
-        let existing = document.getElementById('fm-editor-modal');
-        if (existing) existing.remove();
-        this.lastFindIndex = -1;
-        
-        const modalHtml = `
+	showEditorModal(path, content) {
+		// Remove existing if any
+		let existing = document.getElementById("fm-editor-modal");
+		if (existing) existing.remove();
+		this.lastFindIndex = -1;
+
+		const modalHtml = `
             <div class="modal-overlay" id="fm-editor-modal" style="display:flex; z-index:9999;" onclick="if(event.target===this) this.remove()">
                 <div class="modal-content" style="max-width: 980px; width: 95%; height: 88vh; display: flex; flex-direction: column; background: #18181c; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 16px 60px rgba(0,0,0,0.9);">
                     
@@ -1446,354 +1755,414 @@ var FileManager = {
                 </div>
             </div>
         `;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
+		document.body.insertAdjacentHTML("beforeend", modalHtml);
 
-        // Bind hotkeys Ctrl+S, Ctrl+F, Escape in textarea & findInput
-        const textarea = document.getElementById('fm-editor-textarea');
-        const backdrop = document.getElementById('fm-editor-backdrop');
-        const findInput = document.getElementById('fm-editor-find-input');
-        this.findAnchorPos = 0;
+		// Bind hotkeys Ctrl+S, Ctrl+F, Escape in textarea & findInput
+		const textarea = document.getElementById("fm-editor-textarea");
+		const backdrop = document.getElementById("fm-editor-backdrop");
+		const findInput = document.getElementById("fm-editor-find-input");
+		this.findAnchorPos = 0;
 
-        if (textarea && backdrop) {
-            textarea.addEventListener('scroll', () => {
-                backdrop.scrollTop = textarea.scrollTop;
-                backdrop.scrollLeft = textarea.scrollLeft;
-            });
-            textarea.addEventListener('input', () => {
-                if (findInput && findInput.value) {
-                    FileManager.renderFindBackdrop(textarea.value, findInput.value, FileManager.lastFindIndex);
-                } else {
-                    backdrop.innerHTML = '';
-                }
-            });
-            textarea.addEventListener('click', () => {
-                FileManager.findAnchorPos = textarea.selectionStart || 0;
-            });
-        }
+		if (textarea && backdrop) {
+			textarea.addEventListener("scroll", () => {
+				backdrop.scrollTop = textarea.scrollTop;
+				backdrop.scrollLeft = textarea.scrollLeft;
+			});
+			textarea.addEventListener("input", () => {
+				if (findInput && findInput.value) {
+					FileManager.renderFindBackdrop(
+						textarea.value,
+						findInput.value,
+						FileManager.lastFindIndex,
+					);
+				} else {
+					backdrop.innerHTML = "";
+				}
+			});
+			textarea.addEventListener("click", () => {
+				FileManager.findAnchorPos = textarea.selectionStart || 0;
+			});
+		}
 
-        if (findInput) {
-            findInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    FileManager.findInEditor(e.shiftKey ? 'prev' : 'next');
-                } else if (e.key === 'Escape') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    FileManager.toggleFindWidget(false);
-                } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-                    e.preventDefault();
-                    FileManager.saveFile(path);
-                } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-                    e.preventDefault();
-                    findInput.select();
-                }
-            });
-        }
-        
-        textarea.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-                e.preventDefault();
-                FileManager.saveFile(path);
-            }
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-                e.preventDefault();
-                FileManager.findAnchorPos = textarea.selectionStart || 0;
-                FileManager.toggleFindWidget(true);
-            }
-            if (e.key === 'Escape') {
-                FileManager.toggleFindWidget(false);
-            }
-        });
-    },
+		if (findInput) {
+			findInput.addEventListener("keydown", (e) => {
+				if (e.key === "Enter") {
+					e.preventDefault();
+					e.stopPropagation();
+					FileManager.findInEditor(e.shiftKey ? "prev" : "next");
+				} else if (e.key === "Escape") {
+					e.preventDefault();
+					e.stopPropagation();
+					FileManager.toggleFindWidget(false);
+				} else if (
+					(e.ctrlKey || e.metaKey) &&
+					e.key.toLowerCase() === "s"
+				) {
+					e.preventDefault();
+					FileManager.saveFile(path);
+				} else if (
+					(e.ctrlKey || e.metaKey) &&
+					e.key.toLowerCase() === "f"
+				) {
+					e.preventDefault();
+					findInput.select();
+				}
+			});
+		}
 
-    toggleFindWidget(show) {
-        const widget = document.getElementById('fm-editor-find-widget');
-        const backdrop = document.getElementById('fm-editor-backdrop');
-        const textarea = document.getElementById('fm-editor-textarea');
-        if (!widget) return;
-        if (show === undefined) {
-            widget.style.display = widget.style.display === 'none' ? 'flex' : 'none';
-        } else {
-            widget.style.display = show ? 'flex' : 'none';
-        }
-        if (widget.style.display !== 'none') {
-            const input = document.getElementById('fm-editor-find-input');
-            if (input) {
-                input.focus();
-                input.select();
-                if (input.value) {
-                    this.findInEditor('input');
-                }
-            }
-        } else {
-            if (backdrop) backdrop.innerHTML = '';
-            if (textarea) textarea.focus();
-        }
-    },
+		textarea.addEventListener("keydown", (e) => {
+			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+				e.preventDefault();
+				FileManager.saveFile(path);
+			}
+			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+				e.preventDefault();
+				FileManager.findAnchorPos = textarea.selectionStart || 0;
+				FileManager.toggleFindWidget(true);
+			}
+			if (e.key === "Escape") {
+				FileManager.toggleFindWidget(false);
+			}
+		});
+	},
 
-    renderFindBackdrop(text, term, activePos) {
-        const backdrop = document.getElementById('fm-editor-backdrop');
-        const textarea = document.getElementById('fm-editor-textarea');
-        if (!backdrop || !textarea || !term) {
-            if (backdrop) backdrop.innerHTML = '';
-            return null;
-        }
-        const lowerText = text.toLowerCase();
-        const lowerTerm = term.toLowerCase();
-        const termLen = term.length;
-        let html = '';
-        let lastIdx = 0;
-        let pos = lowerText.indexOf(lowerTerm);
-        while (pos !== -1) {
-            if (pos > lastIdx) {
-                html += this.escapeHtml(text.substring(lastIdx, pos));
-            }
-            const matchedStr = this.escapeHtml(text.substring(pos, pos + termLen));
-            if (pos === activePos) {
-                html += `<mark id="fm-find-active-mark" style="background:rgba(0, 210, 211, 0.42); color:transparent; outline:1.5px solid #00d2d3; border-radius:3px;">${matchedStr}</mark>`;
-            } else {
-                html += `<mark style="background:rgba(250, 204, 21, 0.22); color:transparent; border-radius:2px;">${matchedStr}</mark>`;
-            }
-            lastIdx = pos + termLen;
-            pos = lowerText.indexOf(lowerTerm, lastIdx);
-        }
-        if (lastIdx < text.length) {
-            html += this.escapeHtml(text.substring(lastIdx));
-        }
-        // Extra newline to preserve trailing line height
-        html += '\n';
-        backdrop.innerHTML = html;
-        backdrop.scrollTop = textarea.scrollTop;
-        backdrop.scrollLeft = textarea.scrollLeft;
-        return document.getElementById('fm-find-active-mark');
-    },
+	toggleFindWidget(show) {
+		const widget = document.getElementById("fm-editor-find-widget");
+		const backdrop = document.getElementById("fm-editor-backdrop");
+		const textarea = document.getElementById("fm-editor-textarea");
+		if (!widget) return;
+		if (show === undefined) {
+			widget.style.display =
+				widget.style.display === "none" ? "flex" : "none";
+		} else {
+			widget.style.display = show ? "flex" : "none";
+		}
+		if (widget.style.display !== "none") {
+			const input = document.getElementById("fm-editor-find-input");
+			if (input) {
+				input.focus();
+				input.select();
+				if (input.value) {
+					this.findInEditor("input");
+				}
+			}
+		} else {
+			if (backdrop) backdrop.innerHTML = "";
+			if (textarea) textarea.focus();
+		}
+	},
 
-    findInEditor(direction = 'next') {
-        const input = document.getElementById('fm-editor-find-input');
-        const textarea = document.getElementById('fm-editor-textarea');
-        const backdrop = document.getElementById('fm-editor-backdrop');
-        const status = document.getElementById('fm-editor-find-status');
-        if (!input || !textarea) return;
-        
-        const term = input.value;
-        if (!term) {
-            if (status) status.innerText = '';
-            if (backdrop) backdrop.innerHTML = '';
-            this.lastFindIndex = -1;
-            return;
-        }
-        
-        const text = textarea.value;
-        const lowerText = text.toLowerCase();
-        const lowerTerm = term.toLowerCase();
-        
-        // Collect all match positions
-        let pos = lowerText.indexOf(lowerTerm);
-        const matches = [];
-        while (pos !== -1) {
-            matches.push(pos);
-            pos = lowerText.indexOf(lowerTerm, pos + 1);
-        }
-        
-        const count = matches.length;
-        if (count === 0) {
-            if (status) {
-                status.innerText = '0/0';
-                status.style.color = '#f87171';
-            }
-            if (backdrop) backdrop.innerHTML = '';
-            this.lastFindIndex = -1;
-            return;
-        }
-        if (status) status.style.color = '#71717a';
-        
-        let targetPos = matches[0];
-        const currentPos = (typeof this.lastFindIndex === 'number' && this.lastFindIndex >= 0)
-            ? this.lastFindIndex
-            : (this.findAnchorPos || textarea.selectionStart || 0);
-        
-        if (direction === 'prev') {
-            const prevMatches = matches.filter(p => p < currentPos);
-            targetPos = prevMatches.length > 0 ? prevMatches[prevMatches.length - 1] : matches[matches.length - 1];
-            this.findAnchorPos = targetPos;
-        } else if (direction === 'next') {
-            const nextMatches = matches.filter(p => p > currentPos);
-            targetPos = nextMatches.length > 0 ? nextMatches[0] : matches[0];
-            this.findAnchorPos = targetPos;
-        } else {
-            // Live typing in search box: keep anchor at current match if possible, without stealing focus!
-            const anchor = this.findAnchorPos ?? 0;
-            targetPos = matches.find(p => p >= anchor) ?? matches[0];
-        }
-        
-        this.lastFindIndex = targetPos;
-        textarea.setSelectionRange(targetPos, targetPos + term.length);
-        
-        // Render visual highlight in backdrop & scroll both vertically and horizontally
-        const activeMark = this.renderFindBackdrop(text, term, targetPos);
-        if (activeMark) {
-            const topTarget = activeMark.offsetTop - Math.max(60, Math.floor(textarea.clientHeight * 0.3));
-            const leftTarget = activeMark.offsetLeft - Math.max(40, Math.floor(textarea.clientWidth * 0.25));
-            textarea.scrollTop = Math.max(0, topTarget);
-            textarea.scrollLeft = Math.max(0, leftTarget);
-            if (backdrop) {
-                backdrop.scrollTop = textarea.scrollTop;
-                backdrop.scrollLeft = textarea.scrollLeft;
-            }
-        } else {
-            const linesBefore = text.substring(0, targetPos).split('\n').length;
-            const lineHeight = 22.2;
-            textarea.scrollTop = Math.max(0, (linesBefore - 5) * lineHeight);
-        }
-        
-        const matchIdx = matches.indexOf(targetPos) + 1;
-        if (status) status.innerText = `${matchIdx}/${count}`;
-    },
-    
-    saveFile(path) {
-        const fileName = path.split('/').pop();
-        const content = document.getElementById('fm-editor-textarea').value;
-        const btn = document.querySelector('#fm-editor-modal .btn-primary');
-        const oldText = btn ? btn.innerText : 'Lưu';
-        if (btn) {
-            btn.innerText = 'Đang lưu...';
-            btn.disabled = true;
-        }
-        
-        UI.showLoading(`Đang lưu file "${fileName}" lên máy chủ...`);
-        
-        fetch('api.php?action=fmSave', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: document.getElementById('detail-project-name')?.innerText,
-                category: App.currentCategory,
-                path: path,
-                content: content,
-                env: this.currentEnv
-            })
-        }).then(res => res.json()).then(res => {
-            if (btn) {
-                btn.innerText = oldText;
-                btn.disabled = false;
-            }
-            if (res.status === 'success') {
-                UI.showToast('Lưu file thành công!', 'success');
-                const modal = document.getElementById('fm-editor-modal');
-                if (modal) modal.remove();
-                this.loadCurrentPath();
-            } else {
-                UI.showToast('Lỗi: ' + res.message, 'error');
-            }
-        }).catch(err => {
-            if (btn) {
-                btn.innerText = oldText;
-                btn.disabled = false;
-            }
-            UI.showToast('Lỗi kết nối: ' + err.message, 'error');
-        }).finally(() => {
-            UI.hideLoading();
-        });
-    },
+	renderFindBackdrop(text, term, activePos) {
+		const backdrop = document.getElementById("fm-editor-backdrop");
+		const textarea = document.getElementById("fm-editor-textarea");
+		if (!backdrop || !textarea || !term) {
+			if (backdrop) backdrop.innerHTML = "";
+			return null;
+		}
+		const lowerText = text.toLowerCase();
+		const lowerTerm = term.toLowerCase();
+		const termLen = term.length;
+		let html = "";
+		let lastIdx = 0;
+		let pos = lowerText.indexOf(lowerTerm);
+		while (pos !== -1) {
+			if (pos > lastIdx) {
+				html += this.escapeHtml(text.substring(lastIdx, pos));
+			}
+			const matchedStr = this.escapeHtml(
+				text.substring(pos, pos + termLen),
+			);
+			if (pos === activePos) {
+				html += `<mark id="fm-find-active-mark" style="background:rgba(0, 210, 211, 0.42); color:transparent; outline:1.5px solid #00d2d3; border-radius:3px;">${matchedStr}</mark>`;
+			} else {
+				html += `<mark style="background:rgba(250, 204, 21, 0.22); color:transparent; border-radius:2px;">${matchedStr}</mark>`;
+			}
+			lastIdx = pos + termLen;
+			pos = lowerText.indexOf(lowerTerm, lastIdx);
+		}
+		if (lastIdx < text.length) {
+			html += this.escapeHtml(text.substring(lastIdx));
+		}
+		// Extra newline to preserve trailing line height
+		html += "\n";
+		backdrop.innerHTML = html;
+		backdrop.scrollTop = textarea.scrollTop;
+		backdrop.scrollLeft = textarea.scrollLeft;
+		return document.getElementById("fm-find-active-mark");
+	},
 
-    openInEditor(path) {
-        const fileName = path.split('/').pop();
-        UI.showLoading(`Đang chuẩn bị file "${fileName}" & mở Antigravity IDE...`);
-        
-        fetch('api.php?action=fmOpenInEditor', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: document.getElementById('detail-project-name')?.innerText,
-                category: App.currentCategory,
-                path: path
-            })
-        }).then(res => res.json()).then(res => {
-            if (res.status === 'success') {
-                UI.showToast('🚀 Đang mở file trong Antigravity IDE!', 'success');
-                if (res.ideUrl) {
-                    window.location.href = res.ideUrl;
-                    
-                    // Start checking for background syncs
-                    window.fmSyncIntervals = window.fmSyncIntervals || {};
-                    if (window.fmSyncIntervals[path]) clearInterval(window.fmSyncIntervals[path]);
-                    
-                    let lastSyncTime = 0;
-                    let isFirstCheck = true;
-                    let lastToastTime = 0;
-                    
-                    const checkSync = () => {
-                        fetch('api.php?action=fmCheckSyncStatus', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                name: document.getElementById('detail-project-name')?.innerText,
-                                category: App.currentCategory,
-                                path: path
-                            })
-                        }).then(r => r.json()).then(syncRes => {
-                            if (syncRes.status === 'success') {
-                                const newTime = parseFloat(syncRes.time);
-                                if (isFirstCheck) {
-                                    lastSyncTime = newTime;
-                                    isFirstCheck = false;
-                                } else if (newTime > lastSyncTime) {
-                                    lastSyncTime = newTime;
-                                    const now = Date.now();
-                                    if (now - lastToastTime > 3000) {
-                                        lastToastTime = now;
-                                        const fileName = path.split('/').pop();
-                                        UI.showToast(`✅ IDE: Đã lưu tự động ${fileName} lên Server!`, 'success');
-                                    }
-                                }
-                            }
-                        }).catch(() => {});
-                    };
-                    
-                    checkSync(); // Initial check immediately
-                    window.fmSyncIntervals[path] = setInterval(checkSync, 2000);
-                }
-            } else {
-                UI.showToast('Lỗi mở IDE: ' + res.message, 'error');
-            }
-        }).catch(err => {
-            UI.showToast('Lỗi kết nối khi mở IDE', 'error');
-        }).finally(() => {
-            UI.hideLoading();
-        });
-    },
+	findInEditor(direction = "next") {
+		const input = document.getElementById("fm-editor-find-input");
+		const textarea = document.getElementById("fm-editor-textarea");
+		const backdrop = document.getElementById("fm-editor-backdrop");
+		const status = document.getElementById("fm-editor-find-status");
+		if (!input || !textarea) return;
 
-    syncLocalFile(path) {
-        const fileName = path.split('/').pop();
-        UI.showLoading(`Đang đồng bộ file "${fileName}" lên Demo Host...`);
-        fetch('api.php?action=fmSyncLocalFile', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: document.getElementById('detail-project-name')?.innerText,
-                category: App.currentCategory,
-                path: path
-            })
-        }).then(res => res.json()).then(res => {
-            if (res.status === 'success') {
-                UI.showToast('✅ Đã đồng bộ file lên Demo Host!', 'success');
-                this.loadCurrentPath();
-            } else {
-                UI.showToast('Lỗi đồng bộ: ' + res.message, 'error');
-            }
-        }).catch(err => {
-            UI.showToast('Lỗi kết nối khi đồng bộ: ' + err.message, 'error');
-        }).finally(() => {
-            UI.hideLoading();
-        });
-    },
+		const term = input.value;
+		if (!term) {
+			if (status) status.innerText = "";
+			if (backdrop) backdrop.innerHTML = "";
+			this.lastFindIndex = -1;
+			return;
+		}
 
-    previewImage(url, title) {
-        let existing = document.getElementById('fm-image-modal');
-        if (existing) existing.remove();
-        
-        const modalHtml = `
+		const text = textarea.value;
+		const lowerText = text.toLowerCase();
+		const lowerTerm = term.toLowerCase();
+
+		// Collect all match positions
+		let pos = lowerText.indexOf(lowerTerm);
+		const matches = [];
+		while (pos !== -1) {
+			matches.push(pos);
+			pos = lowerText.indexOf(lowerTerm, pos + 1);
+		}
+
+		const count = matches.length;
+		if (count === 0) {
+			if (status) {
+				status.innerText = "0/0";
+				status.style.color = "#f87171";
+			}
+			if (backdrop) backdrop.innerHTML = "";
+			this.lastFindIndex = -1;
+			return;
+		}
+		if (status) status.style.color = "#71717a";
+
+		let targetPos = matches[0];
+		const currentPos =
+			typeof this.lastFindIndex === "number" && this.lastFindIndex >= 0
+				? this.lastFindIndex
+				: this.findAnchorPos || textarea.selectionStart || 0;
+
+		if (direction === "prev") {
+			const prevMatches = matches.filter((p) => p < currentPos);
+			targetPos =
+				prevMatches.length > 0
+					? prevMatches[prevMatches.length - 1]
+					: matches[matches.length - 1];
+			this.findAnchorPos = targetPos;
+		} else if (direction === "next") {
+			const nextMatches = matches.filter((p) => p > currentPos);
+			targetPos = nextMatches.length > 0 ? nextMatches[0] : matches[0];
+			this.findAnchorPos = targetPos;
+		} else {
+			// Live typing in search box: keep anchor at current match if possible, without stealing focus!
+			const anchor = this.findAnchorPos ?? 0;
+			targetPos = matches.find((p) => p >= anchor) ?? matches[0];
+		}
+
+		this.lastFindIndex = targetPos;
+		textarea.setSelectionRange(targetPos, targetPos + term.length);
+
+		// Render visual highlight in backdrop & scroll both vertically and horizontally
+		const activeMark = this.renderFindBackdrop(text, term, targetPos);
+		if (activeMark) {
+			const topTarget =
+				activeMark.offsetTop -
+				Math.max(60, Math.floor(textarea.clientHeight * 0.3));
+			const leftTarget =
+				activeMark.offsetLeft -
+				Math.max(40, Math.floor(textarea.clientWidth * 0.25));
+			textarea.scrollTop = Math.max(0, topTarget);
+			textarea.scrollLeft = Math.max(0, leftTarget);
+			if (backdrop) {
+				backdrop.scrollTop = textarea.scrollTop;
+				backdrop.scrollLeft = textarea.scrollLeft;
+			}
+		} else {
+			const linesBefore = text.substring(0, targetPos).split("\n").length;
+			const lineHeight = 22.2;
+			textarea.scrollTop = Math.max(0, (linesBefore - 5) * lineHeight);
+		}
+
+		const matchIdx = matches.indexOf(targetPos) + 1;
+		if (status) status.innerText = `${matchIdx}/${count}`;
+	},
+
+	saveFile(path) {
+		const fileName = path.split("/").pop();
+		const content = document.getElementById("fm-editor-textarea").value;
+		const btn = document.querySelector("#fm-editor-modal .btn-primary");
+		const oldText = btn ? btn.innerText : "Lưu";
+		if (btn) {
+			btn.innerText = "Đang lưu...";
+			btn.disabled = true;
+		}
+
+		UI.showLoading(`Đang lưu file "${fileName}" lên máy chủ...`);
+
+		fetch("api.php?action=fmSave", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: document.getElementById("detail-project-name")?.innerText,
+				category: App.currentCategory,
+				path: path,
+				content: content,
+				env: this.currentEnv,
+			}),
+		})
+			.then((res) => res.json())
+			.then((res) => {
+				if (btn) {
+					btn.innerText = oldText;
+					btn.disabled = false;
+				}
+				if (res.status === "success") {
+					UI.showToast("Lưu file thành công!", "success");
+					const modal = document.getElementById("fm-editor-modal");
+					if (modal) modal.remove();
+					this.loadCurrentPath();
+				} else {
+					UI.showToast("Lỗi: " + res.message, "error");
+				}
+			})
+			.catch((err) => {
+				if (btn) {
+					btn.innerText = oldText;
+					btn.disabled = false;
+				}
+				UI.showToast("Lỗi kết nối: " + err.message, "error");
+			})
+			.finally(() => {
+				UI.hideLoading();
+			});
+	},
+
+	openInEditor(path) {
+		const fileName = path.split("/").pop();
+		UI.showLoading(
+			`Đang chuẩn bị file "${fileName}" & mở Antigravity IDE...`,
+		);
+
+		fetch("api.php?action=fmOpenInEditor", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: document.getElementById("detail-project-name")?.innerText,
+				category: App.currentCategory,
+				path: path,
+			}),
+		})
+			.then((res) => res.json())
+			.then((res) => {
+				if (res.status === "success") {
+					UI.showToast(
+						"🚀 Đang mở file trong Antigravity IDE!",
+						"success",
+					);
+					if (res.ideUrl) {
+						window.location.href = res.ideUrl;
+
+						// Start checking for background syncs
+						window.fmSyncIntervals = window.fmSyncIntervals || {};
+						if (window.fmSyncIntervals[path])
+							clearInterval(window.fmSyncIntervals[path]);
+
+						let lastSyncTime = 0;
+						let isFirstCheck = true;
+						let lastToastTime = 0;
+
+						const checkSync = () => {
+							fetch("api.php?action=fmCheckSyncStatus", {
+								method: "POST",
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify({
+									name: document.getElementById(
+										"detail-project-name",
+									)?.innerText,
+									category: App.currentCategory,
+									path: path,
+								}),
+							})
+								.then((r) => r.json())
+								.then((syncRes) => {
+									if (syncRes.status === "success") {
+										const newTime = parseFloat(
+											syncRes.time,
+										);
+										if (isFirstCheck) {
+											lastSyncTime = newTime;
+											isFirstCheck = false;
+										} else if (newTime > lastSyncTime) {
+											lastSyncTime = newTime;
+											const now = Date.now();
+											if (now - lastToastTime > 3000) {
+												lastToastTime = now;
+												const fileName = path
+													.split("/")
+													.pop();
+												UI.showToast(
+													`✅ IDE: Đã lưu tự động ${fileName} lên Server!`,
+													"success",
+												);
+											}
+										}
+									}
+								})
+								.catch(() => {});
+						};
+
+						checkSync(); // Initial check immediately
+						window.fmSyncIntervals[path] = setInterval(
+							checkSync,
+							2000,
+						);
+					}
+				} else {
+					UI.showToast("Lỗi mở IDE: " + res.message, "error");
+				}
+			})
+			.catch((err) => {
+				UI.showToast("Lỗi kết nối khi mở IDE", "error");
+			})
+			.finally(() => {
+				UI.hideLoading();
+			});
+	},
+
+	syncLocalFile(path) {
+		const fileName = path.split("/").pop();
+		UI.showLoading(`Đang đồng bộ file "${fileName}" lên Demo Host...`);
+		fetch("api.php?action=fmSyncLocalFile", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: document.getElementById("detail-project-name")?.innerText,
+				category: App.currentCategory,
+				path: path,
+			}),
+		})
+			.then((res) => res.json())
+			.then((res) => {
+				if (res.status === "success") {
+					UI.showToast(
+						"✅ Đã đồng bộ file lên Demo Host!",
+						"success",
+					);
+					this.loadCurrentPath();
+				} else {
+					UI.showToast("Lỗi đồng bộ: " + res.message, "error");
+				}
+			})
+			.catch((err) => {
+				UI.showToast(
+					"Lỗi kết nối khi đồng bộ: " + err.message,
+					"error",
+				);
+			})
+			.finally(() => {
+				UI.hideLoading();
+			});
+	},
+
+	previewImage(url, title) {
+		let existing = document.getElementById("fm-image-modal");
+		if (existing) existing.remove();
+
+		const modalHtml = `
             <div class="modal-overlay" id="fm-image-modal" style="display:flex; z-index:9999;" onclick="if(event.target===this) this.remove()">
                 <div class="modal-content" style="max-width: 800px; width: 90%; max-height: 90vh; display: flex; flex-direction: column; background: #1e1e24; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 10px 40px rgba(0,0,0,0.8);">
                     <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; padding: 12px 18px; border-bottom: 1px solid rgba(255,255,255,0.1);">
@@ -1813,203 +2182,245 @@ var FileManager = {
                 </div>
             </div>
         `;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-    },
+		document.body.insertAdjacentHTML("beforeend", modalHtml);
+	},
 
-    escapeHtml(unsafe) {
-        return (unsafe || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-    }
+	escapeHtml(unsafe) {
+		return (unsafe || "")
+			.replace(/&/g, "&amp;")
+			.replace(/</g, "&lt;")
+			.replace(/>/g, "&gt;")
+			.replace(/"/g, "&quot;")
+			.replace(/'/g, "&#039;");
+	},
 };
 
 const SyncCenter = {
-    lastData: null,
-    lastProject: null,
-    currentEnv: 'demo',
-    currentFilter: 'all',
-    currentScope: 'all',
-    searchQuery: '',
-    includeClearData: false,
-    selectedPaths: new Set(),
-    customActions: new Map(),
+	lastData: null,
+	lastProject: null,
+	currentEnv: "demo",
+	currentFilter: "all",
+	currentScope: "all",
+	searchQuery: "",
+	includeClearData: false,
+	selectedPaths: new Set(),
+	customActions: new Map(),
 
-    getDefaultEnv() {
-        const config = (typeof App !== 'undefined' && App.currentProjectConfig) ? App.currentProjectConfig : {};
-        const prod = config.prod || {};
-        const deployedProd = config.deployed?.production || {};
-        if (prod.ftp_host || prod.web_domain || prod.ftp_user || prod.da_user || deployedProd.ftp_host || deployedProd.url) {
-            return 'prod';
-        }
-        const ftpHost = document.getElementById('d_ftp_host')?.value?.trim();
-        const webDomain = document.getElementById('d_web_domain')?.value?.trim();
-        const ftpUser = document.getElementById('d_ftp_user')?.value?.trim();
-        if (ftpHost || webDomain || ftpUser) {
-            return 'prod';
-        }
-        return 'demo';
-    },
+	getDefaultEnv() {
+		const config =
+			typeof App !== "undefined" && App.currentProjectConfig
+				? App.currentProjectConfig
+				: {};
+		const prod = config.prod || {};
+		const deployedProd = config.deployed?.production || {};
+		if (
+			prod.ftp_host ||
+			prod.web_domain ||
+			prod.ftp_user ||
+			prod.da_user ||
+			deployedProd.ftp_host ||
+			deployedProd.url
+		) {
+			return "prod";
+		}
+		const ftpHost = document.getElementById("d_ftp_host")?.value?.trim();
+		const webDomain = document
+			.getElementById("d_web_domain")
+			?.value?.trim();
+		const ftpUser = document.getElementById("d_ftp_user")?.value?.trim();
+		if (ftpHost || webDomain || ftpUser) {
+			return "prod";
+		}
+		return "demo";
+	},
 
-    updateEnvUI(env) {
-        document.querySelectorAll('.sc-env-btn').forEach(btn => {
-            btn.classList.remove('active');
-            btn.style.background = 'transparent';
-            btn.style.color = '#94a3b8';
-        });
-        const activeBtn = document.getElementById(`sc-env-btn-${env}`);
-        if (activeBtn) {
-            activeBtn.classList.add('active');
-            activeBtn.style.background = (env === 'prod') ? '#f59e0b' : 'var(--primary, #00d2d3)';
-            activeBtn.style.color = '#000';
-        }
-        const desc = document.getElementById('sc-header-desc');
-        if (desc) {
-            desc.innerHTML = (env === 'prod')
-                ? '<b style="color:#f59e0b;">🚀 CHẾ ĐỘ PRODUCTION</b> - Đối soát và đồng bộ trực tiếp với Hosting thật của khách hàng'
-                : 'Tự động đối soát và đồng bộ mã nguồn giữa Local Workspace và Demo Hosting';
-        }
-    },
+	updateEnvUI(env) {
+		document.querySelectorAll(".sc-env-btn").forEach((btn) => {
+			btn.classList.remove("active");
+			btn.style.background = "transparent";
+			btn.style.color = "#94a3b8";
+		});
+		const activeBtn = document.getElementById(`sc-env-btn-${env}`);
+		if (activeBtn) {
+			activeBtn.classList.add("active");
+			activeBtn.style.background =
+				env === "prod" ? "#f59e0b" : "var(--primary, #00d2d3)";
+			activeBtn.style.color = "#000";
+		}
+		const desc = document.getElementById("sc-header-desc");
+		if (desc) {
+			desc.innerHTML =
+				env === "prod"
+					? '<b style="color:#f59e0b;">🚀 CHẾ ĐỘ PRODUCTION</b> - Đối soát và đồng bộ trực tiếp với Hosting thật của khách hàng'
+					: "Tự động đối soát và đồng bộ mã nguồn giữa Local Workspace và Demo Hosting";
+		}
+	},
 
-    resetToDefaultEnv() {
-        const defEnv = this.getDefaultEnv();
-        this.currentEnv = defEnv;
-        this.lastData = null;
-        this.selectedPaths = new Set();
-        this.customActions = new Map();
-        this.updateEnvUI(defEnv);
+	resetToDefaultEnv() {
+		const defEnv = this.getDefaultEnv();
+		this.currentEnv = defEnv;
+		this.lastData = null;
+		this.selectedPaths = new Set();
+		this.customActions = new Map();
+		this.updateEnvUI(defEnv);
 
-        // Reset view to standby prompt if not yet scanned
-        const container = document.getElementById('sync-center-content');
-        if (container) {
-            container.innerHTML = `
+		// Reset view to standby prompt if not yet scanned
+		const container = document.getElementById("sync-center-content");
+		if (container) {
+			container.innerHTML = `
                 <div style="padding: 60px 20px; text-align: center; background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.12); border-radius: 16px;">
                     <div style="font-size: 32px; margin-bottom: 12px;">🔄</div>
-                    <h3 style="color: #fff; font-size: 16px; font-weight: 700; margin-bottom: 6px;">Sẵn sàng đối soát [${defEnv === 'prod' ? 'Production Server' : 'Demo Server'}]</h3>
+                    <h3 style="color: #fff; font-size: 16px; font-weight: 700; margin-bottom: 6px;">Sẵn sàng đối soát [${defEnv === "prod" ? "Production Server" : "Demo Server"}]</h3>
                     <p style="color: var(--text-muted, #94a3b8); font-size: 13px; max-width: 460px; margin: 0 auto 20px;">
-                        Nhấn nút <b>"Quét & So Sánh"</b> để kiểm tra sự khác biệt giữa máy Local và ${defEnv === 'prod' ? 'Production Server' : 'Demo Server'}.
+                        Nhấn nút <b>"Quét & So Sánh"</b> để kiểm tra sự khác biệt giữa máy Local và ${defEnv === "prod" ? "Production Server" : "Demo Server"}.
                     </p>
                     <button class="btn btn-primary" onclick="SyncCenter.scan()" style="padding: 10px 24px; font-weight: 700; border-radius: 8px;">
                         🔍 Bắt đầu Quét & So sánh
                     </button>
                 </div>
             `;
-        }
-    },
-    
-    init() {
-        this.includeClearData = false;
-        try { localStorage.removeItem('sc_include_cleardata'); } catch(e) {}
-        const cb = document.getElementById('sc-check-cleardata');
-        if (cb) cb.checked = false;
-        const cbToolbar = document.getElementById('sc-check-cleardata-toolbar');
-        if (cbToolbar) cbToolbar.checked = false;
+		}
+	},
 
-        const currentProject = document.getElementById('detail-project-name')?.innerText;
-        if (this.lastProject !== currentProject) {
-            this.lastProject = currentProject;
-            this.resetToDefaultEnv();
-        } else if (!this.currentEnv) {
-            this.resetToDefaultEnv();
-        }
-    },
+	init() {
+		this.includeClearData = false;
+		try {
+			localStorage.removeItem("sc_include_cleardata");
+		} catch (e) {}
+		const cb = document.getElementById("sc-check-cleardata");
+		if (cb) cb.checked = false;
+		const cbToolbar = document.getElementById("sc-check-cleardata-toolbar");
+		if (cbToolbar) cbToolbar.checked = false;
 
-    setEnv(env) {
-        if (this.currentEnv === env) return;
-        this.currentEnv = env;
-        this.updateEnvUI(env);
-        this.scan();
-    },
-    
-    toggleClearData(checked) {
-        this.includeClearData = !!checked;
-        
-        const cbHeader = document.getElementById('sc-check-cleardata');
-        if (cbHeader) cbHeader.checked = this.includeClearData;
-        const cbToolbar = document.getElementById('sc-check-cleardata-toolbar');
-        if (cbToolbar) cbToolbar.checked = this.includeClearData;
-        
-        if (this.includeClearData) {
-            UI.showToast('⚠️ Đã bật hiển thị file ClearData (Xoá dữ liệu Demo)', 'warning');
-        } else {
-            UI.showToast('🛡️ Đã ẩn & loại trừ file ClearData', 'info');
-        }
-        
-        this.scan();
-    },
+		const currentProject = document.getElementById(
+			"detail-project-name",
+		)?.innerText;
+		if (this.lastProject !== currentProject) {
+			this.lastProject = currentProject;
+			this.resetToDefaultEnv();
+		} else if (!this.currentEnv) {
+			this.resetToDefaultEnv();
+		}
+	},
 
-    async clearCompiledCache() {
-        const projectName = document.getElementById('detail-project-name')?.innerText;
-        if (!projectName) {
-            UI.showToast('Vui lòng chọn dự án trước', 'warning');
-            return;
-        }
-        UI.showLoading('Đang xoá sạch cache compiled (Local & Remote)...');
-        try {
-            const res = await fetch('api.php?action=fmClearCompiledCache', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: projectName,
-                    category: App.currentCategory,
-                    env: this.currentEnv
-                })
-            }).then(r => r.json());
-            UI.hideLoading();
-            if (res.status === 'success') {
-                const info = res.info || {};
-                UI.showToast(`✅ Đã xoá sạch cache compiled! (Local: ${info.deleted_local || 0}, Remote: ${info.deleted_remote || 0})`, 'success');
-            } else {
-                UI.showToast('Lỗi xoá cache: ' + (res.message || 'Thất bại'), 'error');
-            }
-        } catch (e) {
-            UI.hideLoading();
-            UI.showToast('Lỗi kết nối khi xoá cache: ' + e.message, 'error');
-        }
-    },
-    
-    scan(allowUploadBridge = false) {
-        const projectName = document.getElementById('detail-project-name')?.innerText;
-        if (!projectName) return;
-        
-        const cbHeader = document.getElementById('sc-check-cleardata');
-        if (cbHeader) this.includeClearData = cbHeader.checked;
-        
-        const envLabel = (this.currentEnv === 'prod') ? 'Production Hosting' : 'Demo Hosting';
-        const loadingTitle = allowUploadBridge
-            ? `Đang tải bridge.php & quét toàn bộ cây thư mục (${envLabel})`
-            : `Đang quét & đối soát toàn bộ cây thư mục (${envLabel})`;
+	setEnv(env) {
+		if (this.currentEnv === env) return;
+		this.currentEnv = env;
+		this.updateEnvUI(env);
+		this.scan();
+	},
 
-        document.getElementById('sync-center-content').innerHTML = `
+	toggleClearData(checked) {
+		this.includeClearData = !!checked;
+
+		const cbHeader = document.getElementById("sc-check-cleardata");
+		if (cbHeader) cbHeader.checked = this.includeClearData;
+		const cbToolbar = document.getElementById("sc-check-cleardata-toolbar");
+		if (cbToolbar) cbToolbar.checked = this.includeClearData;
+
+		if (this.includeClearData) {
+			UI.showToast(
+				"⚠️ Đã bật hiển thị file ClearData (Xoá dữ liệu Demo)",
+				"warning",
+			);
+		} else {
+			UI.showToast("🛡️ Đã ẩn & loại trừ file ClearData", "info");
+		}
+
+		this.scan();
+	},
+
+	async clearCompiledCache() {
+		const projectName = document.getElementById(
+			"detail-project-name",
+		)?.innerText;
+		if (!projectName) {
+			UI.showToast("Vui lòng chọn dự án trước", "warning");
+			return;
+		}
+		UI.showLoading("Đang xoá sạch cache compiled (Local & Remote)...");
+		try {
+			const res = await fetch("api.php?action=fmClearCompiledCache", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: projectName,
+					category: App.currentCategory,
+					env: this.currentEnv,
+				}),
+			}).then((r) => r.json());
+			UI.hideLoading();
+			if (res.status === "success") {
+				const info = res.info || {};
+				UI.showToast(
+					`✅ Đã xoá sạch cache compiled! (Local: ${info.deleted_local || 0}, Remote: ${info.deleted_remote || 0})`,
+					"success",
+				);
+			} else {
+				UI.showToast(
+					"Lỗi xoá cache: " + (res.message || "Thất bại"),
+					"error",
+				);
+			}
+		} catch (e) {
+			UI.hideLoading();
+			UI.showToast("Lỗi kết nối khi xoá cache: " + e.message, "error");
+		}
+	},
+
+	scan(allowUploadBridge = false) {
+		const projectName = document.getElementById(
+			"detail-project-name",
+		)?.innerText;
+		if (!projectName) return;
+
+		const cbHeader = document.getElementById("sc-check-cleardata");
+		if (cbHeader) this.includeClearData = cbHeader.checked;
+
+		const envLabel =
+			this.currentEnv === "prod" ? "Production Hosting" : "Demo Hosting";
+		const loadingTitle = allowUploadBridge
+			? `Đang tải bridge.php & quét toàn bộ cây thư mục (${envLabel})`
+			: `Đang quét & đối soát toàn bộ cây thư mục (${envLabel})`;
+
+		document.getElementById("sync-center-content").innerHTML = `
             <div style="padding: 60px 20px; text-align: center; background: rgba(255,255,255,0.015); border: 1px dashed rgba(255,255,255,0.1); border-radius: 16px;">
-                <div class="loader" style="margin: 0 auto 18px; border: 3px solid rgba(0, 210, 211, 0.15); border-top-color: ${this.currentEnv === 'prod' ? '#f59e0b' : 'var(--primary, #00d2d3)'}; border-radius: 50%; width: 36px; height: 36px; animation: sc-spin 0.8s linear infinite;"></div>
+                <div class="loader" style="margin: 0 auto 18px; border: 3px solid rgba(0, 210, 211, 0.15); border-top-color: ${this.currentEnv === "prod" ? "#f59e0b" : "var(--primary, #00d2d3)"}; border-radius: 50%; width: 36px; height: 36px; animation: sc-spin 0.8s linear infinite;"></div>
                 <h4 style="color: #fff; font-size: 15px; margin-bottom: 6px; font-weight: 600;">${loadingTitle}</h4>
                 <p style="color: var(--text-muted, #94a3b8); font-size: 13px;">Hệ thống đang so sánh thời gian & dung lượng giữa Local và ${envLabel}...</p>
             </div>
             <style>@keyframes sc-spin { 100% { transform:rotate(360deg); } }</style>
         `;
-        
-        fetch('api.php?action=fmSyncCenterCompare', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: projectName,
-                category: App.currentCategory,
-                include_cleardata: this.includeClearData,
-                env: this.currentEnv,
-                allow_upload_bridge: !!allowUploadBridge
-            })
-        }).then(r => r.json()).then(res => {
-            if (res.status === 'success') {
-                this.lastData = res.comparison;
-                this.currentFilter = 'all';
-                this.currentScope = 'all';
-                this.searchQuery = '';
-                const all = this.getAllItems();
-                this.selectedPaths = new Set(all.map(i => i.path));
-                this.customActions = new Map();
-                this.render();
-            } else if (res.status === 'bridge_missing' || res.code === 'BRIDGE_MISSING') {
-                this.showBridgeUploadModal(res.env_label || envLabel);
-            } else {
-                document.getElementById('sync-center-content').innerHTML = `
+
+		fetch("api.php?action=fmSyncCenterCompare", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: projectName,
+				category: App.currentCategory,
+				include_cleardata: this.includeClearData,
+				env: this.currentEnv,
+				allow_upload_bridge: !!allowUploadBridge,
+			}),
+		})
+			.then((r) => r.json())
+			.then((res) => {
+				if (res.status === "success") {
+					this.lastData = res.comparison;
+					this.currentFilter = "all";
+					this.currentScope = "all";
+					this.searchQuery = "";
+					const all = this.getAllItems();
+					this.selectedPaths = new Set(all.map((i) => i.path));
+					this.customActions = new Map();
+					this.render();
+				} else if (
+					res.status === "bridge_missing" ||
+					res.code === "BRIDGE_MISSING"
+				) {
+					this.showBridgeUploadModal(res.env_label || envLabel);
+				} else {
+					document.getElementById("sync-center-content").innerHTML = `
                     <div style="padding: 24px; border-radius: 12px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); color: #fca5a5; display: flex; align-items: center; gap: 12px;">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                         <div>
@@ -2018,23 +2429,24 @@ const SyncCenter = {
                         </div>
                     </div>
                 `;
-            }
-        }).catch(err => {
-            document.getElementById('sync-center-content').innerHTML = `
+				}
+			})
+			.catch((err) => {
+				document.getElementById("sync-center-content").innerHTML = `
                 <div style="padding: 24px; border-radius: 12px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); color: #fca5a5;">
                     Lỗi kết nối khi quét ${envLabel}. Vui lòng kiểm tra lại mạng hoặc cấu hình máy chủ.
                 </div>
             `;
-        });
-    },
+			});
+	},
 
-    showBridgeUploadModal(envLabel) {
-        let existing = document.getElementById('sc-bridge-confirm-modal');
-        if (existing) existing.remove();
+	showBridgeUploadModal(envLabel) {
+		let existing = document.getElementById("sc-bridge-confirm-modal");
+		if (existing) existing.remove();
 
-        const envColor = (this.currentEnv === 'prod') ? '#f59e0b' : '#00d2d3';
+		const envColor = this.currentEnv === "prod" ? "#f59e0b" : "#00d2d3";
 
-        const modalHtml = `
+		const modalHtml = `
             <div class="modal-overlay" id="sc-bridge-confirm-modal" style="display:flex; z-index:10000; align-items:center; justify-content:center; position:fixed; inset:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px);">
                 <div class="modal-content" style="max-width:520px; width:92%; background:#18181c; border-radius:14px; overflow:hidden; border:1px solid rgba(255,255,255,0.12); box-shadow:0 20px 60px rgba(0,0,0,0.85);">
                     <div style="display:flex; align-items:center; gap:12px; padding:16px 20px; background:#1f1f26; border-bottom:1px solid rgba(255,255,255,0.08);">
@@ -2067,9 +2479,9 @@ const SyncCenter = {
                 </div>
             </div>
         `;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
+		document.body.insertAdjacentHTML("beforeend", modalHtml);
 
-        document.getElementById('sync-center-content').innerHTML = `
+		document.getElementById("sync-center-content").innerHTML = `
             <div style="padding: 50px 20px; text-align: center; background: rgba(255,255,255,0.015); border: 1px dashed rgba(255,255,255,0.1); border-radius: 16px;">
                 <div style="font-size: 32px; margin-bottom: 12px;">🛡️</div>
                 <h4 style="color: #fff; font-size: 15px; margin-bottom: 6px; font-weight: 600;">Đang chờ xác nhận bảo mật</h4>
@@ -2081,326 +2493,439 @@ const SyncCenter = {
                 </button>
             </div>
         `;
-    },
+	},
 
-    confirmBridgeUpload() {
-        const modal = document.getElementById('sc-bridge-confirm-modal');
-        if (modal) modal.remove();
-        this.scan(true);
-    },
+	confirmBridgeUpload() {
+		const modal = document.getElementById("sc-bridge-confirm-modal");
+		if (modal) modal.remove();
+		this.scan(true);
+	},
 
-    cancelBridgeUpload(envLabel) {
-        const modal = document.getElementById('sc-bridge-confirm-modal');
-        if (modal) modal.remove();
+	cancelBridgeUpload(envLabel) {
+		const modal = document.getElementById("sc-bridge-confirm-modal");
+		if (modal) modal.remove();
 
-        document.getElementById('sync-center-content').innerHTML = `
+		document.getElementById("sync-center-content").innerHTML = `
             <div style="padding: 50px 20px; text-align: center; background: rgba(255,255,255,0.015); border: 1px dashed rgba(255,255,255,0.1); border-radius: 16px;">
                 <div style="font-size: 32px; margin-bottom: 12px;">🛡️</div>
                 <h4 style="color: #fff; font-size: 15px; margin-bottom: 6px; font-weight: 600;">Đã hủy tải tệp Bridge</h4>
                 <p style="color: var(--text-muted, #94a3b8); font-size: 13px; max-width: 480px; margin: 0 auto 16px;">
-                    Tệp <code>bridge.php</code> chưa được tải lên máy chủ ${this.escapeHtml(envLabel || '')}. Thao tác so sánh tạm dừng để bảo vệ an toàn hệ thống.
+                    Tệp <code>bridge.php</code> chưa được tải lên máy chủ ${this.escapeHtml(envLabel || "")}. Thao tác so sánh tạm dừng để bảo vệ an toàn hệ thống.
                 </p>
                 <button class="btn btn-primary" onclick="SyncCenter.scan()" style="padding: 8px 20px; font-weight: 600; border-radius: 8px;">
                     🔄 Quét lại
                 </button>
             </div>
         `;
-    },
+	},
 
-    setFilter(filter) {
-        this.currentFilter = filter;
-        
-        // Update active class on filter buttons
-        document.querySelectorAll('.sc-pill-btn').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        if (filter === 'all') {
-            document.querySelector('.sc-pill-btn.pill-all')?.classList.add('active');
-        } else if (filter === 'upload') {
-            document.querySelector('.sc-pill-btn.pill-up')?.classList.add('active');
-        } else if (filter === 'download') {
-            document.querySelector('.sc-pill-btn.pill-down')?.classList.add('active');
-        } else if (filter === 'conflict') {
-            document.querySelector('.sc-pill-btn.pill-conflict')?.classList.add('active');
-        }
+	setFilter(filter) {
+		this.currentFilter = filter;
 
-        // Tự động chọn lại danh sách file theo tab hướng hiện tại (bỏ chọn các file ngoài tab)
-        const visibleItems = this.getFilteredItems();
-        this.selectedPaths = new Set(visibleItems.map(i => i.path));
-        
-        this.renderTableOnly();
-    },
+		// Update active class on filter buttons
+		document.querySelectorAll(".sc-pill-btn").forEach((btn) => {
+			btn.classList.remove("active");
+		});
+		if (filter === "all") {
+			document
+				.querySelector(".sc-pill-btn.pill-all")
+				?.classList.add("active");
+		} else if (filter === "upload") {
+			document
+				.querySelector(".sc-pill-btn.pill-up")
+				?.classList.add("active");
+		} else if (filter === "download") {
+			document
+				.querySelector(".sc-pill-btn.pill-down")
+				?.classList.add("active");
+		} else if (filter === "conflict") {
+			document
+				.querySelector(".sc-pill-btn.pill-conflict")
+				?.classList.add("active");
+		}
 
-    setScope(scope) {
-        this.currentScope = scope;
-        document.querySelectorAll('.sc-scope-btn').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        const activeBtn = document.getElementById(`sc-scope-btn-${scope}`);
-        if (activeBtn) activeBtn.classList.add('active');
+		// Tự động chọn lại danh sách file theo tab hướng hiện tại (bỏ chọn các file ngoài tab)
+		const visibleItems = this.getFilteredItems();
+		this.selectedPaths = new Set(visibleItems.map((i) => i.path));
 
-        // Tự động chọn lại danh sách file theo tab phân vùng hiện tại
-        const visibleItems = this.getFilteredItems();
-        this.selectedPaths = new Set(visibleItems.map(i => i.path));
+		this.renderTableOnly();
+	},
 
-        this.renderTableOnly();
-    },
+	setScope(scope) {
+		this.currentScope = scope;
+		document.querySelectorAll(".sc-scope-btn").forEach((btn) => {
+			btn.classList.remove("active");
+		});
+		const activeBtn = document.getElementById(`sc-scope-btn-${scope}`);
+		if (activeBtn) activeBtn.classList.add("active");
 
-    setSearch(query) {
-        this.searchQuery = (query || '').toLowerCase().trim();
-        this.renderTableOnly();
-    },
+		// Tự động chọn lại danh sách file theo tab phân vùng hiện tại
+		const visibleItems = this.getFilteredItems();
+		this.selectedPaths = new Set(visibleItems.map((i) => i.path));
 
-    getScopeMeta(path) {
-        const p = (path || '').toLowerCase().replace(/\\/g, '/');
-        if (p.includes('/admin/') || p.startsWith('admin/') || p.includes('controllers/admin') || p.includes('views/admin')) {
-            return {
-                key: 'admin',
-                label: 'ADMIN',
-                icon: '🛡️',
-                bg: 'rgba(239, 68, 68, 0.15)',
-                color: '#f87171',
-                border: 'rgba(239, 68, 68, 0.4)'
-            };
-        }
-        if (p.includes('/web/') || p.startsWith('web/') || p.includes('controllers/web') || p.includes('views/web') || p.includes('views/templates') || p.includes('views/layout')) {
-            return {
-                key: 'web',
-                label: 'WEB / CLIENT',
-                icon: '🌐',
-                bg: 'rgba(14, 165, 233, 0.15)',
-                color: '#38bdf8',
-                border: 'rgba(14, 165, 233, 0.4)'
-            };
-        }
-        if (p.includes('/models/') || p.includes('/model/') || p.startsWith('models/') || p.startsWith('model/')) {
-            return {
-                key: 'model_other',
-                label: 'MODEL',
-                icon: '📦',
-                bg: 'rgba(168, 85, 247, 0.15)',
-                color: '#c084fc',
-                border: 'rgba(168, 85, 247, 0.4)'
-            };
-        }
-        if (p.includes('routes/') || p.includes('config/') || p.includes('.env')) {
-            return {
-                key: 'model_other',
-                label: 'ROUTER/CFG',
-                icon: '⚙️',
-                bg: 'rgba(16, 185, 129, 0.15)',
-                color: '#34d399',
-                border: 'rgba(16, 185, 129, 0.4)'
-            };
-        }
-        return {
-            key: 'model_other',
-            label: 'HỆ THỐNG',
-            icon: '📁',
-            bg: 'rgba(148, 163, 184, 0.15)',
-            color: '#94a3b8',
-            border: 'rgba(148, 163, 184, 0.25)'
-        };
-    },
+		this.renderTableOnly();
+	},
 
-    getDuplicateStats(items) {
-        const map = new Map();
-        items.forEach(item => {
-            const fileName = item.path.split('/').pop().toLowerCase();
-            if (!map.has(fileName)) {
-                map.set(fileName, []);
-            }
-            map.get(fileName).push(item);
-        });
+	setSearch(query) {
+		this.searchQuery = (query || "").toLowerCase().trim();
+		this.renderTableOnly();
+	},
 
-        const duplicatesMap = new Map();
-        let duplicateItemCount = 0;
-        map.forEach((list, fileName) => {
-            if (list.length > 1) {
-                duplicatesMap.set(fileName, list);
-                duplicateItemCount += list.length;
-            }
-        });
+	getScopeMeta(path) {
+		const p = (path || "").toLowerCase().replace(/\\/g, "/");
+		if (
+			p.includes("/admin/") ||
+			p.startsWith("admin/") ||
+			p.includes("controllers/admin") ||
+			p.includes("views/admin")
+		) {
+			return {
+				key: "admin",
+				label: "ADMIN",
+				icon: "🛡️",
+				bg: "rgba(239, 68, 68, 0.15)",
+				color: "#f87171",
+				border: "rgba(239, 68, 68, 0.4)",
+			};
+		}
+		if (
+			p.includes("/web/") ||
+			p.startsWith("web/") ||
+			p.includes("controllers/web") ||
+			p.includes("views/web") ||
+			p.includes("views/templates") ||
+			p.includes("views/layout")
+		) {
+			return {
+				key: "web",
+				label: "WEB / CLIENT",
+				icon: "🌐",
+				bg: "rgba(14, 165, 233, 0.15)",
+				color: "#38bdf8",
+				border: "rgba(14, 165, 233, 0.4)",
+			};
+		}
+		if (
+			p.includes("/models/") ||
+			p.includes("/model/") ||
+			p.startsWith("models/") ||
+			p.startsWith("model/")
+		) {
+			return {
+				key: "model_other",
+				label: "MODEL",
+				icon: "📦",
+				bg: "rgba(168, 85, 247, 0.15)",
+				color: "#c084fc",
+				border: "rgba(168, 85, 247, 0.4)",
+			};
+		}
+		if (
+			p.includes("routes/") ||
+			p.includes("config/") ||
+			p.includes(".env")
+		) {
+			return {
+				key: "model_other",
+				label: "ROUTER/CFG",
+				icon: "⚙️",
+				bg: "rgba(16, 185, 129, 0.15)",
+				color: "#34d399",
+				border: "rgba(16, 185, 129, 0.4)",
+			};
+		}
+		return {
+			key: "model_other",
+			label: "HỆ THỐNG",
+			icon: "📁",
+			bg: "rgba(148, 163, 184, 0.15)",
+			color: "#94a3b8",
+			border: "rgba(148, 163, 184, 0.25)",
+		};
+	},
 
-        return {
-            duplicatesMap,
-            duplicateItemCount
-        };
-    },
+	getDuplicateStats(items) {
+		const map = new Map();
+		items.forEach((item) => {
+			const fileName = item.path.split("/").pop().toLowerCase();
+			if (!map.has(fileName)) {
+				map.set(fileName, []);
+			}
+			map.get(fileName).push(item);
+		});
 
-    selectScopeOnly(scopeKey) {
-        const visibleItems = this.getFilteredItems();
-        this.selectedPaths.clear();
-        let count = 0;
-        const { duplicatesMap } = this.getDuplicateStats(this.getAllItems());
-        visibleItems.forEach(item => {
-            const meta = this.getScopeMeta(item.path);
-            if (scopeKey === 'all') {
-                this.selectedPaths.add(item.path);
-                count++;
-            } else if (scopeKey === 'duplicates') {
-                const fn = item.path.split('/').pop().toLowerCase();
-                if (duplicatesMap.has(fn)) {
-                    this.selectedPaths.add(item.path);
-                    count++;
-                }
-            } else if (meta.key === scopeKey) {
-                this.selectedPaths.add(item.path);
-                count++;
-            }
-        });
-        this.renderTableOnly();
-        const label = scopeKey === 'admin' ? '🛡️ ADMIN' : (scopeKey === 'web' ? '🌐 WEB / CLIENT' : (scopeKey === 'duplicates' ? '⚠️ FILE TRÙNG TÊN' : 'TẤT CẢ'));
-        UI.showToast(`Đã chọn ${count} file [${label}] trong tab hiện tại!`, 'info');
-    },
+		const duplicatesMap = new Map();
+		let duplicateItemCount = 0;
+		map.forEach((list, fileName) => {
+			if (list.length > 1) {
+				duplicatesMap.set(fileName, list);
+				duplicateItemCount += list.length;
+			}
+		});
 
-    deselectAll() {
-        this.selectedPaths.clear();
-        this.renderTableOnly();
-        UI.showToast('Đã bỏ chọn toàn bộ file trong tab hiện tại', 'info');
-    },
+		return {
+			duplicatesMap,
+			duplicateItemCount,
+		};
+	},
 
-    togglePathSelect(path, checked) {
-        if (checked) {
-            this.selectedPaths.add(path);
-        } else {
-            this.selectedPaths.delete(path);
-        }
+	selectScopeOnly(scopeKey) {
+		const visibleItems = this.getFilteredItems();
+		this.selectedPaths.clear();
+		let count = 0;
+		const { duplicatesMap } = this.getDuplicateStats(this.getAllItems());
+		visibleItems.forEach((item) => {
+			const meta = this.getScopeMeta(item.path);
+			if (scopeKey === "all") {
+				this.selectedPaths.add(item.path);
+				count++;
+			} else if (scopeKey === "duplicates") {
+				const fn = item.path.split("/").pop().toLowerCase();
+				if (duplicatesMap.has(fn)) {
+					this.selectedPaths.add(item.path);
+					count++;
+				}
+			} else if (meta.key === scopeKey) {
+				this.selectedPaths.add(item.path);
+				count++;
+			}
+		});
+		this.renderTableOnly();
+		const label =
+			scopeKey === "admin"
+				? "🛡️ ADMIN"
+				: scopeKey === "web"
+					? "🌐 WEB / CLIENT"
+					: scopeKey === "duplicates"
+						? "⚠️ FILE TRÙNG TÊN"
+						: "TẤT CẢ";
+		UI.showToast(
+			`Đã chọn ${count} file [${label}] trong tab hiện tại!`,
+			"info",
+		);
+	},
 
-        // Cập nhật lại trạng thái checkbox header
-        const items = this.getFilteredItems();
-        const allFilteredChecked = items.length > 0 && items.every(i => this.selectedPaths.has(i.path));
-        const checkAllEl = document.getElementById('sync-check-all');
-        if (checkAllEl) checkAllEl.checked = allFilteredChecked;
+	deselectAll() {
+		this.selectedPaths.clear();
+		this.renderTableOnly();
+		UI.showToast("Đã bỏ chọn toàn bộ file trong tab hiện tại", "info");
+	},
 
-        this.updateExecuteBtnCount();
-    },
+	togglePathSelect(path, checked) {
+		if (checked) {
+			this.selectedPaths.add(path);
+		} else {
+			this.selectedPaths.delete(path);
+		}
 
-    toggleSelectAllFiltered(checked) {
-        const visibleItems = this.getFilteredItems();
-        visibleItems.forEach(item => {
-            if (checked) {
-                this.selectedPaths.add(item.path);
-            } else {
-                this.selectedPaths.delete(item.path);
-            }
-        });
-        document.querySelectorAll('.sync-cb').forEach(cb => {
-            cb.checked = checked;
-        });
-        this.updateExecuteBtnCount();
-    },
+		// Cập nhật lại trạng thái checkbox header
+		const items = this.getFilteredItems();
+		const allFilteredChecked =
+			items.length > 0 &&
+			items.every((i) => this.selectedPaths.has(i.path));
+		const checkAllEl = document.getElementById("sync-check-all");
+		if (checkAllEl) checkAllEl.checked = allFilteredChecked;
 
-    changeAction(path, action) {
-        this.customActions.set(path, action);
-    },
+		this.updateExecuteBtnCount();
+	},
 
-    getFilteredItems() {
-        let items = this.getAllItems();
-        const { duplicatesMap } = this.getDuplicateStats(items);
+	toggleSelectAllFiltered(checked) {
+		const visibleItems = this.getFilteredItems();
+		visibleItems.forEach((item) => {
+			if (checked) {
+				this.selectedPaths.add(item.path);
+			} else {
+				this.selectedPaths.delete(item.path);
+			}
+		});
+		document.querySelectorAll(".sync-cb").forEach((cb) => {
+			cb.checked = checked;
+		});
+		this.updateExecuteBtnCount();
+	},
 
-        // Filter by Direction
-        if (this.currentFilter === 'upload') {
-            items = items.filter(i => i.type === 'local_newer' || i.type === 'local_only');
-        } else if (this.currentFilter === 'download') {
-            items = items.filter(i => i.type === 'remote_newer' || i.type === 'remote_only');
-        } else if (this.currentFilter === 'conflict') {
-            items = items.filter(i => i.type === 'conflict');
-        }
+	changeAction(path, action) {
+		this.customActions.set(path, action);
+	},
 
-        // Filter by Scope
-        if (this.currentScope === 'admin') {
-            items = items.filter(i => this.getScopeMeta(i.path).key === 'admin');
-        } else if (this.currentScope === 'web') {
-            items = items.filter(i => this.getScopeMeta(i.path).key === 'web');
-        } else if (this.currentScope === 'model_other') {
-            items = items.filter(i => this.getScopeMeta(i.path).key === 'model_other');
-        } else if (this.currentScope === 'duplicates') {
-            items = items.filter(i => {
-                const fn = i.path.split('/').pop().toLowerCase();
-                return duplicatesMap.has(fn);
-            });
-        }
+	getFilteredItems() {
+		let items = this.getAllItems();
+		const { duplicatesMap } = this.getDuplicateStats(items);
 
-        // Filter by Search Query
-        if (this.searchQuery) {
-            items = items.filter(i => i.path.toLowerCase().includes(this.searchQuery));
-        }
+		// Filter by Direction
+		if (this.currentFilter === "upload") {
+			items = items.filter(
+				(i) => i.type === "local_newer" || i.type === "local_only",
+			);
+		} else if (this.currentFilter === "download") {
+			items = items.filter(
+				(i) => i.type === "remote_newer" || i.type === "remote_only",
+			);
+		} else if (this.currentFilter === "conflict") {
+			items = items.filter((i) => i.type === "conflict");
+		}
 
-        return items;
-    },
+		// Filter by Scope
+		if (this.currentScope === "admin") {
+			items = items.filter(
+				(i) => this.getScopeMeta(i.path).key === "admin",
+			);
+		} else if (this.currentScope === "web") {
+			items = items.filter(
+				(i) => this.getScopeMeta(i.path).key === "web",
+			);
+		} else if (this.currentScope === "model_other") {
+			items = items.filter(
+				(i) => this.getScopeMeta(i.path).key === "model_other",
+			);
+		} else if (this.currentScope === "duplicates") {
+			items = items.filter((i) => {
+				const fn = i.path.split("/").pop().toLowerCase();
+				return duplicatesMap.has(fn);
+			});
+		}
 
-    getAllItems() {
-        if (!this.lastData) return [];
-        const envName = (this.currentEnv === 'prod') ? 'Production' : 'Demo';
-        const items = [];
-        this.lastData.local_newer.forEach(f => items.push({ path: f.path, type: 'local_newer', reason: 'Local mới hơn', color: 'emerald', defaultAction: 'upload', local_mtime: f.local_mtime, remote_mtime: f.remote_mtime }));
-        this.lastData.local_only.forEach(f => items.push({ path: f.path, type: 'local_only', reason: 'Chưa có trên ' + envName, color: 'cyan', defaultAction: 'upload', local_mtime: f.local_mtime, remote_mtime: f.remote_mtime }));
-        this.lastData.remote_newer.forEach(f => items.push({ path: f.path, type: 'remote_newer', reason: envName + ' mới hơn', color: 'purple', defaultAction: 'download', local_mtime: f.local_mtime, remote_mtime: f.remote_mtime }));
-        this.lastData.remote_only.forEach(f => items.push({ path: f.path, type: 'remote_only', reason: 'Chỉ có trên ' + envName, color: 'indigo', defaultAction: 'download', local_mtime: f.local_mtime, remote_mtime: f.remote_mtime }));
-        this.lastData.conflict.forEach(f => items.push({ path: f.path, type: 'conflict', reason: 'Lệch dung lượng (Conflict)', color: 'rose', defaultAction: 'upload', local_mtime: f.local_mtime, remote_mtime: f.remote_mtime }));
-        return items;
-    },
+		// Filter by Search Query
+		if (this.searchQuery) {
+			items = items.filter((i) =>
+				i.path.toLowerCase().includes(this.searchQuery),
+			);
+		}
 
-    formatTime(ts) {
-        if (!ts) return '<span style="color:#64748b; font-size:11.5px; font-style:italic;">Chưa có</span>';
-        const d = new Date(ts * 1000);
-        const day = String(d.getDate()).padStart(2, '0');
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const year = d.getFullYear();
-        const hours = String(d.getHours()).padStart(2, '0');
-        const minutes = String(d.getMinutes()).padStart(2, '0');
-        const seconds = String(d.getSeconds()).padStart(2, '0');
-        return `${day}/${month}/${year} <span style="color:#94a3b8; font-size:11px;">${hours}:${minutes}:${seconds}</span>`;
-    },
+		return items;
+	},
 
-    getFileIcon(path) {
-        const ext = path.split('.').pop().toLowerCase();
-        if (['php', 'blade.php'].includes(ext) || path.endsWith('.blade.php')) {
-            return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(99,102,241,0.15); color:#818cf8; font-size:10px; font-weight:700; font-family:monospace;">PHP</span>`;
-        }
-        if (['js', 'ts', 'jsx', 'tsx'].includes(ext)) {
-            return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(245,158,11,0.15); color:#fbbf24; font-size:10px; font-weight:700; font-family:monospace;">JS</span>`;
-        }
-        if (['css', 'scss', 'sass', 'less'].includes(ext)) {
-            return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(14,165,233,0.15); color:#38bdf8; font-size:10px; font-weight:700; font-family:monospace;">CSS</span>`;
-        }
-        if (['json', 'lock', 'env', 'config'].includes(ext) || path.includes('.env')) {
-            return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(16,185,129,0.15); color:#34d399; font-size:10px; font-weight:700; font-family:monospace;">CFG</span>`;
-        }
-        if (['md', 'txt', 'sql'].includes(ext)) {
-            return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(168,85,247,0.15); color:#c084fc; font-size:10px; font-weight:700; font-family:monospace;">DOC</span>`;
-        }
-        return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(255,255,255,0.08); color:#94a3b8; font-size:10px; font-weight:700;">FILE</span>`;
-    },
+	getAllItems() {
+		if (!this.lastData) return [];
+		const envName = this.currentEnv === "prod" ? "Production" : "Demo";
+		const items = [];
+		this.lastData.local_newer.forEach((f) =>
+			items.push({
+				path: f.path,
+				type: "local_newer",
+				reason: "Local mới hơn",
+				color: "emerald",
+				defaultAction: "upload",
+				local_mtime: f.local_mtime,
+				remote_mtime: f.remote_mtime,
+			}),
+		);
+		this.lastData.local_only.forEach((f) =>
+			items.push({
+				path: f.path,
+				type: "local_only",
+				reason: "Chưa có trên " + envName,
+				color: "cyan",
+				defaultAction: "upload",
+				local_mtime: f.local_mtime,
+				remote_mtime: f.remote_mtime,
+			}),
+		);
+		this.lastData.remote_newer.forEach((f) =>
+			items.push({
+				path: f.path,
+				type: "remote_newer",
+				reason: envName + " mới hơn",
+				color: "purple",
+				defaultAction: "download",
+				local_mtime: f.local_mtime,
+				remote_mtime: f.remote_mtime,
+			}),
+		);
+		this.lastData.remote_only.forEach((f) =>
+			items.push({
+				path: f.path,
+				type: "remote_only",
+				reason: "Chỉ có trên " + envName,
+				color: "indigo",
+				defaultAction: "download",
+				local_mtime: f.local_mtime,
+				remote_mtime: f.remote_mtime,
+			}),
+		);
+		this.lastData.conflict.forEach((f) =>
+			items.push({
+				path: f.path,
+				type: "conflict",
+				reason: "Lệch dung lượng (Conflict)",
+				color: "rose",
+				defaultAction: "upload",
+				local_mtime: f.local_mtime,
+				remote_mtime: f.remote_mtime,
+			}),
+		);
+		return items;
+	},
 
-    renderDbSyncCard(dbDiff) {
-        const envLabel = this.currentEnv === 'prod' ? 'Production' : 'Demo';
-        if (!dbDiff) return '';
+	formatTime(ts) {
+		if (!ts)
+			return '<span style="color:#64748b; font-size:11.5px; font-style:italic;">Chưa có</span>';
+		const d = new Date(ts * 1000);
+		const day = String(d.getDate()).padStart(2, "0");
+		const month = String(d.getMonth() + 1).padStart(2, "0");
+		const year = d.getFullYear();
+		const hours = String(d.getHours()).padStart(2, "0");
+		const minutes = String(d.getMinutes()).padStart(2, "0");
+		const seconds = String(d.getSeconds()).padStart(2, "0");
+		return `${day}/${month}/${year} <span style="color:#94a3b8; font-size:11px;">${hours}:${minutes}:${seconds}</span>`;
+	},
 
-        if (!dbDiff.available) {
-            return `
+	getFileIcon(path) {
+		const ext = path.split(".").pop().toLowerCase();
+		if (["php", "blade.php"].includes(ext) || path.endsWith(".blade.php")) {
+			return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(99,102,241,0.15); color:#818cf8; font-size:10px; font-weight:700; font-family:monospace;">PHP</span>`;
+		}
+		if (["js", "ts", "jsx", "tsx"].includes(ext)) {
+			return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(245,158,11,0.15); color:#fbbf24; font-size:10px; font-weight:700; font-family:monospace;">JS</span>`;
+		}
+		if (["css", "scss", "sass", "less"].includes(ext)) {
+			return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(14,165,233,0.15); color:#38bdf8; font-size:10px; font-weight:700; font-family:monospace;">CSS</span>`;
+		}
+		if (
+			["json", "lock", "env", "config"].includes(ext) ||
+			path.includes(".env")
+		) {
+			return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(16,185,129,0.15); color:#34d399; font-size:10px; font-weight:700; font-family:monospace;">CFG</span>`;
+		}
+		if (["md", "txt", "sql"].includes(ext)) {
+			return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(168,85,247,0.15); color:#c084fc; font-size:10px; font-weight:700; font-family:monospace;">DOC</span>`;
+		}
+		return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(255,255,255,0.08); color:#94a3b8; font-size:10px; font-weight:700;">FILE</span>`;
+	},
+
+	renderDbSyncCard(dbDiff) {
+		const envLabel = this.currentEnv === "prod" ? "Production" : "Demo";
+		if (!dbDiff) return "";
+
+		if (!dbDiff.available) {
+			return `
                 <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <span style="font-size: 20px;">🗄️</span>
                         <div>
                             <div style="font-weight: 600; font-size: 13.5px; color: #cbd5e1;">Cơ sở dữ liệu (SQL Schema)</div>
-                            <div style="font-size: 12px; color: #94a3b8;">${this.escapeHtml(dbDiff.error || 'Không phát hiện cấu hình Database hợp lệ để đối soát.')}</div>
+                            <div style="font-size: 12px; color: #94a3b8;">${this.escapeHtml(dbDiff.error || "Không phát hiện cấu hình Database hợp lệ để đối soát.")}</div>
                         </div>
                     </div>
                     <span class="sc-tag" style="background: rgba(255,255,255,0.05); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1);">Chưa kết nối DB</span>
                 </div>
             `;
-        }
+		}
 
-        const uploadStmts = dbDiff.upload_statements || [];
-        const downloadStmts = dbDiff.download_statements || [];
-        const uploadSummary = dbDiff.upload_summary || { new_tables: [], new_columns: [] };
-        const downloadSummary = dbDiff.download_summary || { new_tables: [], new_columns: [] };
-        const hasDiff = uploadStmts.length > 0 || downloadStmts.length > 0;
+		const uploadStmts = dbDiff.upload_statements || [];
+		const downloadStmts = dbDiff.download_statements || [];
+		const uploadSummary = dbDiff.upload_summary || {
+			new_tables: [],
+			new_columns: [],
+		};
+		const downloadSummary = dbDiff.download_summary || {
+			new_tables: [],
+			new_columns: [],
+		};
+		const hasDiff = uploadStmts.length > 0 || downloadStmts.length > 0;
 
-        if (!hasDiff) {
-            return `
+		if (!hasDiff) {
+			return `
                 <div style="background: rgba(16,185,129,0.04); border: 1px solid rgba(16,185,129,0.2); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
                     <div style="display: flex; align-items: center; gap: 12px;">
                         <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(16,185,129,0.12); color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 18px;">✓</div>
@@ -2417,9 +2942,9 @@ const SyncCenter = {
                     <span class="sc-tag sc-tag-emerald" style="padding: 4px 10px; font-size: 11.5px;">✓ Khớp cấu trúc</span>
                 </div>
             `;
-        }
+		}
 
-        let html = `
+		let html = `
             <div style="background: linear-gradient(180deg, rgba(20, 26, 38, 0.95), rgba(13, 17, 26, 0.95)); border: 1px solid rgba(0, 210, 211, 0.25); border-radius: 14px; padding: 16px 20px; box-shadow: 0 8px 30px rgba(0,0,0,0.35);">
                 <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.08);">
                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -2444,9 +2969,9 @@ const SyncCenter = {
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px;">
         `;
 
-        // Chiều 1: Upload (Local -> Hosting)
-        html += `
-            <div style="background: rgba(16, 185, 129, 0.04); border: 1px solid ${uploadStmts.length > 0 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255,255,255,0.06)'}; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; justify-content: space-between;">
+		// Chiều 1: Upload (Local -> Hosting)
+		html += `
+            <div style="background: rgba(16, 185, 129, 0.04); border: 1px solid ${uploadStmts.length > 0 ? "rgba(16, 185, 129, 0.3)" : "rgba(255,255,255,0.06)"}; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                         <span style="font-weight: 700; font-size: 13px; color: #34d399; display: flex; align-items: center; gap: 6px;">
@@ -2455,15 +2980,21 @@ const SyncCenter = {
                         <span class="sc-badge-count" style="background: rgba(16, 185, 129, 0.15); color: #34d399;">${uploadStmts.length} câu lệnh DDL</span>
                     </div>
                     <div style="font-size: 12px; color: #cbd5e1; line-height: 1.5; margin-bottom: 12px;">
-                        ${uploadStmts.length > 0 ? `
+                        ${
+							uploadStmts.length > 0
+								? `
                             Hosting khác biệt so với Local:<br>
-                            ${uploadSummary.new_tables && uploadSummary.new_tables.length > 0 ? `• <b style="color:#fff;">${uploadSummary.new_tables.length}</b> bảng mới: <code>${this.escapeHtml(uploadSummary.new_tables.join(', '))}</code><br>` : ''}
-                            ${uploadSummary.new_columns && uploadSummary.new_columns.length > 0 ? `• <b style="color:#fff;">${uploadSummary.new_columns.length}</b> cột mới: <code>${this.escapeHtml(uploadSummary.new_columns.slice(0, 4).join(', '))}${uploadSummary.new_columns.length > 4 ? ' ...' : ''}</code><br>` : ''}
-                            ${uploadSummary.modify_columns && uploadSummary.modify_columns.length > 0 ? `• <b style="color:#fbbf24;">${uploadSummary.modify_columns.length}</b> cột đổi kiểu/chiều dài: <code>${this.escapeHtml(uploadSummary.modify_columns.slice(0, 4).join(', '))}${uploadSummary.modify_columns.length > 4 ? ' ...' : ''}</code>` : ''}
-                        ` : '<span style="color:#94a3b8;">Hosting đã có đầy đủ toàn bộ bảng & cột của Local.</span>'}
+                            ${uploadSummary.new_tables && uploadSummary.new_tables.length > 0 ? `• <b style="color:#fff;">${uploadSummary.new_tables.length}</b> bảng mới: <code>${this.escapeHtml(uploadSummary.new_tables.join(", "))}</code><br>` : ""}
+                            ${uploadSummary.new_columns && uploadSummary.new_columns.length > 0 ? `• <b style="color:#fff;">${uploadSummary.new_columns.length}</b> cột mới: <code>${this.escapeHtml(uploadSummary.new_columns.slice(0, 4).join(", "))}${uploadSummary.new_columns.length > 4 ? " ..." : ""}</code><br>` : ""}
+                            ${uploadSummary.modify_columns && uploadSummary.modify_columns.length > 0 ? `• <b style="color:#fbbf24;">${uploadSummary.modify_columns.length}</b> cột đổi kiểu/chiều dài: <code>${this.escapeHtml(uploadSummary.modify_columns.slice(0, 4).join(", "))}${uploadSummary.modify_columns.length > 4 ? " ..." : ""}</code>` : ""}
+                        `
+								: '<span style="color:#94a3b8;">Hosting đã có đầy đủ toàn bộ bảng & cột của Local.</span>'
+						}
                     </div>
                 </div>
-                ${uploadStmts.length > 0 ? `
+                ${
+					uploadStmts.length > 0
+						? `
                     <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
                         <button type="button" class="btn btn-primary" onclick="SyncCenter.executeDbSync('upload')" style="flex: 1; height: 34px; font-size: 12.5px; font-weight: 600; border-radius: 7px; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 12px rgba(16,185,129,0.3); display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
                             <span>↑ Đồng bộ lên ${envLabel} (Tự động Backup)</span>
@@ -2472,13 +3003,15 @@ const SyncCenter = {
                             Xem SQL
                         </button>
                     </div>
-                ` : ''}
+                `
+						: ""
+				}
             </div>
         `;
 
-        // Chiều 2: Download (Hosting -> Local)
-        html += `
-            <div style="background: rgba(168, 85, 247, 0.04); border: 1px solid ${downloadStmts.length > 0 ? 'rgba(168, 85, 247, 0.3)' : 'rgba(255,255,255,0.06)'}; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; justify-content: space-between;">
+		// Chiều 2: Download (Hosting -> Local)
+		html += `
+            <div style="background: rgba(168, 85, 247, 0.04); border: 1px solid ${downloadStmts.length > 0 ? "rgba(168, 85, 247, 0.3)" : "rgba(255,255,255,0.06)"}; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                         <span style="font-weight: 700; font-size: 13px; color: #c084fc; display: flex; align-items: center; gap: 6px;">
@@ -2487,15 +3020,21 @@ const SyncCenter = {
                         <span class="sc-badge-count" style="background: rgba(168, 85, 247, 0.15); color: #c084fc;">${downloadStmts.length} câu lệnh DDL</span>
                     </div>
                     <div style="font-size: 12px; color: #cbd5e1; line-height: 1.5; margin-bottom: 12px;">
-                        ${downloadStmts.length > 0 ? `
+                        ${
+							downloadStmts.length > 0
+								? `
                             Local khác biệt so với Hosting:<br>
-                            ${downloadSummary.new_tables && downloadSummary.new_tables.length > 0 ? `• <b style="color:#fff;">${downloadSummary.new_tables.length}</b> bảng mới: <code>${this.escapeHtml(downloadSummary.new_tables.join(', '))}</code><br>` : ''}
-                            ${downloadSummary.new_columns && downloadSummary.new_columns.length > 0 ? `• <b style="color:#fff;">${downloadSummary.new_columns.length}</b> cột mới: <code>${this.escapeHtml(downloadSummary.new_columns.slice(0, 4).join(', '))}${downloadSummary.new_columns.length > 4 ? ' ...' : ''}</code><br>` : ''}
-                            ${downloadSummary.modify_columns && downloadSummary.modify_columns.length > 0 ? `• <b style="color:#fbbf24;">${downloadSummary.modify_columns.length}</b> cột đổi kiểu/chiều dài: <code>${this.escapeHtml(downloadSummary.modify_columns.slice(0, 4).join(', '))}${downloadSummary.modify_columns.length > 4 ? ' ...' : ''}</code>` : ''}
-                        ` : '<span style="color:#94a3b8;">Local đã có đầy đủ toàn bộ bảng & cột của Hosting.</span>'}
+                            ${downloadSummary.new_tables && downloadSummary.new_tables.length > 0 ? `• <b style="color:#fff;">${downloadSummary.new_tables.length}</b> bảng mới: <code>${this.escapeHtml(downloadSummary.new_tables.join(", "))}</code><br>` : ""}
+                            ${downloadSummary.new_columns && downloadSummary.new_columns.length > 0 ? `• <b style="color:#fff;">${downloadSummary.new_columns.length}</b> cột mới: <code>${this.escapeHtml(downloadSummary.new_columns.slice(0, 4).join(", "))}${downloadSummary.new_columns.length > 4 ? " ..." : ""}</code><br>` : ""}
+                            ${downloadSummary.modify_columns && downloadSummary.modify_columns.length > 0 ? `• <b style="color:#fbbf24;">${downloadSummary.modify_columns.length}</b> cột đổi kiểu/chiều dài: <code>${this.escapeHtml(downloadSummary.modify_columns.slice(0, 4).join(", "))}${downloadSummary.modify_columns.length > 4 ? " ..." : ""}</code>` : ""}
+                        `
+								: '<span style="color:#94a3b8;">Local đã có đầy đủ toàn bộ bảng & cột của Hosting.</span>'
+						}
                     </div>
                 </div>
-                ${downloadStmts.length > 0 ? `
+                ${
+					downloadStmts.length > 0
+						? `
                     <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
                         <button type="button" class="btn btn-primary" onclick="SyncCenter.executeDbSync('download')" style="flex: 1; height: 34px; font-size: 12.5px; font-weight: 600; border-radius: 7px; background: linear-gradient(135deg, #a855f7, #7c3aed); border: none; box-shadow: 0 4px 12px rgba(168,85,247,0.3); display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
                             <span>↓ Đồng bộ về Local (Tự động Backup)</span>
@@ -2504,47 +3043,58 @@ const SyncCenter = {
                             Xem SQL
                         </button>
                     </div>
-                ` : ''}
+                `
+						: ""
+				}
             </div>
         `;
 
-        html += `
+		html += `
                 </div>
             </div>
         `;
 
-        return html;
-    },
+		return html;
+	},
 
-    render() {
-        if (!this.lastData) return;
-        const allItems = this.getAllItems();
-        
-        const countUpload = this.lastData.local_newer.length + this.lastData.local_only.length;
-        const countDownload = this.lastData.remote_newer.length + this.lastData.remote_only.length;
-        const countConflict = this.lastData.conflict.length;
-        const total = allItems.length;
+	render() {
+		if (!this.lastData) return;
+		const allItems = this.getAllItems();
 
-        // Scope Counts
-        let adminCount = 0;
-        let webCount = 0;
-        let modelOtherCount = 0;
-        allItems.forEach(i => {
-            const scopeKey = this.getScopeMeta(i.path).key;
-            if (scopeKey === 'admin') adminCount++;
-            else if (scopeKey === 'web') webCount++;
-            else modelOtherCount++;
-        });
+		const countUpload =
+			this.lastData.local_newer.length + this.lastData.local_only.length;
+		const countDownload =
+			this.lastData.remote_newer.length +
+			this.lastData.remote_only.length;
+		const countConflict = this.lastData.conflict.length;
+		const total = allItems.length;
 
-        const duplicateStats = this.getDuplicateStats(allItems);
+		// Scope Counts
+		let adminCount = 0;
+		let webCount = 0;
+		let modelOtherCount = 0;
+		allItems.forEach((i) => {
+			const scopeKey = this.getScopeMeta(i.path).key;
+			if (scopeKey === "admin") adminCount++;
+			else if (scopeKey === "web") webCount++;
+			else modelOtherCount++;
+		});
 
-        const dbDiff = this.lastData.db_diff || null;
-        const uploadDbCount = dbDiff && dbDiff.upload_statements ? dbDiff.upload_statements.length : 0;
-        const downloadDbCount = dbDiff && dbDiff.download_statements ? dbDiff.download_statements.length : 0;
-        const hasDbChanges = uploadDbCount > 0 || downloadDbCount > 0;
+		const duplicateStats = this.getDuplicateStats(allItems);
 
-        if (total === 0 && !hasDbChanges) {
-            document.getElementById('sync-center-content').innerHTML = `
+		const dbDiff = this.lastData.db_diff || null;
+		const uploadDbCount =
+			dbDiff && dbDiff.upload_statements
+				? dbDiff.upload_statements.length
+				: 0;
+		const downloadDbCount =
+			dbDiff && dbDiff.download_statements
+				? dbDiff.download_statements.length
+				: 0;
+		const hasDbChanges = uploadDbCount > 0 || downloadDbCount > 0;
+
+		if (total === 0 && !hasDbChanges) {
+			document.getElementById("sync-center-content").innerHTML = `
                 <div style="display: flex; flex-direction: column; gap: 16px;">
                     ${this.renderDbSyncCard(dbDiff)}
                     <div style="padding: 50px 20px; text-align: center; background: rgba(16,185,129,0.03); border: 1px solid rgba(16,185,129,0.15); border-radius: 16px;">
@@ -2556,10 +3106,10 @@ const SyncCenter = {
                     </div>
                 </div>
             `;
-            return;
-        }
+			return;
+		}
 
-        let html = `
+		let html = `
             <style>
                 .sc-pill-btn {
                     height: 36px; padding: 0 14px; box-sizing: border-box; border-radius: 8px; font-size: 12.5px; font-weight: 700;
@@ -2793,28 +3343,32 @@ const SyncCenter = {
                 <!-- Header Toolbar: Direction Filters & Search -->
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; background: rgba(255,255,255,0.02); padding: 10px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
                     <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <button class="sc-pill-btn pill-all ${this.currentFilter === 'all' ? 'active' : ''}" onclick="SyncCenter.setFilter('all')">
+                        <button class="sc-pill-btn pill-all ${this.currentFilter === "all" ? "active" : ""}" onclick="SyncCenter.setFilter('all')">
                             Tất cả hướng <span class="sc-badge-count">${total}</span>
                         </button>
-                        <button class="sc-pill-btn pill-up ${this.currentFilter === 'upload' ? 'active' : ''}" onclick="SyncCenter.setFilter('upload')">
+                        <button class="sc-pill-btn pill-up ${this.currentFilter === "upload" ? "active" : ""}" onclick="SyncCenter.setFilter('upload')">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-                            Đẩy lên ${this.currentEnv === 'prod' ? 'Production' : 'Demo'} <span class="sc-badge-count">${countUpload}</span>
+                            Đẩy lên ${this.currentEnv === "prod" ? "Production" : "Demo"} <span class="sc-badge-count">${countUpload}</span>
                         </button>
-                        <button class="sc-pill-btn pill-down ${this.currentFilter === 'download' ? 'active' : ''}" onclick="SyncCenter.setFilter('download')">
+                        <button class="sc-pill-btn pill-down ${this.currentFilter === "download" ? "active" : ""}" onclick="SyncCenter.setFilter('download')">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
                             Kéo về Local <span class="sc-badge-count">${countDownload}</span>
                         </button>
-                        ${countConflict > 0 ? `
-                            <button class="sc-pill-btn pill-conflict ${this.currentFilter === 'conflict' ? 'active' : ''}" onclick="SyncCenter.setFilter('conflict')">
+                        ${
+							countConflict > 0
+								? `
+                            <button class="sc-pill-btn pill-conflict ${this.currentFilter === "conflict" ? "active" : ""}" onclick="SyncCenter.setFilter('conflict')">
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                                 Xung đột <span class="sc-badge-count">${countConflict}</span>
                             </button>
-                        ` : ''}
+                        `
+								: ""
+						}
                     </div>
 
                     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                         <label class="sc-cleardata-toggle" style="display: inline-flex; align-items: center; gap: 7px; cursor: pointer; height: 36px; box-sizing: border-box; padding: 0 12px; border-radius: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.15); font-size: 12px; font-weight: 600; color: #cbd5e1; user-select: none; transition: all 0.2s; white-space: nowrap; text-transform: none; margin: 0;" title="Bật nếu muốn quét và đồng bộ các file tính năng xoá dữ liệu Demo (ClearDataController...)">
-                            <input type="checkbox" id="sc-check-cleardata-toolbar" ${this.includeClearData ? 'checked' : ''} onchange="SyncCenter.toggleClearData(this.checked)" style="accent-color: var(--primary, #00d2d3); width: 14px; height: 14px; cursor: pointer; margin: 0;">
+                            <input type="checkbox" id="sc-check-cleardata-toolbar" ${this.includeClearData ? "checked" : ""} onchange="SyncCenter.toggleClearData(this.checked)" style="accent-color: var(--primary, #00d2d3); width: 14px; height: 14px; cursor: pointer; margin: 0;">
                             <span>Đồng bộ ClearData</span>
                         </label>
                         <input type="text" class="sc-search-box" placeholder="🔍 Lọc file theo tên..." oninput="SyncCenter.setSearch(this.value)" value="${this.escapeHtml(this.searchQuery)}">
@@ -2831,23 +3385,27 @@ const SyncCenter = {
                         <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-right: 4px; display: inline-flex; align-items: center; gap: 4px;">
                             <span>🛡️ PHÂN VÙNG:</span>
                         </span>
-                        <button class="sc-scope-btn ${this.currentScope === 'all' ? 'active' : ''}" id="sc-scope-btn-all" onclick="SyncCenter.setScope('all')">
+                        <button class="sc-scope-btn ${this.currentScope === "all" ? "active" : ""}" id="sc-scope-btn-all" onclick="SyncCenter.setScope('all')">
                             Toàn bộ <span class="sc-badge-count">${total}</span>
                         </button>
-                        <button class="sc-scope-btn sc-scope-admin ${this.currentScope === 'admin' ? 'active' : ''}" id="sc-scope-btn-admin" onclick="SyncCenter.setScope('admin')" title="Chỉ hiển thị các file thuộc khu vực Quản trị Admin">
+                        <button class="sc-scope-btn sc-scope-admin ${this.currentScope === "admin" ? "active" : ""}" id="sc-scope-btn-admin" onclick="SyncCenter.setScope('admin')" title="Chỉ hiển thị các file thuộc khu vực Quản trị Admin">
                             🛡️ Chỉ Admin <span class="sc-badge-count">${adminCount}</span>
                         </button>
-                        <button class="sc-scope-btn sc-scope-web ${this.currentScope === 'web' ? 'active' : ''}" id="sc-scope-btn-web" onclick="SyncCenter.setScope('web')" title="Chỉ hiển thị các file thuộc giao diện Khách Web / Client">
+                        <button class="sc-scope-btn sc-scope-web ${this.currentScope === "web" ? "active" : ""}" id="sc-scope-btn-web" onclick="SyncCenter.setScope('web')" title="Chỉ hiển thị các file thuộc giao diện Khách Web / Client">
                             🌐 Chỉ Web/Client <span class="sc-badge-count">${webCount}</span>
                         </button>
-                        <button class="sc-scope-btn sc-scope-model ${this.currentScope === 'model_other' ? 'active' : ''}" id="sc-scope-btn-model_other" onclick="SyncCenter.setScope('model_other')">
+                        <button class="sc-scope-btn sc-scope-model ${this.currentScope === "model_other" ? "active" : ""}" id="sc-scope-btn-model_other" onclick="SyncCenter.setScope('model_other')">
                             📦 Model / Khác <span class="sc-badge-count">${modelOtherCount}</span>
                         </button>
-                        ${duplicateStats.duplicateItemCount > 0 ? `
-                            <button class="sc-scope-btn sc-scope-dup ${this.currentScope === 'duplicates' ? 'active' : ''}" id="sc-scope-btn-duplicates" onclick="SyncCenter.setScope('duplicates')" title="Cảnh báo: Có ${duplicateStats.duplicateItemCount} file trùng tên nhau ở các thư mục khác nhau! Hãy kiểm tra để tránh sync nhầm.">
+                        ${
+							duplicateStats.duplicateItemCount > 0
+								? `
+                            <button class="sc-scope-btn sc-scope-dup ${this.currentScope === "duplicates" ? "active" : ""}" id="sc-scope-btn-duplicates" onclick="SyncCenter.setScope('duplicates')" title="Cảnh báo: Có ${duplicateStats.duplicateItemCount} file trùng tên nhau ở các thư mục khác nhau! Hãy kiểm tra để tránh sync nhầm.">
                                 ⚠️ File trùng tên <span class="sc-badge-count" style="background:rgba(245,158,11,0.25); color:#fbbf24;">${duplicateStats.duplicateItemCount}</span>
                             </button>
-                        ` : ''}
+                        `
+								: ""
+						}
                     </div>
 
                     <!-- Quick Selection Helpers -->
@@ -2873,37 +3431,39 @@ const SyncCenter = {
             </div>
         `;
 
-        document.getElementById('sync-center-content').innerHTML = html;
-        this.renderTableOnly();
-    },
+		document.getElementById("sync-center-content").innerHTML = html;
+		this.renderTableOnly();
+	},
 
-    renderTableOnly() {
-        const container = document.getElementById('sc-table-container');
-        if (!container) return;
+	renderTableOnly() {
+		const container = document.getElementById("sc-table-container");
+		if (!container) return;
 
-        const allItems = this.getAllItems();
-        const { duplicatesMap } = this.getDuplicateStats(allItems);
-        let items = this.getFilteredItems();
+		const allItems = this.getAllItems();
+		const { duplicatesMap } = this.getDuplicateStats(allItems);
+		let items = this.getFilteredItems();
 
-        if (items.length === 0) {
-            container.innerHTML = `
+		if (items.length === 0) {
+			container.innerHTML = `
                 <div style="padding: 40px; text-align: center; color: var(--text-muted, #94a3b8); font-size: 13px; background: rgba(255,255,255,0.015); border: 1px dashed rgba(255,255,255,0.08); border-radius: 12px;">
                     Không tìm thấy file nào khớp với bộ lọc hiện tại.
                 </div>
             `;
-            this.updateExecuteBtnCount();
-            return;
-        }
+			this.updateExecuteBtnCount();
+			return;
+		}
 
-        const envLabel = this.currentEnv === 'prod' ? 'Production' : 'Demo';
-        const allFilteredChecked = items.length > 0 && items.every(i => this.selectedPaths.has(i.path));
+		const envLabel = this.currentEnv === "prod" ? "Production" : "Demo";
+		const allFilteredChecked =
+			items.length > 0 &&
+			items.every((i) => this.selectedPaths.has(i.path));
 
-        let tableHtml = `
+		let tableHtml = `
             <table class="sc-table">
                 <thead>
                     <tr>
                         <th style="width: 44px; text-align: center;">
-                            <input type="checkbox" class="sc-custom-cb" id="sync-check-all" ${allFilteredChecked ? 'checked' : ''} onchange="SyncCenter.toggleSelectAllFiltered(this.checked)">
+                            <input type="checkbox" class="sc-custom-cb" id="sync-check-all" ${allFilteredChecked ? "checked" : ""} onchange="SyncCenter.toggleSelectAllFiltered(this.checked)">
                         </th>
                         <th style="width: 135px; white-space: nowrap;">Phân vùng</th>
                         <th>Đường dẫn File</th>
@@ -2917,27 +3477,30 @@ const SyncCenter = {
                 <tbody>
         `;
 
-        items.forEach(item => {
-            const path = this.escapeHtml(item.path);
-            const currentAction = this.customActions.get(item.path) || item.defaultAction;
-            const isUpload = currentAction === 'upload';
-            const icon = this.getFileIcon(item.path);
-            const scope = this.getScopeMeta(item.path);
-            
-            // Format path: split dir & filename
-            const parts = item.path.split('/');
-            const fileName = parts.pop();
-            const dirName = parts.length > 0 ? parts.join('/') + '/' : '';
-            const isClearData = item.path.toLowerCase().includes('cleardata') || item.path.toLowerCase() === 'src/routes/web.php';
+		items.forEach((item) => {
+			const path = this.escapeHtml(item.path);
+			const currentAction =
+				this.customActions.get(item.path) || item.defaultAction;
+			const isUpload = currentAction === "upload";
+			const icon = this.getFileIcon(item.path);
+			const scope = this.getScopeMeta(item.path);
 
-            const dupList = duplicatesMap.get(fileName.toLowerCase());
-            const isDuplicate = dupList && dupList.length > 1;
-            const isChecked = this.selectedPaths.has(item.path);
+			// Format path: split dir & filename
+			const parts = item.path.split("/");
+			const fileName = parts.pop();
+			const dirName = parts.length > 0 ? parts.join("/") + "/" : "";
+			const isClearData =
+				item.path.toLowerCase().includes("cleardata") ||
+				item.path.toLowerCase() === "src/routes/web.php";
 
-            tableHtml += `
-                <tr style="${isDuplicate ? 'border-left: 3px solid #f59e0b;' : ''}">
+			const dupList = duplicatesMap.get(fileName.toLowerCase());
+			const isDuplicate = dupList && dupList.length > 1;
+			const isChecked = this.selectedPaths.has(item.path);
+
+			tableHtml += `
+                <tr style="${isDuplicate ? "border-left: 3px solid #f59e0b;" : ""}">
                     <td style="text-align: center;">
-                        <input type="checkbox" class="sc-custom-cb sync-cb" value="${path}" ${isChecked ? 'checked' : ''} onchange="SyncCenter.togglePathSelect('${path}', this.checked)">
+                        <input type="checkbox" class="sc-custom-cb sync-cb" value="${path}" ${isChecked ? "checked" : ""} onchange="SyncCenter.togglePathSelect('${path}', this.checked)">
                     </td>
                     <td style="white-space: nowrap;">
                         <span class="sc-tag" style="background: ${scope.bg}; color: ${scope.color}; border: 1px solid ${scope.border}; font-weight: 700; font-size: 11px;">
@@ -2949,29 +3512,29 @@ const SyncCenter = {
                             ${icon}
                             <div style="font-family: var(--mono, monospace); font-size: 12.5px; line-height: 1.4; word-break: break-all;">
                                 <span style="color: #94a3b8; font-size: 12px; font-weight: 500;">${this.escapeHtml(dirName)}</span><span style="color: #ffffff; font-weight: 700; font-size: 13px; text-decoration: underline; text-decoration-color: rgba(255,255,255,0.3);">${this.escapeHtml(fileName)}</span>
-                                ${isDuplicate ? `<span class="sc-tag" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4); font-weight: 700; font-size: 10.5px; margin-left: 6px;" title="Cảnh báo: Tên file '${this.escapeHtml(fileName)}' xuất hiện ở ${dupList.length} thư mục khác nhau! Hãy chú ý Scope Admin vs Web.">⚠️ Trùng tên (${dupList.length} vị trí)</span>` : ''}
-                                ${isClearData ? '<span class="sc-tag" style="background: rgba(239,68,68,0.18); color: #f87171; border: 1px solid rgba(239,68,68,0.35); font-weight: 700; font-size: 10.5px; margin-left: 6px; padding: 1px 6px;">⚠️ ClearData (' + (item.path.toLowerCase().includes('routes') ? 'Router' : 'Controller') + ')</span>' : ''}
+                                ${isDuplicate ? `<span class="sc-tag" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4); font-weight: 700; font-size: 10.5px; margin-left: 6px;" title="Cảnh báo: Tên file '${this.escapeHtml(fileName)}' xuất hiện ở ${dupList.length} thư mục khác nhau! Hãy chú ý Scope Admin vs Web.">⚠️ Trùng tên (${dupList.length} vị trí)</span>` : ""}
+                                ${isClearData ? '<span class="sc-tag" style="background: rgba(239,68,68,0.18); color: #f87171; border: 1px solid rgba(239,68,68,0.35); font-weight: 700; font-size: 10.5px; margin-left: 6px; padding: 1px 6px;">⚠️ ClearData (' + (item.path.toLowerCase().includes("routes") ? "Router" : "Controller") + ")</span>" : ""}
                             </div>
                         </div>
                     </td>
                     <td style="white-space: nowrap;">
                         <span class="sc-tag sc-tag-${item.color}">
-                            ${item.type === 'local_newer' || item.type === 'local_only' ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>' : ''}
-                            ${item.type === 'remote_newer' || item.type === 'remote_only' ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>' : ''}
-                            ${item.type === 'conflict' ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>' : ''}
+                            ${item.type === "local_newer" || item.type === "local_only" ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>' : ""}
+                            ${item.type === "remote_newer" || item.type === "remote_only" ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>' : ""}
+                            ${item.type === "conflict" ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>' : ""}
                             ${item.reason}
                         </span>
                     </td>
-                    <td style="white-space: nowrap; font-family: var(--mono, monospace); font-size: 12px; color: ${item.local_mtime ? '#34d399' : '#64748b'};">
+                    <td style="white-space: nowrap; font-family: var(--mono, monospace); font-size: 12px; color: ${item.local_mtime ? "#34d399" : "#64748b"};">
                         ${this.formatTime(item.local_mtime)}
                     </td>
-                    <td style="white-space: nowrap; font-family: var(--mono, monospace); font-size: 12px; color: ${item.remote_mtime ? '#c084fc' : '#64748b'};">
+                    <td style="white-space: nowrap; font-family: var(--mono, monospace); font-size: 12px; color: ${item.remote_mtime ? "#c084fc" : "#64748b"};">
                         ${this.formatTime(item.remote_mtime)}
                     </td>
                     <td style="white-space: nowrap;">
                         <select class="sc-select-action sync-action" data-path="${path}" onchange="SyncCenter.changeAction('${path}', this.value)">
-                            <option value="upload" ${isUpload ? 'selected' : ''}>↑ Đẩy lên ${envLabel}</option>
-                            <option value="download" ${!isUpload ? 'selected' : ''}>↓ Kéo về Local</option>
+                            <option value="upload" ${isUpload ? "selected" : ""}>↑ Đẩy lên ${envLabel}</option>
+                            <option value="download" ${!isUpload ? "selected" : ""}>↓ Kéo về Local</option>
                         </select>
                     </td>
                     <td style="text-align: left; white-space: nowrap;">
@@ -2987,81 +3550,100 @@ const SyncCenter = {
                     </td>
                 </tr>
             `;
-        });
+		});
 
-        tableHtml += `</tbody></table>`;
-        container.innerHTML = tableHtml;
-        this.updateExecuteBtnCount();
-    },
+		tableHtml += `</tbody></table>`;
+		container.innerHTML = tableHtml;
+		this.updateExecuteBtnCount();
+	},
 
-    updateExecuteBtnCount() {
-        const visibleItems = this.getFilteredItems();
-        const visibleSet = new Set(visibleItems.map(i => i.path));
-        let checkedCount = 0;
-        this.selectedPaths.forEach(p => {
-            if (visibleSet.has(p)) checkedCount++;
-        });
+	updateExecuteBtnCount() {
+		const visibleItems = this.getFilteredItems();
+		const visibleSet = new Set(visibleItems.map((i) => i.path));
+		let checkedCount = 0;
+		this.selectedPaths.forEach((p) => {
+			if (visibleSet.has(p)) checkedCount++;
+		});
 
-        const btnText = document.getElementById('sc-btn-execute-text');
-        if (btnText) {
-            let actionLabel = `THỰC THI (${checkedCount} FILE)`;
-            if (this.currentFilter === 'upload') {
-                actionLabel = `ĐẨY LÊN (${checkedCount} FILE)`;
-            } else if (this.currentFilter === 'download') {
-                actionLabel = `KÉO VỀ (${checkedCount} FILE)`;
-            }
-            btnText.innerText = actionLabel;
-        }
+		const btnText = document.getElementById("sc-btn-execute-text");
+		if (btnText) {
+			let actionLabel = `THỰC THI (${checkedCount} FILE)`;
+			if (this.currentFilter === "upload") {
+				actionLabel = `ĐẨY LÊN (${checkedCount} FILE)`;
+			} else if (this.currentFilter === "download") {
+				actionLabel = `KÉO VỀ (${checkedCount} FILE)`;
+			}
+			btnText.innerText = actionLabel;
+		}
 
-        const btnExecute = btnText?.closest('button');
-        if (btnExecute) {
-            if (checkedCount === 0) {
-                btnExecute.style.opacity = '0.55';
-            } else {
-                btnExecute.style.opacity = '1';
-            }
-        }
-    },
+		const btnExecute = btnText?.closest("button");
+		if (btnExecute) {
+			if (checkedCount === 0) {
+				btnExecute.style.opacity = "0.55";
+			} else {
+				btnExecute.style.opacity = "1";
+			}
+		}
+	},
 
-    executeSingle(btn, path) {
-        const currentAction = this.customActions.get(path) || (btn.closest('tr')?.querySelector('.sync-action')?.value) || 'upload';
-        const actions = { upload: [], download: [] };
-        actions[currentAction].push(path);
-        const scope = this.getScopeMeta(path);
-        
-        btn.innerHTML = '<span class="loader" style="width:12px; height:12px; border-width:2px; display:inline-block;"></span>';
-        btn.disabled = true;
+	executeSingle(btn, path) {
+		const currentAction =
+			this.customActions.get(path) ||
+			btn.closest("tr")?.querySelector(".sync-action")?.value ||
+			"upload";
+		const actions = { upload: [], download: [] };
+		actions[currentAction].push(path);
+		const scope = this.getScopeMeta(path);
 
-        this.runExecuteApi(actions).then(res => {
-            if (res.status === 'success') {
-                UI.showToast(`Đã ${currentAction === 'upload' ? 'đẩy' : 'kéo'} [${scope.label}] ${path} thành công (Đã tự động backup)!`, 'success');
-                const row = btn.closest('tr');
-                if (row) row.style.opacity = '0.35';
-                this.selectedPaths.delete(path);
-                const cb = row?.querySelector('.sync-cb');
-                if (cb) cb.checked = false;
-                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
-                btn.style.borderColor = 'rgba(16,185,129,0.4)';
-                this.updateExecuteBtnCount();
-            } else {
-                UI.showToast('Lỗi: ' + res.message, 'error');
-                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
-                btn.disabled = false;
-            }
-        }).catch(() => {
-            btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
-            btn.disabled = false;
-        });
-    },
+		btn.innerHTML =
+			'<span class="loader" style="width:12px; height:12px; border-width:2px; display:inline-block;"></span>';
+		btn.disabled = true;
 
-    showExecutionConfirmationModal({ envLabel, uploadCount, downloadCount, adminSelected, webSelected, otherSelected }) {
-        return new Promise(resolve => {
-            let existing = document.getElementById('sc-exec-confirm-modal');
-            if (existing) existing.remove();
+		this.runExecuteApi(actions)
+			.then((res) => {
+				if (res.status === "success") {
+					UI.showToast(
+						`Đã ${currentAction === "upload" ? "đẩy" : "kéo"} [${scope.label}] ${path} thành công (Đã tự động backup)!`,
+						"success",
+					);
+					const row = btn.closest("tr");
+					if (row) row.style.opacity = "0.35";
+					this.selectedPaths.delete(path);
+					const cb = row?.querySelector(".sync-cb");
+					if (cb) cb.checked = false;
+					btn.innerHTML =
+						'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
+					btn.style.borderColor = "rgba(16,185,129,0.4)";
+					this.updateExecuteBtnCount();
+				} else {
+					UI.showToast("Lỗi: " + res.message, "error");
+					btn.innerHTML =
+						'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+					btn.disabled = false;
+				}
+			})
+			.catch(() => {
+				btn.innerHTML =
+					'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+				btn.disabled = false;
+			});
+	},
 
-            const total = uploadCount + downloadCount;
+	showExecutionConfirmationModal({
+		envLabel,
+		uploadCount,
+		downloadCount,
+		adminSelected,
+		webSelected,
+		otherSelected,
+	}) {
+		return new Promise((resolve) => {
+			let existing = document.getElementById("sc-exec-confirm-modal");
+			if (existing) existing.remove();
 
-            const modalHtml = `
+			const total = uploadCount + downloadCount;
+
+			const modalHtml = `
                 <div class="modal-overlay" id="sc-exec-confirm-modal" style="display:flex; z-index:10050; align-items:center; justify-content:center; position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px);">
                     <div class="modal-content" style="max-width:680px; width:94%; max-height:85vh; background:#0e131d; border-radius:14px; overflow:hidden; border:1px solid rgba(0,210,211,0.3); box-shadow:0 24px 70px rgba(0,0,0,0.9); display:flex; flex-direction:column;">
                         <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; background:#141b29; border-bottom:1px solid rgba(255,255,255,0.08);">
@@ -3079,38 +3661,50 @@ const SyncCenter = {
                                 🛡️ <b>Cơ chế An toàn:</b> Hệ thống sẽ <b>tự động sao lưu (Backup snapshot)</b> các tệp đích trước khi tiến hành ghi đè. Bạn có thể khôi phục lại bất kỳ lúc nào tại tab Lịch sử Backup.
                             </div>
 
-                            ${adminSelected.length > 0 ? `
+                            ${
+								adminSelected.length > 0
+									? `
                                 <div style="margin-bottom:12px;">
                                     <div style="font-weight:700; font-size:12.5px; color:#f87171; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
                                         <span>🛡️ Tệp thuộc Admin (${adminSelected.length}):</span>
                                     </div>
                                     <div style="background:#05070a; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:8px 12px; font-family:var(--mono, monospace); font-size:11.5px; color:#cbd5e1; max-height:110px; overflow-y:auto; line-height:1.6;">
-                                        ${adminSelected.map(p => `<div>• ${this.escapeHtml(p)}</div>`).join('')}
+                                        ${adminSelected.map((p) => `<div>• ${this.escapeHtml(p)}</div>`).join("")}
                                     </div>
                                 </div>
-                            ` : ''}
+                            `
+									: ""
+							}
 
-                            ${webSelected.length > 0 ? `
+                            ${
+								webSelected.length > 0
+									? `
                                 <div style="margin-bottom:12px;">
                                     <div style="font-weight:700; font-size:12.5px; color:#38bdf8; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
                                         <span>🌐 Tệp thuộc Web / Client (${webSelected.length}):</span>
                                     </div>
                                     <div style="background:#05070a; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:8px 12px; font-family:var(--mono, monospace); font-size:11.5px; color:#cbd5e1; max-height:110px; overflow-y:auto; line-height:1.6;">
-                                        ${webSelected.map(p => `<div>• ${this.escapeHtml(p)}</div>`).join('')}
+                                        ${webSelected.map((p) => `<div>• ${this.escapeHtml(p)}</div>`).join("")}
                                     </div>
                                 </div>
-                            ` : ''}
+                            `
+									: ""
+							}
 
-                            ${otherSelected.length > 0 ? `
+                            ${
+								otherSelected.length > 0
+									? `
                                 <div style="margin-bottom:12px;">
                                     <div style="font-weight:700; font-size:12.5px; color:#c084fc; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
                                         <span>📦 Tệp Model & Khác (${otherSelected.length}):</span>
                                     </div>
                                     <div style="background:#05070a; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:8px 12px; font-family:var(--mono, monospace); font-size:11.5px; color:#cbd5e1; max-height:90px; overflow-y:auto; line-height:1.6;">
-                                        ${otherSelected.map(p => `<div>• ${this.escapeHtml(p)}</div>`).join('')}
+                                        ${otherSelected.map((p) => `<div>• ${this.escapeHtml(p)}</div>`).join("")}
                                     </div>
                                 </div>
-                            ` : ''}
+                            `
+									: ""
+							}
                         </div>
                         <div style="padding:14px 20px; background:#121722; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:flex-end; gap:10px;">
                             <button type="button" class="btn btn-ghost" id="sc-exec-modal-cancel" style="padding:8px 16px; font-size:13px; border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:#cbd5e1;">
@@ -3123,130 +3717,162 @@ const SyncCenter = {
                     </div>
                 </div>
             `;
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
+			document.body.insertAdjacentHTML("beforeend", modalHtml);
 
-            const cleanup = (confirmed) => {
-                const el = document.getElementById('sc-exec-confirm-modal');
-                if (el) el.remove();
-                resolve(confirmed);
-            };
+			const cleanup = (confirmed) => {
+				const el = document.getElementById("sc-exec-confirm-modal");
+				if (el) el.remove();
+				resolve(confirmed);
+			};
 
-            document.getElementById('sc-exec-modal-close')?.addEventListener('click', () => cleanup(false));
-            document.getElementById('sc-exec-modal-cancel')?.addEventListener('click', () => cleanup(false));
-            document.getElementById('sc-exec-modal-confirm')?.addEventListener('click', () => cleanup(true));
-        });
-    },
+			document
+				.getElementById("sc-exec-modal-close")
+				?.addEventListener("click", () => cleanup(false));
+			document
+				.getElementById("sc-exec-modal-cancel")
+				?.addEventListener("click", () => cleanup(false));
+			document
+				.getElementById("sc-exec-modal-confirm")
+				?.addEventListener("click", () => cleanup(true));
+		});
+	},
 
-    async executeAll() {
-        const envLabel = this.currentEnv === 'prod' ? 'Production' : 'Demo';
-        const visibleItems = this.getFilteredItems();
-        const visibleMap = new Map();
-        visibleItems.forEach(i => visibleMap.set(i.path, i));
+	async executeAll() {
+		const envLabel = this.currentEnv === "prod" ? "Production" : "Demo";
+		const visibleItems = this.getFilteredItems();
+		const visibleMap = new Map();
+		visibleItems.forEach((i) => visibleMap.set(i.path, i));
 
-        // CHỈ thực thi các file vừa nằm trong tab hiện tại VỪA được tích chọn
-        const selectedItems = [];
-        this.selectedPaths.forEach(p => {
-            if (visibleMap.has(p)) {
-                selectedItems.push(visibleMap.get(p));
-            }
-        });
+		// CHỈ thực thi các file vừa nằm trong tab hiện tại VỪA được tích chọn
+		const selectedItems = [];
+		this.selectedPaths.forEach((p) => {
+			if (visibleMap.has(p)) {
+				selectedItems.push(visibleMap.get(p));
+			}
+		});
 
-        if (selectedItems.length === 0) {
-            UI.showToast('Chưa chọn file nào để đồng bộ trong tab hiện tại. Vui lòng tích chọn ít nhất 1 file!', 'warning');
-            return;
-        }
+		if (selectedItems.length === 0) {
+			UI.showToast(
+				"Chưa chọn file nào để đồng bộ trong tab hiện tại. Vui lòng tích chọn ít nhất 1 file!",
+				"warning",
+			);
+			return;
+		}
 
-        // Rebuild actions chỉ cho các file selectedItems hợp lệ trong tab
-        let actions = { upload: [], download: [] };
-        const adminSelected = [];
-        const webSelected = [];
-        const otherSelected = [];
+		// Rebuild actions chỉ cho các file selectedItems hợp lệ trong tab
+		let actions = { upload: [], download: [] };
+		const adminSelected = [];
+		const webSelected = [];
+		const otherSelected = [];
 
-        selectedItems.forEach(it => {
-            const p = it.path;
-            const act = this.customActions.get(p) || it.defaultAction;
-            if (actions[act]) actions[act].push(p);
+		selectedItems.forEach((it) => {
+			const p = it.path;
+			const act = this.customActions.get(p) || it.defaultAction;
+			if (actions[act]) actions[act].push(p);
 
-            const scopeKey = this.getScopeMeta(p).key;
-            if (scopeKey === 'admin') adminSelected.push(p);
-            else if (scopeKey === 'web') webSelected.push(p);
-            else otherSelected.push(p);
-        });
+			const scopeKey = this.getScopeMeta(p).key;
+			if (scopeKey === "admin") adminSelected.push(p);
+			else if (scopeKey === "web") webSelected.push(p);
+			else otherSelected.push(p);
+		});
 
-        const totalSelected = actions.upload.length + actions.download.length;
-        if (totalSelected === 0) {
-            UI.showToast('Chưa chọn file nào để đồng bộ', 'warning');
-            return;
-        }
+		const totalSelected = actions.upload.length + actions.download.length;
+		if (totalSelected === 0) {
+			UI.showToast("Chưa chọn file nào để đồng bộ", "warning");
+			return;
+		}
 
-        // 2. High-clarity Confirmation Modal
-        const confirmed = await this.showExecutionConfirmationModal({
-            envLabel,
-            uploadCount: actions.upload.length,
-            downloadCount: actions.download.length,
-            adminSelected,
-            webSelected,
-            otherSelected
-        });
-        if (!confirmed) return;
+		// 2. High-clarity Confirmation Modal
+		const confirmed = await this.showExecutionConfirmationModal({
+			envLabel,
+			uploadCount: actions.upload.length,
+			downloadCount: actions.download.length,
+			adminSelected,
+			webSelected,
+			otherSelected,
+		});
+		if (!confirmed) return;
 
-        UI.showLoading('Đang đồng bộ các file & tạo bản sao lưu an toàn...');
+		UI.showLoading("Đang đồng bộ các file & tạo bản sao lưu an toàn...");
 
-        const btnText = document.getElementById('sc-btn-execute-text');
-        const oldText = btnText ? btnText.innerText : 'THỰC THI';
-        if (btnText) btnText.innerHTML = '<span class="loader" style="width:12px; height:12px; border-width:2px; display:inline-block; margin-right:6px;"></span> ĐANG ĐỒNG BỘ...';
+		const btnText = document.getElementById("sc-btn-execute-text");
+		const oldText = btnText ? btnText.innerText : "THỰC THI";
+		if (btnText)
+			btnText.innerHTML =
+				'<span class="loader" style="width:12px; height:12px; border-width:2px; display:inline-block; margin-right:6px;"></span> ĐANG ĐỒNG BỘ...';
 
-        this.runExecuteApi(actions).then(res => {
-            UI.hideLoading();
-            if (res.status === 'success') {
-                const results = res.results || [];
-                const errors = results.filter(r => r.status === 'error');
-                if (errors.length > 0) {
-                    UI.showToast(`Đã đồng bộ ${results.length - errors.length}/${results.length} files (Đã xoá sạch cache compiled). Có ${errors.length} file bị lỗi!`, 'warning');
-                } else {
-                    UI.showToast(`Đồng bộ thành công ${results.length} files & đã xoá sạch cache compiled!`, 'success');
-                }
-                this.scan(); // Rescan to refresh differences
-            } else {
-                UI.showToast('Lỗi đồng bộ: ' + res.message, 'error');
-                if (btnText) btnText.innerText = oldText;
-            }
-        }).catch(err => {
-            UI.hideLoading();
-            UI.showToast('Lỗi kết nối khi đồng bộ', 'error');
-            if (btnText) btnText.innerText = oldText;
-        });
-    },
+		this.runExecuteApi(actions)
+			.then((res) => {
+				UI.hideLoading();
+				if (res.status === "success") {
+					const results = res.results || [];
+					const errors = results.filter((r) => r.status === "error");
+					if (errors.length > 0) {
+						UI.showToast(
+							`Đã đồng bộ ${results.length - errors.length}/${results.length} files (Đã xoá sạch cache compiled). Có ${errors.length} file bị lỗi!`,
+							"warning",
+						);
+					} else {
+						UI.showToast(
+							`Đồng bộ thành công ${results.length} files & đã xoá sạch cache compiled!`,
+							"success",
+						);
+					}
+					this.scan(); // Rescan to refresh differences
+				} else {
+					UI.showToast("Lỗi đồng bộ: " + res.message, "error");
+					if (btnText) btnText.innerText = oldText;
+				}
+			})
+			.catch((err) => {
+				UI.hideLoading();
+				UI.showToast("Lỗi kết nối khi đồng bộ", "error");
+				if (btnText) btnText.innerText = oldText;
+			});
+	},
 
-    runExecuteApi(actions) {
-        const projectName = document.getElementById('detail-project-name')?.innerText;
-        return fetch('api.php?action=fmSyncCenterExecute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: projectName,
-                category: App.currentCategory,
-                env: this.currentEnv,
-                include_cleardata: this.includeClearData,
-                actions: actions
-            })
-        }).then(r => r.json());
-    },
+	runExecuteApi(actions) {
+		const projectName = document.getElementById(
+			"detail-project-name",
+		)?.innerText;
+		return fetch("api.php?action=fmSyncCenterExecute", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: projectName,
+				category: App.currentCategory,
+				env: this.currentEnv,
+				include_cleardata: this.includeClearData,
+				actions: actions,
+			}),
+		}).then((r) => r.json());
+	},
 
-    previewDbSql(direction) {
-        if (!this.lastData || !this.lastData.db_diff) return;
-        const dbDiff = this.lastData.db_diff;
-        const stmts = direction === 'upload' ? (dbDiff.upload_statements || []) : (dbDiff.download_statements || []);
-        const envLabel = this.currentEnv === 'prod' ? 'Production' : 'Demo';
-        const title = direction === 'upload' ? `Xem trước SQL DDL (Local ➔ ${envLabel})` : `Xem trước SQL DDL (${envLabel} ➔ Local)`;
-        const targetLabel = direction === 'upload' ? (this.currentEnv === 'prod' ? 'Production Hosting' : 'Demo Hosting') : 'Local Workspace';
+	previewDbSql(direction) {
+		if (!this.lastData || !this.lastData.db_diff) return;
+		const dbDiff = this.lastData.db_diff;
+		const stmts =
+			direction === "upload"
+				? dbDiff.upload_statements || []
+				: dbDiff.download_statements || [];
+		const envLabel = this.currentEnv === "prod" ? "Production" : "Demo";
+		const title =
+			direction === "upload"
+				? `Xem trước SQL DDL (Local ➔ ${envLabel})`
+				: `Xem trước SQL DDL (${envLabel} ➔ Local)`;
+		const targetLabel =
+			direction === "upload"
+				? this.currentEnv === "prod"
+					? "Production Hosting"
+					: "Demo Hosting"
+				: "Local Workspace";
 
-        let existing = document.getElementById('sc-db-preview-modal');
-        if (existing) existing.remove();
+		let existing = document.getElementById("sc-db-preview-modal");
+		if (existing) existing.remove();
 
-        const sqlText = stmts.join('\n\n');
+		const sqlText = stmts.join("\n\n");
 
-        const modalHtml = `
+		const modalHtml = `
             <div class="modal-overlay" id="sc-db-preview-modal" style="display:flex; z-index:10050; align-items:center; justify-content:center; position:fixed; inset:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px);">
                 <div class="modal-content" style="max-width:760px; width:92%; max-height:85vh; background:#0f141c; border-radius:14px; overflow:hidden; border:1px solid rgba(255,255,255,0.14); box-shadow:0 24px 70px rgba(0,0,0,0.9); display:flex; flex-direction:column;">
                     <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; background:#161c28; border-bottom:1px solid rgba(255,255,255,0.08);">
@@ -3263,7 +3889,7 @@ const SyncCenter = {
                         <div style="background:rgba(16,185,129,0.08); border-left:3px solid #10b981; border-radius:4px; padding:10px 14px; margin-bottom:14px; font-size:12.5px; color:#6ee7b7;">
                             🛡️ <b>Cơ chế An toàn:</b> Hệ thống sẽ <b>tự động sao lưu toàn bộ Database ${this.escapeHtml(targetLabel)}</b> thành tệp <code>.sql</code> trước khi chạy các câu lệnh bên dưới. Nếu sao lưu thất bại, hệ thống sẽ dừng ngay lập tức để bảo vệ dữ liệu.
                         </div>
-                        <pre style="margin:0; padding:14px; background:#05070a; border:1px solid rgba(255,255,255,0.08); border-radius:8px; color:#e2e8f0; font-family:var(--mono, monospace); font-size:12.5px; line-height:1.6; white-space:pre-wrap; word-break:break-all; max-height:400px; overflow-y:auto;">${this.escapeHtml(sqlText || '-- Không có câu lệnh nào')}</pre>
+                        <pre style="margin:0; padding:14px; background:#05070a; border:1px solid rgba(255,255,255,0.08); border-radius:8px; color:#e2e8f0; font-family:var(--mono, monospace); font-size:12.5px; line-height:1.6; white-space:pre-wrap; word-break:break-all; max-height:400px; overflow-y:auto;">${this.escapeHtml(sqlText || "-- Không có câu lệnh nào")}</pre>
                     </div>
                     <div style="padding:14px 20px; background:#141923; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; gap:10px;">
                         <span style="font-size:12px; color:#94a3b8;">Chỉ đồng bộ DDL (CREATE TABLE / ALTER TABLE) • Không đè Data</span>
@@ -3279,178 +3905,234 @@ const SyncCenter = {
                 </div>
             </div>
         `;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-    },
+		document.body.insertAdjacentHTML("beforeend", modalHtml);
+	},
 
-    async executeDbSync(direction) {
-        if (!this.lastData || !this.lastData.db_diff) return;
-        const dbDiff = this.lastData.db_diff;
-        const stmts = direction === 'upload' ? (dbDiff.upload_statements || []) : (dbDiff.download_statements || []);
-        if (stmts.length === 0) {
-            UI.showToast('Không có thay đổi cấu trúc nào cần đồng bộ.', 'info');
-            return;
-        }
+	async executeDbSync(direction) {
+		if (!this.lastData || !this.lastData.db_diff) return;
+		const dbDiff = this.lastData.db_diff;
+		const stmts =
+			direction === "upload"
+				? dbDiff.upload_statements || []
+				: dbDiff.download_statements || [];
+		if (stmts.length === 0) {
+			UI.showToast("Không có thay đổi cấu trúc nào cần đồng bộ.", "info");
+			return;
+		}
 
-        const envLabel = this.currentEnv === 'prod' ? 'Production' : 'Demo';
-        const targetLabel = direction === 'upload' ? (this.currentEnv === 'prod' ? 'Production Hosting' : 'Demo Hosting') : 'Local Workspace';
-        const projectName = document.getElementById('detail-project-name')?.innerText;
-        if (!projectName) return;
+		const envLabel = this.currentEnv === "prod" ? "Production" : "Demo";
+		const targetLabel =
+			direction === "upload"
+				? this.currentEnv === "prod"
+					? "Production Hosting"
+					: "Demo Hosting"
+				: "Local Workspace";
+		const projectName = document.getElementById(
+			"detail-project-name",
+		)?.innerText;
+		if (!projectName) return;
 
-        const confirmed = await UI.confirm(
-            `Xác nhận đồng bộ cấu trúc SQL (${stmts.length} câu lệnh DDL) sang ${targetLabel}?`
-        );
-        if (!confirmed) return;
+		const confirmed = await UI.confirm(
+			`Xác nhận đồng bộ cấu trúc SQL (${stmts.length} câu lệnh DDL) sang ${targetLabel}?`,
+		);
+		if (!confirmed) return;
 
-        UI.showLoading(`Đang sao lưu Database & đồng bộ cấu trúc SQL sang ${targetLabel}...`);
+		UI.showLoading(
+			`Đang sao lưu Database & đồng bộ cấu trúc SQL sang ${targetLabel}...`,
+		);
 
-        fetch('api.php?action=fmSyncCenterExecuteDb', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: projectName,
-                category: App.currentCategory,
-                env: this.currentEnv,
-                direction: direction,
-                queries: stmts
-            })
-        })
-        .then(r => r.json())
-        .then(res => {
-            UI.hideLoading();
-            if (res.status === 'success') {
-                const backupInfo = res.backup_file ? `\n(Đã tạo bản backup: ${res.backup_file})` : '';
-                UI.showToast(`Đồng bộ cấu trúc SQL thành công! ${backupInfo}`, 'success');
-                this.scan(); // Quét lại để cập nhật trạng thái schema
-            } else {
-                UI.showToast('Lỗi đồng bộ cấu trúc: ' + (res.message || 'Thao tác bị hủy bỏ để bảo vệ an toàn dữ liệu'), 'error');
-            }
-        })
-        .catch(err => {
-            UI.hideLoading();
-            UI.showToast('Lỗi kết nối khi đồng bộ cấu trúc Database', 'error');
-        });
-    },
+		fetch("api.php?action=fmSyncCenterExecuteDb", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: projectName,
+				category: App.currentCategory,
+				env: this.currentEnv,
+				direction: direction,
+				queries: stmts,
+			}),
+		})
+			.then((r) => r.json())
+			.then((res) => {
+				UI.hideLoading();
+				if (res.status === "success") {
+					const backupInfo = res.backup_file
+						? `\n(Đã tạo bản backup: ${res.backup_file})`
+						: "";
+					UI.showToast(
+						`Đồng bộ cấu trúc SQL thành công! ${backupInfo}`,
+						"success",
+					);
+					this.scan(); // Quét lại để cập nhật trạng thái schema
+				} else {
+					UI.showToast(
+						"Lỗi đồng bộ cấu trúc: " +
+							(res.message ||
+								"Thao tác bị hủy bỏ để bảo vệ an toàn dữ liệu"),
+						"error",
+					);
+				}
+			})
+			.catch((err) => {
+				UI.hideLoading();
+				UI.showToast(
+					"Lỗi kết nối khi đồng bộ cấu trúc Database",
+					"error",
+				);
+			});
+	},
 
-    // ==========================================
-    // DIFF VIEWER & COMPARISON ENGINE
-    // ==========================================
-    diffMode: 'sideBySide', // 'sideBySide' or 'unified'
-    currentDiffData: null,
+	// ==========================================
+	// DIFF VIEWER & COMPARISON ENGINE
+	// ==========================================
+	diffMode: "sideBySide", // 'sideBySide' or 'unified'
+	currentDiffData: null,
 
-    openDiff(path) {
-        const projectName = document.getElementById('detail-project-name')?.innerText;
-        if (!projectName) return;
+	openDiff(path) {
+		const projectName = document.getElementById(
+			"detail-project-name",
+		)?.innerText;
+		if (!projectName) return;
 
-        UI.showLoading('Đang phân tích & so sánh nội dung file...');
+		UI.showLoading("Đang phân tích & so sánh nội dung file...");
 
-        fetch(`api.php?action=fmGetDiff&name=${encodeURIComponent(projectName)}&category=${encodeURIComponent(App.currentCategory)}&path=${encodeURIComponent(path)}&env=${encodeURIComponent(this.currentEnv)}`)
-            .then(r => r.json())
-            .then(res => {
-                UI.hideLoading();
-                if (res.status !== 'success') {
-                    UI.showToast('Không thể đọc file để so sánh: ' + (res.message || 'Lỗi server'), 'error');
-                    return;
-                }
-                this.currentDiffData = res;
-                this.renderDiffModal(res);
-            })
-            .catch(err => {
-                UI.hideLoading();
-                UI.showToast('Lỗi kết nối khi tải diff', 'error');
-            });
-    },
+		fetch(
+			`api.php?action=fmGetDiff&name=${encodeURIComponent(projectName)}&category=${encodeURIComponent(App.currentCategory)}&path=${encodeURIComponent(path)}&env=${encodeURIComponent(this.currentEnv)}`,
+		)
+			.then((r) => r.json())
+			.then((res) => {
+				UI.hideLoading();
+				if (res.status !== "success") {
+					UI.showToast(
+						"Không thể đọc file để so sánh: " +
+							(res.message || "Lỗi server"),
+						"error",
+					);
+					return;
+				}
+				this.currentDiffData = res;
+				this.renderDiffModal(res);
+			})
+			.catch((err) => {
+				UI.hideLoading();
+				UI.showToast("Lỗi kết nối khi tải diff", "error");
+			});
+	},
 
-    closeDiffModal() {
-        const modal = document.getElementById('sc-diff-modal-container');
-        if (modal) modal.remove();
-        this.currentDiffData = null;
-    },
+	closeDiffModal() {
+		const modal = document.getElementById("sc-diff-modal-container");
+		if (modal) modal.remove();
+		this.currentDiffData = null;
+	},
 
-    setDiffViewMode(mode) {
-        this.diffMode = mode;
-        if (this.currentDiffData) {
-            this.renderDiffModal(this.currentDiffData);
-        }
-    },
+	setDiffViewMode(mode) {
+		this.diffMode = mode;
+		if (this.currentDiffData) {
+			this.renderDiffModal(this.currentDiffData);
+		}
+	},
 
-    computeLineDiff(oldStr, newStr) {
-        const oldLines = (oldStr || '').split('\n');
-        const newLines = (newStr || '').split('\n');
+	computeLineDiff(oldStr, newStr) {
+		const oldLines = (oldStr || "").split("\n");
+		const newLines = (newStr || "").split("\n");
 
-        // Simple LCS Diff Algorithm
-        const n = oldLines.length;
-        const m = newLines.length;
-        
-        // Matrix for LCS length
-        const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
-        for (let i = 0; i < n; i++) {
-            for (let j = 0; j < m; j++) {
-                if (oldLines[i] === newLines[j]) {
-                    dp[i + 1][j + 1] = dp[i][j] + 1;
-                } else {
-                    dp[i + 1][j + 1] = Math.max(dp[i + 1][j], dp[i][j + 1]);
-                }
-            }
-        }
+		// Simple LCS Diff Algorithm
+		const n = oldLines.length;
+		const m = newLines.length;
 
-        // Backtrack to get diff operations
-        let i = n, j = m;
-        const diff = [];
-        while (i > 0 || j > 0) {
-            if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
-                diff.push({ type: 'equal', oldLine: oldLines[i - 1], newLine: newLines[j - 1], oldNum: i, newNum: j });
-                i--; j--;
-            } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-                diff.push({ type: 'insert', oldLine: '', newLine: newLines[j - 1], oldNum: null, newNum: j });
-                j--;
-            } else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
-                diff.push({ type: 'delete', oldLine: oldLines[i - 1], newLine: '', oldNum: i, newNum: null });
-                i--;
-            }
-        }
+		// Matrix for LCS length
+		const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+		for (let i = 0; i < n; i++) {
+			for (let j = 0; j < m; j++) {
+				if (oldLines[i] === newLines[j]) {
+					dp[i + 1][j + 1] = dp[i][j] + 1;
+				} else {
+					dp[i + 1][j + 1] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+				}
+			}
+		}
 
-        return diff.reverse();
-    },
+		// Backtrack to get diff operations
+		let i = n,
+			j = m;
+		const diff = [];
+		while (i > 0 || j > 0) {
+			if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+				diff.push({
+					type: "equal",
+					oldLine: oldLines[i - 1],
+					newLine: newLines[j - 1],
+					oldNum: i,
+					newNum: j,
+				});
+				i--;
+				j--;
+			} else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+				diff.push({
+					type: "insert",
+					oldLine: "",
+					newLine: newLines[j - 1],
+					oldNum: null,
+					newNum: j,
+				});
+				j--;
+			} else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
+				diff.push({
+					type: "delete",
+					oldLine: oldLines[i - 1],
+					newLine: "",
+					oldNum: i,
+					newNum: null,
+				});
+				i--;
+			}
+		}
 
-    renderDiffModal(data) {
-        let existing = document.getElementById('sc-diff-modal-container');
-        if (existing) existing.remove();
+		return diff.reverse();
+	},
 
-        const path = data.path;
-        const local = data.local;
-        const remote = data.remote;
-        const envLabel = this.currentEnv === 'prod' ? 'Production' : 'Demo';
-        const remoteColor = this.currentEnv === 'prod' ? '#fbbf24' : '#c084fc';
-        const remoteIcon = this.currentEnv === 'prod' ? '🚀' : '☁️';
+	renderDiffModal(data) {
+		let existing = document.getElementById("sc-diff-modal-container");
+		if (existing) existing.remove();
 
-        const isLocalExists = local && local.exists;
-        const isRemoteExists = remote && remote.exists;
+		const path = data.path;
+		const local = data.local;
+		const remote = data.remote;
+		const envLabel = this.currentEnv === "prod" ? "Production" : "Demo";
+		const remoteColor = this.currentEnv === "prod" ? "#fbbf24" : "#c084fc";
+		const remoteIcon = this.currentEnv === "prod" ? "🚀" : "☁️";
 
-        const localContent = isLocalExists ? local.content : '';
-        const remoteContent = isRemoteExists ? remote.content : '';
+		const isLocalExists = local && local.exists;
+		const isRemoteExists = remote && remote.exists;
 
-        // Calculate diff: Local as old (left), Remote as new (right)
-        const diffLines = this.computeLineDiff(localContent, remoteContent);
-        const countAdded = diffLines.filter(l => l.type === 'insert').length;
-        const countDeleted = diffLines.filter(l => l.type === 'delete').length;
+		const localContent = isLocalExists ? local.content : "";
+		const remoteContent = isRemoteExists ? remote.content : "";
 
-        const modal = document.createElement('div');
-        modal.id = 'sc-diff-modal-container';
-        modal.className = 'sc-diff-overlay';
-        modal.onclick = (e) => {
-            if (e.target === modal) SyncCenter.closeDiffModal();
-        };
+		// Calculate diff: Local as old (left), Remote as new (right)
+		const diffLines = this.computeLineDiff(localContent, remoteContent);
+		const countAdded = diffLines.filter((l) => l.type === "insert").length;
+		const countDeleted = diffLines.filter(
+			(l) => l.type === "delete",
+		).length;
 
-        let diffBodyHtml = '';
+		const modal = document.createElement("div");
+		modal.id = "sc-diff-modal-container";
+		modal.className = "sc-diff-overlay";
+		modal.onclick = (e) => {
+			if (e.target === modal) SyncCenter.closeDiffModal();
+		};
 
-        if (!isLocalExists && !isRemoteExists) {
-            diffBodyHtml = '<div style="padding:40px; text-align:center; color:#f87171;">File không tồn tại ở cả 2 môi trường.</div>';
-        } else if (this.diffMode === 'sideBySide') {
-            // Side by side rendering
-            let rowsHtml = '';
-            diffLines.forEach(item => {
-                if (item.type === 'equal') {
-                    rowsHtml += `
+		let diffBodyHtml = "";
+
+		if (!isLocalExists && !isRemoteExists) {
+			diffBodyHtml =
+				'<div style="padding:40px; text-align:center; color:#f87171;">File không tồn tại ở cả 2 môi trường.</div>';
+		} else if (this.diffMode === "sideBySide") {
+			// Side by side rendering
+			let rowsHtml = "";
+			diffLines.forEach((item) => {
+				if (item.type === "equal") {
+					rowsHtml += `
                         <tr>
                             <td>
                                 <div class="diff-cell-inner">
@@ -3468,8 +4150,8 @@ const SyncCenter = {
                             </td>
                         </tr>
                     `;
-                } else if (item.type === 'delete') {
-                    rowsHtml += `
+				} else if (item.type === "delete") {
+					rowsHtml += `
                         <tr>
                             <td>
                                 <div class="diff-cell-inner diff-del">
@@ -3487,8 +4169,8 @@ const SyncCenter = {
                             </td>
                         </tr>
                     `;
-                } else if (item.type === 'insert') {
-                    rowsHtml += `
+				} else if (item.type === "insert") {
+					rowsHtml += `
                         <tr>
                             <td style="background:rgba(255,255,255,0.01);">
                                 <div class="diff-cell-inner">
@@ -3506,10 +4188,10 @@ const SyncCenter = {
                             </td>
                         </tr>
                     `;
-                }
-            });
+				}
+			});
 
-            diffBodyHtml = `
+			diffBodyHtml = `
                 <table class="diff-split-table">
                     <thead style="background:#0d121d; position:sticky; top:0; z-index:10; border-bottom:1px solid rgba(255,255,255,0.08);">
                         <tr>
@@ -3524,21 +4206,21 @@ const SyncCenter = {
                     <tbody>${rowsHtml}</tbody>
                 </table>
             `;
-        } else {
-            // Unified rendering
-            let linesHtml = '';
-            diffLines.forEach(item => {
-                if (item.type === 'equal') {
-                    linesHtml += `
+		} else {
+			// Unified rendering
+			let linesHtml = "";
+			diffLines.forEach((item) => {
+				if (item.type === "equal") {
+					linesHtml += `
                         <div class="diff-line">
-                            <span class="diff-num">${item.oldNum || ''}</span>
-                            <span class="diff-num">${item.newNum || ''}</span>
+                            <span class="diff-num">${item.oldNum || ""}</span>
+                            <span class="diff-num">${item.newNum || ""}</span>
                             <span class="diff-gutter-sym" style="color:#475569;"> </span>
                             <span class="diff-text">${this.escapeHtml(item.oldLine || item.newLine)}</span>
                         </div>
                     `;
-                } else if (item.type === 'delete') {
-                    linesHtml += `
+				} else if (item.type === "delete") {
+					linesHtml += `
                         <div class="diff-line diff-del">
                             <span class="diff-num">${item.oldNum}</span>
                             <span class="diff-num" style="opacity:0.3;"> </span>
@@ -3546,8 +4228,8 @@ const SyncCenter = {
                             <span class="diff-text">${this.escapeHtml(item.oldLine)}</span>
                         </div>
                     `;
-                } else if (item.type === 'insert') {
-                    linesHtml += `
+				} else if (item.type === "insert") {
+					linesHtml += `
                         <div class="diff-line diff-add">
                             <span class="diff-num" style="opacity:0.3;"> </span>
                             <span class="diff-num">${item.newNum}</span>
@@ -3555,19 +4237,19 @@ const SyncCenter = {
                             <span class="diff-text">${this.escapeHtml(item.newLine)}</span>
                         </div>
                     `;
-                }
-            });
+				}
+			});
 
-            diffBodyHtml = `
+			diffBodyHtml = `
                 <div style="background:#0d121d; position:sticky; top:0; z-index:10; border-bottom:1px solid rgba(255,255,255,0.08); padding:8px 14px; font-size:12px; font-weight:700; display:flex; gap:20px;">
-                    <span style="color:#34d399;">💻 Local: ${isLocalExists ? this.formatBytes(local.size) : 'Chưa có'}</span>
-                    <span style="color:${remoteColor};">${remoteIcon} ${envLabel}: ${isRemoteExists ? this.formatBytes(remote.size) : 'Chưa có'}</span>
+                    <span style="color:#34d399;">💻 Local: ${isLocalExists ? this.formatBytes(local.size) : "Chưa có"}</span>
+                    <span style="color:${remoteColor};">${remoteIcon} ${envLabel}: ${isRemoteExists ? this.formatBytes(remote.size) : "Chưa có"}</span>
                 </div>
                 <div>${linesHtml}</div>
             `;
-        }
+		}
 
-        modal.innerHTML = `
+		modal.innerHTML = `
             <div class="sc-diff-dialog">
                 <!-- Header -->
                 <div class="sc-diff-header">
@@ -3593,10 +4275,10 @@ const SyncCenter = {
                     <div style="display:flex; align-items:center; gap:8px;">
                         <!-- Mode Toggle -->
                         <div style="display:flex; background:rgba(255,255,255,0.06); padding:3px; border-radius:8px; border:1px solid rgba(255,255,255,0.1);">
-                            <button style="padding:4px 10px; border-radius:6px; font-size:11.5px; font-weight:700; border:none; cursor:pointer; background:${this.diffMode === 'sideBySide' ? 'var(--primary, #00d2d3)' : 'transparent'}; color:${this.diffMode === 'sideBySide' ? '#000' : '#94a3b8'}; transition:all 0.15s;" onclick="SyncCenter.setDiffViewMode('sideBySide')">
+                            <button style="padding:4px 10px; border-radius:6px; font-size:11.5px; font-weight:700; border:none; cursor:pointer; background:${this.diffMode === "sideBySide" ? "var(--primary, #00d2d3)" : "transparent"}; color:${this.diffMode === "sideBySide" ? "#000" : "#94a3b8"}; transition:all 0.15s;" onclick="SyncCenter.setDiffViewMode('sideBySide')">
                                 Song song (Split)
                             </button>
-                            <button style="padding:4px 10px; border-radius:6px; font-size:11.5px; font-weight:700; border:none; cursor:pointer; background:${this.diffMode === 'unified' ? 'var(--primary, #00d2d3)' : 'transparent'}; color:${this.diffMode === 'unified' ? '#000' : '#94a3b8'}; transition:all 0.15s;" onclick="SyncCenter.setDiffViewMode('unified')">
+                            <button style="padding:4px 10px; border-radius:6px; font-size:11.5px; font-weight:700; border:none; cursor:pointer; background:${this.diffMode === "unified" ? "var(--primary, #00d2d3)" : "transparent"}; color:${this.diffMode === "unified" ? "#000" : "#94a3b8"}; transition:all 0.15s;" onclick="SyncCenter.setDiffViewMode('unified')">
                                 Gộp dòng (Unified)
                             </button>
                         </div>
@@ -3631,136 +4313,179 @@ const SyncCenter = {
             </div>
         `;
 
-        document.body.appendChild(modal);
-    },
+		document.body.appendChild(modal);
+	},
 
-    async executeSingleDiff(path, action) {
-        const envLabel = this.currentEnv === 'prod' ? 'Production' : 'Demo';
-        if (!await UI.confirm(`Xác nhận ${action === 'upload' ? `đẩy bản Local lên ghi đè ${envLabel}` : `kéo bản ${envLabel} về ghi đè Local`}?\n\n🛡️ Bản cũ sẽ được tự động backup an toàn.`)) return;
+	async executeSingleDiff(path, action) {
+		const envLabel = this.currentEnv === "prod" ? "Production" : "Demo";
+		if (
+			!(await UI.confirm(
+				`Xác nhận ${action === "upload" ? `đẩy bản Local lên ghi đè ${envLabel}` : `kéo bản ${envLabel} về ghi đè Local`}?\n\n🛡️ Bản cũ sẽ được tự động backup an toàn.`,
+			))
+		)
+			return;
 
-        const actions = { upload: [], download: [] };
-        actions[action].push(path);
+		const actions = { upload: [], download: [] };
+		actions[action].push(path);
 
-        UI.showLoading(`Đang ${action === 'upload' ? 'đẩy' : 'kéo'} file & tạo bản sao lưu...`);
+		UI.showLoading(
+			`Đang ${action === "upload" ? "đẩy" : "kéo"} file & tạo bản sao lưu...`,
+		);
 
-        this.runExecuteApi(actions).then(res => {
-            UI.hideLoading();
-            if (res.status === 'success') {
-                UI.showToast(`Đã ${action === 'upload' ? 'đẩy' : 'kéo'} file thành công & đã xoá sạch cache compiled!`, 'success');
-                this.closeDiffModal();
-                this.scan(); // Refresh differences
-            } else {
-                UI.showToast('Lỗi đồng bộ: ' + res.message, 'error');
-            }
-        }).catch(err => {
-            UI.hideLoading();
-            UI.showToast('Lỗi kết nối khi đồng bộ', 'error');
-        });
-    },
+		this.runExecuteApi(actions)
+			.then((res) => {
+				UI.hideLoading();
+				if (res.status === "success") {
+					UI.showToast(
+						`Đã ${action === "upload" ? "đẩy" : "kéo"} file thành công & đã xoá sạch cache compiled!`,
+						"success",
+					);
+					this.closeDiffModal();
+					this.scan(); // Refresh differences
+				} else {
+					UI.showToast("Lỗi đồng bộ: " + res.message, "error");
+				}
+			})
+			.catch((err) => {
+				UI.hideLoading();
+				UI.showToast("Lỗi kết nối khi đồng bộ", "error");
+			});
+	},
 
-    // ==========================================
-    // BACKUP & RESTORE HISTORY MANAGEMENT
-    // ==========================================
-    cachedBackups: [],
-    backupFilter: 'all',
-    backupEnvFilter: 'all',
-    backupSearch: '',
+	// ==========================================
+	// BACKUP & RESTORE HISTORY MANAGEMENT
+	// ==========================================
+	cachedBackups: [],
+	backupFilter: "all",
+	backupEnvFilter: "all",
+	backupSearch: "",
 
-    openBackupHistory() {
-        const sideTab = document.getElementById('side-tab-backups');
-        if (sideTab) {
-            UI.switchProjectTab(sideTab, 'd_tab-backups');
-        } else {
-            this.openBackupHistoryTab();
-        }
-    },
+	openBackupHistory() {
+		const sideTab =
+			document.getElementById("side-tab-backups") ||
+			document.querySelector('[data-tab="d_tab-backups"]');
+		UI.switchProjectTab(sideTab, "d_tab-backups");
+	},
 
-    openBackupHistoryTab() {
-        const projectName = document.getElementById('detail-project-name')?.innerText?.trim() || (App.currentProject ? App.currentProject.name : '');
-        if (!projectName) {
-            UI.showToast('Vui lòng chọn dự án trước khi xem lịch sử backup!', 'warning');
-            return;
-        }
+	openBackupHistoryTab() {
+		const projectName =
+			document.getElementById("detail-project-name")?.innerText?.trim() ||
+			(App.currentProject ? App.currentProject.name : "");
+		if (!projectName) {
+			UI.showToast(
+				"Vui lòng chọn dự án trước khi xem lịch sử backup!",
+				"warning",
+			);
+			return;
+		}
 
-        UI.showLoading('Đang tải danh sách bản sao lưu...');
+		UI.showLoading("Đang tải danh sách bản sao lưu...");
 
-        const envParam = this.backupEnvFilter || 'all';
-        fetch(`api.php?action=fmListBackups&name=${encodeURIComponent(projectName)}&category=${encodeURIComponent(App.currentCategory || 'projects')}&env=${encodeURIComponent(envParam)}`)
-            .then(r => r.json())
-            .then(res => {
-                UI.hideLoading();
-                if (res.status !== 'success') {
-                    UI.showToast('Không thể tải lịch sử backup: ' + (res.message || 'Lỗi server'), 'error');
-                    return;
-                }
-                this.cachedBackups = res.backups || [];
-                this.renderBackupHistoryTab();
-            })
-            .catch(() => {
-                UI.hideLoading();
-                UI.showToast('Lỗi kết nối khi lấy lịch sử backup', 'error');
-            });
-    },
+		const envParam = this.backupEnvFilter || "all";
+		fetch(
+			`api.php?action=fmListBackups&name=${encodeURIComponent(projectName)}&category=${encodeURIComponent(App.currentCategory || "projects")}&env=${encodeURIComponent(envParam)}`,
+		)
+			.then((r) => r.json())
+			.then((res) => {
+				UI.hideLoading();
+				if (res.status !== "success") {
+					UI.showToast(
+						"Không thể tải lịch sử backup: " +
+							(res.message || "Lỗi server"),
+						"error",
+					);
+					return;
+				}
+				this.cachedBackups = res.backups || [];
+				this.renderBackupHistoryTab();
+			})
+			.catch(() => {
+				UI.hideLoading();
+				UI.showToast("Lỗi kết nối khi lấy lịch sử backup", "error");
+			});
+	},
 
-    setBackupFilter(type) {
-        this.backupFilter = type;
-        document.querySelectorAll('#d_tab-backups .sc-pill-type, #sc-backup-tab-main .sc-pill-type').forEach(btn => btn.classList.remove('active'));
-        const targetBtn = document.getElementById(`sc-bk-pill-${type}`);
-        if (targetBtn) {
-            targetBtn.classList.add('active');
-        }
-        this.renderBackupList();
-    },
+	setBackupFilter(type) {
+		this.backupFilter = type;
+		document
+			.querySelectorAll(
+				"#d_tab-backups .sc-pill-type, #sc-backup-tab-main .sc-pill-type",
+			)
+			.forEach((btn) => btn.classList.remove("active"));
+		const targetBtn = document.getElementById(`sc-bk-pill-${type}`);
+		if (targetBtn) {
+			targetBtn.classList.add("active");
+		}
+		this.renderBackupList();
+	},
 
-    setBackupEnvFilter(env) {
-        this.backupEnvFilter = env;
-        this.openBackupHistoryTab();
-    },
+	setBackupEnvFilter(env) {
+		this.backupEnvFilter = env;
+		this.openBackupHistoryTab();
+	},
 
-    setBackupSearch(query) {
-        this.backupSearch = (query || '').toLowerCase().trim();
-        this.renderBackupList();
-    },
+	setBackupSearch(query) {
+		this.backupSearch = (query || "").toLowerCase().trim();
+		this.renderBackupList();
+	},
 
-    getFilteredBackups() {
-        let list = this.cachedBackups;
-        if (this.backupEnvFilter && this.backupEnvFilter !== 'all') {
-            list = list.filter(b => (b.env || 'demo') === this.backupEnvFilter);
-        }
-        if (this.backupFilter !== 'all') {
-            list = list.filter(b => b.type === this.backupFilter);
-        }
-        if (this.backupSearch) {
-            list = list.filter(b => (b.original_rel_path || '').toLowerCase().includes(this.backupSearch) || (b.date || '').includes(this.backupSearch));
-        }
-        return list;
-    },
+	getFilteredBackups() {
+		let list = this.cachedBackups;
+		if (this.backupEnvFilter && this.backupEnvFilter !== "all") {
+			list = list.filter(
+				(b) => (b.env || "demo") === this.backupEnvFilter,
+			);
+		}
+		if (this.backupFilter !== "all") {
+			list = list.filter((b) => b.type === this.backupFilter);
+		}
+		if (this.backupSearch) {
+			list = list.filter(
+				(b) =>
+					(b.original_rel_path || "")
+						.toLowerCase()
+						.includes(this.backupSearch) ||
+					(b.date || "").includes(this.backupSearch),
+			);
+		}
+		return list;
+	},
 
-    renderBackupHistoryTab() {
-        const container = document.getElementById('sc-backup-tab-main');
-        if (!container) return;
+	renderBackupHistoryTab() {
+		const container = document.getElementById("sc-backup-tab-main");
+		if (!container) return;
 
-        const total = this.cachedBackups.length;
-        const countDemo = this.cachedBackups.filter(b => (b.env || 'demo') === 'demo').length;
-        const countProd = this.cachedBackups.filter(b => b.env === 'prod').length;
+		const total = this.cachedBackups.length;
+		const countDemo = this.cachedBackups.filter(
+			(b) => (b.env || "demo") === "demo",
+		).length;
+		const countProd = this.cachedBackups.filter(
+			(b) => b.env === "prod",
+		).length;
 
-        const countUpload = this.cachedBackups.filter(b => b.type === 'remote_before_upload').length;
-        const countDownload = this.cachedBackups.filter(b => b.type === 'local_before_download').length;
-        const countEdit = this.cachedBackups.filter(b => b.type === 'remote_before_edit').length;
+		const countUpload = this.cachedBackups.filter(
+			(b) => b.type === "remote_before_upload",
+		).length;
+		const countDownload = this.cachedBackups.filter(
+			(b) => b.type === "local_before_download",
+		).length;
+		const countEdit = this.cachedBackups.filter(
+			(b) => b.type === "remote_before_edit",
+		).length;
 
-        container.innerHTML = `
+		container.innerHTML = `
             <!-- Toolbar & Filter -->
             <div style="padding: 4px 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 18px;">
                 <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
                     <!-- Environment Filter Pills -->
                     <div style="display: inline-flex; background: rgba(255,255,255,0.04); padding: 3px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.08); gap: 2px;">
-                        <button class="sc-pill-btn ${this.backupEnvFilter === 'all' ? 'active' : ''}" style="height:28px; padding:0 10px; font-size:11.5px; border-radius:6px;" onclick="SyncCenter.setBackupEnvFilter('all')">
+                        <button class="sc-pill-btn ${this.backupEnvFilter === "all" ? "active" : ""}" style="height:28px; padding:0 10px; font-size:11.5px; border-radius:6px;" onclick="SyncCenter.setBackupEnvFilter('all')">
                             Tất cả MT <span class="sc-badge-count">${total}</span>
                         </button>
-                        <button class="sc-pill-btn ${this.backupEnvFilter === 'demo' ? 'active' : ''}" style="height:28px; padding:0 10px; font-size:11.5px; border-radius:6px; color:#38bdf8;" onclick="SyncCenter.setBackupEnvFilter('demo')">
+                        <button class="sc-pill-btn ${this.backupEnvFilter === "demo" ? "active" : ""}" style="height:28px; padding:0 10px; font-size:11.5px; border-radius:6px; color:#38bdf8;" onclick="SyncCenter.setBackupEnvFilter('demo')">
                             🌐 Demo <span class="sc-badge-count">${countDemo}</span>
                         </button>
-                        <button class="sc-pill-btn ${this.backupEnvFilter === 'prod' ? 'active' : ''}" style="height:28px; padding:0 10px; font-size:11.5px; border-radius:6px; color:#fbbf24;" onclick="SyncCenter.setBackupEnvFilter('prod')">
+                        <button class="sc-pill-btn ${this.backupEnvFilter === "prod" ? "active" : ""}" style="height:28px; padding:0 10px; font-size:11.5px; border-radius:6px; color:#fbbf24;" onclick="SyncCenter.setBackupEnvFilter('prod')">
                             🚀 Production <span class="sc-badge-count">${countProd}</span>
                         </button>
                     </div>
@@ -3769,16 +4494,16 @@ const SyncCenter = {
 
                     <!-- Type Filter Pills -->
                     <div style="display: inline-flex; gap: 6px; flex-wrap: wrap;">
-                        <button class="sc-pill-btn sc-pill-type pill-all ${this.backupFilter === 'all' ? 'active' : ''}" id="sc-bk-pill-all" style="height:32px; padding:0 10px; font-size:11.5px;" onclick="SyncCenter.setBackupFilter('all')">
+                        <button class="sc-pill-btn sc-pill-type pill-all ${this.backupFilter === "all" ? "active" : ""}" id="sc-bk-pill-all" style="height:32px; padding:0 10px; font-size:11.5px;" onclick="SyncCenter.setBackupFilter('all')">
                             Tất cả loại
                         </button>
-                        <button class="sc-pill-btn sc-pill-type pill-up ${this.backupFilter === 'remote_before_upload' ? 'active' : ''}" id="sc-bk-pill-remote_before_upload" style="height:32px; padding:0 10px; font-size:11.5px;" onclick="SyncCenter.setBackupFilter('remote_before_upload')">
+                        <button class="sc-pill-btn sc-pill-type pill-up ${this.backupFilter === "remote_before_upload" ? "active" : ""}" id="sc-bk-pill-remote_before_upload" style="height:32px; padding:0 10px; font-size:11.5px;" onclick="SyncCenter.setBackupFilter('remote_before_upload')">
                             🛡️ Trước khi Upload <span class="sc-badge-count">${countUpload}</span>
                         </button>
-                        <button class="sc-pill-btn sc-pill-type pill-down ${this.backupFilter === 'local_before_download' ? 'active' : ''}" id="sc-bk-pill-local_before_download" style="height:32px; padding:0 10px; font-size:11.5px;" onclick="SyncCenter.setBackupFilter('local_before_download')">
+                        <button class="sc-pill-btn sc-pill-type pill-down ${this.backupFilter === "local_before_download" ? "active" : ""}" id="sc-bk-pill-local_before_download" style="height:32px; padding:0 10px; font-size:11.5px;" onclick="SyncCenter.setBackupFilter('local_before_download')">
                             💻 Trước khi Download <span class="sc-badge-count">${countDownload}</span>
                         </button>
-                        <button class="sc-pill-btn sc-pill-type pill-conflict ${this.backupFilter === 'remote_before_edit' ? 'active' : ''}" id="sc-bk-pill-remote_before_edit" style="height:32px; padding:0 10px; font-size:11.5px;" onclick="SyncCenter.setBackupFilter('remote_before_edit')">
+                        <button class="sc-pill-btn sc-pill-type pill-conflict ${this.backupFilter === "remote_before_edit" ? "active" : ""}" id="sc-bk-pill-remote_before_edit" style="height:32px; padding:0 10px; font-size:11.5px;" onclick="SyncCenter.setBackupFilter('remote_before_edit')">
                             ✎ Trước Sửa Web <span class="sc-badge-count">${countEdit}</span>
                         </button>
                     </div>
@@ -3798,28 +4523,28 @@ const SyncCenter = {
             <div id="sc-backup-list-body"></div>
         `;
 
-        this.renderBackupList();
-    },
+		this.renderBackupList();
+	},
 
-    renderBackupList() {
-        const container = document.getElementById('sc-backup-list-body');
-        if (!container) return;
+	renderBackupList() {
+		const container = document.getElementById("sc-backup-list-body");
+		if (!container) return;
 
-        const list = this.getFilteredBackups();
+		const list = this.getFilteredBackups();
 
-        if (list.length === 0) {
-            container.innerHTML = `
+		if (list.length === 0) {
+			container.innerHTML = `
                 <div style="padding: 60px 20px; text-align: center; color: #64748b;">
                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom:10px; opacity:0.5;"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
                     <div style="font-size: 14px; font-weight: 600; color: #cbd5e1;">Chưa có bản sao lưu nào khớp</div>
                     <p style="font-size: 12px; margin: 4px 0 0;">Bản sao lưu sẽ tự động được tạo mỗi khi bạn thực hiện Đồng bộ (Sync) hoặc Sửa file.</p>
                 </div>
             `;
-            this.updateBackupSelectedCount();
-            return;
-        }
+			this.updateBackupSelectedCount();
+			return;
+		}
 
-        let html = `
+		let html = `
             <table class="sc-table">
                 <thead>
                     <tr>
@@ -3837,53 +4562,56 @@ const SyncCenter = {
                 <tbody>
         `;
 
-        list.forEach(item => {
-            const path = item.original_rel_path || '';
-            const icon = this.getFileIcon(path);
-            const backupFile = item.backup_file || '';
-            const env = item.env === 'prod' ? 'prod' : 'demo';
-            
-            let envBadge = '';
-            if (env === 'prod') {
-                envBadge = `<span class="sc-tag" style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-weight:700;">🚀 Prod</span>`;
-            } else {
-                envBadge = `<span class="sc-tag sc-tag-cyan" style="font-weight:700;">🌐 Demo</span>`;
-            }
+		list.forEach((item) => {
+			const path = item.original_rel_path || "";
+			const icon = this.getFileIcon(path);
+			const backupFile = item.backup_file || "";
+			const env = item.env === "prod" ? "prod" : "demo";
 
-            let typeLabel = '';
-            let typeTagClass = '';
-            if (item.type === 'remote_before_upload') {
-                typeLabel = `${env === 'prod' ? '🚀 Prod' : '🛡️ Demo'} (Trước Upload)`;
-                typeTagClass = 'sc-tag-emerald';
-            } else if (item.type === 'local_before_download') {
-                typeLabel = '💻 Local (Trước Download)';
-                typeTagClass = 'sc-tag-purple';
-            } else if (item.type === 'remote_before_edit') {
-                typeLabel = `${env === 'prod' ? '🚀 Prod' : '✎ Demo'} (Trước Sửa Web)`;
-                typeTagClass = 'sc-tag-cyan';
-            } else {
-                typeLabel = '⏪ Bản lưu trước Restore';
-                typeTagClass = 'sc-tag-indigo';
-            }
+			let envBadge = "";
+			if (env === "prod") {
+				envBadge = `<span class="sc-tag" style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-weight:700;">🚀 Prod</span>`;
+			} else {
+				envBadge = `<span class="sc-tag sc-tag-cyan" style="font-weight:700;">🌐 Demo</span>`;
+			}
 
-            const restoreRemoteBtn = env === 'prod' ? `
+			let typeLabel = "";
+			let typeTagClass = "";
+			if (item.type === "remote_before_upload") {
+				typeLabel = `${env === "prod" ? "🚀 Prod" : "🛡️ Demo"} (Trước Upload)`;
+				typeTagClass = "sc-tag-emerald";
+			} else if (item.type === "local_before_download") {
+				typeLabel = "💻 Local (Trước Download)";
+				typeTagClass = "sc-tag-purple";
+			} else if (item.type === "remote_before_edit") {
+				typeLabel = `${env === "prod" ? "🚀 Prod" : "✎ Demo"} (Trước Sửa Web)`;
+				typeTagClass = "sc-tag-cyan";
+			} else {
+				typeLabel = "⏪ Bản lưu trước Restore";
+				typeTagClass = "sc-tag-indigo";
+			}
+
+			const restoreRemoteBtn =
+				env === "prod"
+					? `
                 <button class="btn btn-ghost btn-sm" style="height:30px; padding:0 10px; font-size:11.5px; font-weight:700; color:#fbbf24; border-color:rgba(245,158,11,0.35);" onclick="SyncCenter.restoreBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}', 'remote', 'prod')" title="Khôi phục ghi đè lại lên Production Hosting">
                     🚀 Lên Prod
                 </button>
-            ` : `
+            `
+					: `
                 <button class="btn btn-ghost btn-sm" style="height:30px; padding:0 10px; font-size:11.5px; font-weight:700; color:#34d399; border-color:rgba(16,185,129,0.3);" onclick="SyncCenter.restoreBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}', 'remote', 'demo')" title="Khôi phục ghi đè lại lên Demo Hosting">
                     ⏫ Lên Demo
                 </button>
             `;
 
-            html += `
+			html += `
                 <tr>
                     <td style="text-align: center;">
                         <input type="checkbox" class="sc-custom-cb sc-bk-cb" value="${this.escapeHtml(backupFile)}" onchange="SyncCenter.updateBackupSelectedCount()">
                     </td>
                     <td style="white-space: nowrap; font-family: var(--mono, monospace); font-size: 12px; color: #94a3b8;">
-                        <span style="color: #f8fafc; font-weight: 600;">${this.escapeHtml(item.time || '')}</span> 
-                        <span style="color: #64748b; font-size: 11px;">${this.escapeHtml(item.date || '')}</span>
+                        <span style="color: #f8fafc; font-weight: 600;">${this.escapeHtml(item.time || "")}</span> 
+                        <span style="color: #64748b; font-size: 11px;">${this.escapeHtml(item.date || "")}</span>
                     </td>
                     <td style="white-space: nowrap;">
                         ${envBadge}
@@ -3919,173 +4647,219 @@ const SyncCenter = {
                     </td>
                 </tr>
             `;
-        });
+		});
 
-        html += `</tbody></table>`;
-        container.innerHTML = html;
-        this.updateBackupSelectedCount();
-    },
+		html += `</tbody></table>`;
+		container.innerHTML = html;
+		this.updateBackupSelectedCount();
+	},
 
-    updateBackupSelectedCount() {
-        const checked = document.querySelectorAll('.sc-bk-cb:checked');
-        const count = checked.length;
-        const btn = document.getElementById('sc-btn-delete-backups');
-        const counter = document.getElementById('sc-bk-selected-count');
-        if (btn) {
-            btn.style.display = count > 0 ? 'inline-flex' : 'none';
-        }
-        if (counter) {
-            counter.innerText = count;
-        }
-        const checkAll = document.getElementById('sc-bk-check-all');
-        const allCbs = document.querySelectorAll('.sc-bk-cb');
-        if (checkAll && allCbs.length > 0) {
-            checkAll.checked = count === allCbs.length;
-        }
-    },
+	updateBackupSelectedCount() {
+		const checked = document.querySelectorAll(".sc-bk-cb:checked");
+		const count = checked.length;
+		const btn = document.getElementById("sc-btn-delete-backups");
+		const counter = document.getElementById("sc-bk-selected-count");
+		if (btn) {
+			btn.style.display = count > 0 ? "inline-flex" : "none";
+		}
+		if (counter) {
+			counter.innerText = count;
+		}
+		const checkAll = document.getElementById("sc-bk-check-all");
+		const allCbs = document.querySelectorAll(".sc-bk-cb");
+		if (checkAll && allCbs.length > 0) {
+			checkAll.checked = count === allCbs.length;
+		}
+	},
 
-    toggleSelectAllBackups(checked) {
-        document.querySelectorAll('.sc-bk-cb').forEach(cb => cb.checked = checked);
-        this.updateBackupSelectedCount();
-    },
+	toggleSelectAllBackups(checked) {
+		document
+			.querySelectorAll(".sc-bk-cb")
+			.forEach((cb) => (cb.checked = checked));
+		this.updateBackupSelectedCount();
+	},
 
-    async deleteSingleBackup(backupFile, path) {
-        if (!await UI.confirm(`Xác nhận xóa vĩnh viễn bản sao lưu của file:\n${path}?`)) {
-            return;
-        }
-        this.runDeleteBackupsApi({ backup_files: [backupFile] });
-    },
+	async deleteSingleBackup(backupFile, path) {
+		if (
+			!(await UI.confirm(
+				`Xác nhận xóa vĩnh viễn bản sao lưu của file:\n${path}?`,
+			))
+		) {
+			return;
+		}
+		this.runDeleteBackupsApi({ backup_files: [backupFile] });
+	},
 
-    async deleteSelectedBackups() {
-        const checked = Array.from(document.querySelectorAll('.sc-bk-cb:checked')).map(cb => cb.value);
-        if (checked.length === 0) return;
-        if (!await UI.confirm(`Xác nhận xóa vĩnh viễn ${checked.length} bản sao lưu đã chọn?`)) {
-            return;
-        }
-        this.runDeleteBackupsApi({ backup_files: checked });
-    },
+	async deleteSelectedBackups() {
+		const checked = Array.from(
+			document.querySelectorAll(".sc-bk-cb:checked"),
+		).map((cb) => cb.value);
+		if (checked.length === 0) return;
+		if (
+			!(await UI.confirm(
+				`Xác nhận xóa vĩnh viễn ${checked.length} bản sao lưu đã chọn?`,
+			))
+		) {
+			return;
+		}
+		this.runDeleteBackupsApi({ backup_files: checked });
+	},
 
-    async clearAllBackups() {
-        if (this.cachedBackups.length === 0) {
-            UI.showToast('Không có bản sao lưu nào để dọn dẹp', 'warning');
-            return;
-        }
-        if (!await UI.confirm(`CẢNH BÁO: Xác nhận DỌN SẠCH TOÀN BỘ ${this.cachedBackups.length} bản sao lưu của dự án này?\n\nHành động này không thể hoàn tác!`)) {
-            return;
-        }
-        this.runDeleteBackupsApi({ all: true });
-    },
+	async clearAllBackups() {
+		if (this.cachedBackups.length === 0) {
+			UI.showToast("Không có bản sao lưu nào để dọn dẹp", "warning");
+			return;
+		}
+		if (
+			!(await UI.confirm(
+				`CẢNH BÁO: Xác nhận DỌN SẠCH TOÀN BỘ ${this.cachedBackups.length} bản sao lưu của dự án này?\n\nHành động này không thể hoàn tác!`,
+			))
+		) {
+			return;
+		}
+		this.runDeleteBackupsApi({ all: true });
+	},
 
-    runDeleteBackupsApi(payload) {
-        const projectName = document.getElementById('detail-project-name')?.innerText?.trim() || (App.currentProject ? App.currentProject.name : '');
-        UI.showLoading('Đang xóa bản sao lưu...');
+	runDeleteBackupsApi(payload) {
+		const projectName =
+			document.getElementById("detail-project-name")?.innerText?.trim() ||
+			(App.currentProject ? App.currentProject.name : "");
+		UI.showLoading("Đang xóa bản sao lưu...");
 
-        fetch('api.php?action=fmDeleteBackups', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: projectName,
-                category: App.currentCategory || 'projects',
-                ...payload
-            })
-        })
-        .then(r => r.json())
-        .then(res => {
-            UI.hideLoading();
-            if (res.status === 'success') {
-                UI.showToast(res.message || 'Đã xóa bản sao lưu thành công!', 'success');
-                this.openBackupHistoryTab(); // Reload backup list in tab
-            } else {
-                UI.showToast('Lỗi khi xóa: ' + res.message, 'error');
-            }
-        })
-        .catch(() => {
-            UI.hideLoading();
-            UI.showToast('Lỗi kết nối khi xóa bản sao lưu', 'error');
-        });
-    },
+		fetch("api.php?action=fmDeleteBackups", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: projectName,
+				category: App.currentCategory || "projects",
+				...payload,
+			}),
+		})
+			.then((r) => r.json())
+			.then((res) => {
+				UI.hideLoading();
+				if (res.status === "success") {
+					UI.showToast(
+						res.message || "Đã xóa bản sao lưu thành công!",
+						"success",
+					);
+					this.openBackupHistoryTab(); // Reload backup list in tab
+				} else {
+					UI.showToast("Lỗi khi xóa: " + res.message, "error");
+				}
+			})
+			.catch(() => {
+				UI.hideLoading();
+				UI.showToast("Lỗi kết nối khi xóa bản sao lưu", "error");
+			});
+	},
 
-    async restoreBackup(backupFile, path, target, env = 'demo') {
-        const isRemote = target === 'remote';
-        const targetName = isRemote ? (env === 'prod' ? 'Production Hosting' : 'Demo Hosting') : 'Local Workspace';
-        const actionVerb = isRemote ? 'LÊN' : 'VỀ';
-        const actionVerbLower = isRemote ? 'lên' : 'về';
-        
-        if (!await UI.confirm(`Xác nhận KHÔI PHỤC ${actionVerb} ${targetName} cho file:\n${path}\n\n🛡️ Bản file hiện tại sẽ được tự động sao lưu an toàn trước khi khôi phục.`)) {
-            return;
-        }
+	async restoreBackup(backupFile, path, target, env = "demo") {
+		const isRemote = target === "remote";
+		const targetName = isRemote
+			? env === "prod"
+				? "Production Hosting"
+				: "Demo Hosting"
+			: "Local Workspace";
+		const actionVerb = isRemote ? "LÊN" : "VỀ";
+		const actionVerbLower = isRemote ? "lên" : "về";
 
-        const projectName = document.getElementById('detail-project-name')?.innerText;
-        UI.showLoading(`Đang khôi phục file ${actionVerbLower} ${targetName}...`);
+		if (
+			!(await UI.confirm(
+				`Xác nhận KHÔI PHỤC ${actionVerb} ${targetName} cho file:\n${path}\n\n🛡️ Bản file hiện tại sẽ được tự động sao lưu an toàn trước khi khôi phục.`,
+			))
+		) {
+			return;
+		}
 
-        fetch('api.php?action=fmRestoreBackup', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: projectName,
-                category: App.currentCategory,
-                backup_file: backupFile,
-                path: path,
-                target: target,
-                env: env
-            })
-        })
-        .then(r => r.json())
-        .then(res => {
-            UI.hideLoading();
-            if (res.status === 'success') {
-                UI.showToast(res.message || `Đã khôi phục thành công ${actionVerbLower} ${targetName}!`, 'success');
-                this.openBackupHistoryTab(); // Reload list in tab
-                this.scan(); // Rescan Sync Center
-            } else {
-                UI.showToast('Lỗi khôi phục: ' + res.message, 'error');
-            }
-        })
-        .catch(() => {
-            UI.hideLoading();
-            UI.showToast('Lỗi kết nối khi khôi phục', 'error');
-        });
-    },
+		const projectName = document.getElementById(
+			"detail-project-name",
+		)?.innerText;
+		UI.showLoading(
+			`Đang khôi phục file ${actionVerbLower} ${targetName}...`,
+		);
 
-    previewBackup(backupFile, path, env = 'demo') {
-        const projectName = document.getElementById('detail-project-name')?.innerText;
-        UI.showLoading('Đang tải nội dung bản sao lưu...');
+		fetch("api.php?action=fmRestoreBackup", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: projectName,
+				category: App.currentCategory,
+				backup_file: backupFile,
+				path: path,
+				target: target,
+				env: env,
+			}),
+		})
+			.then((r) => r.json())
+			.then((res) => {
+				UI.hideLoading();
+				if (res.status === "success") {
+					UI.showToast(
+						res.message ||
+							`Đã khôi phục thành công ${actionVerbLower} ${targetName}!`,
+						"success",
+					);
+					this.openBackupHistoryTab(); // Reload list in tab
+					this.scan(); // Rescan Sync Center
+				} else {
+					UI.showToast("Lỗi khôi phục: " + res.message, "error");
+				}
+			})
+			.catch(() => {
+				UI.hideLoading();
+				UI.showToast("Lỗi kết nối khi khôi phục", "error");
+			});
+	},
 
-        fetch(`api.php?action=fmGetBackupContent&name=${encodeURIComponent(projectName)}&category=${encodeURIComponent(App.currentCategory)}&backup_file=${encodeURIComponent(backupFile)}`)
-            .then(r => r.json())
-            .then(res => {
-                UI.hideLoading();
-                if (res.status !== 'success') {
-                    UI.showToast('Không thể đọc file: ' + res.message, 'error');
-                    return;
-                }
+	previewBackup(backupFile, path, env = "demo") {
+		const projectName = document.getElementById(
+			"detail-project-name",
+		)?.innerText;
+		UI.showLoading("Đang tải nội dung bản sao lưu...");
 
-                let previewModal = document.getElementById('sc-backup-preview-modal');
-                if (previewModal) previewModal.remove();
+		fetch(
+			`api.php?action=fmGetBackupContent&name=${encodeURIComponent(projectName)}&category=${encodeURIComponent(App.currentCategory)}&backup_file=${encodeURIComponent(backupFile)}`,
+		)
+			.then((r) => r.json())
+			.then((res) => {
+				UI.hideLoading();
+				if (res.status !== "success") {
+					UI.showToast("Không thể đọc file: " + res.message, "error");
+					return;
+				}
 
-                previewModal = document.createElement('div');
-                previewModal.id = 'sc-backup-preview-modal';
-                previewModal.className = 'sc-diff-overlay';
-                previewModal.style.zIndex = '10060';
-                previewModal.onclick = (e) => {
-                    if (e.target === previewModal) previewModal.remove();
-                };
+				let previewModal = document.getElementById(
+					"sc-backup-preview-modal",
+				);
+				if (previewModal) previewModal.remove();
 
-                const lines = (res.content || '').split('\n');
-                let codeHtml = '';
-                lines.forEach((line, idx) => {
-                    codeHtml += `
+				previewModal = document.createElement("div");
+				previewModal.id = "sc-backup-preview-modal";
+				previewModal.className = "sc-diff-overlay";
+				previewModal.style.zIndex = "10060";
+				previewModal.onclick = (e) => {
+					if (e.target === previewModal) previewModal.remove();
+				};
+
+				const lines = (res.content || "").split("\n");
+				let codeHtml = "";
+				lines.forEach((line, idx) => {
+					codeHtml += `
                         <div class="diff-line">
                             <span class="diff-num">${idx + 1}</span>
                             <span class="diff-text">${this.escapeHtml(line)}</span>
                         </div>
                     `;
-                });
+				});
 
-                const envLabel = env === 'prod' ? 'Production' : 'Demo';
-                const remoteBtnBg = env === 'prod' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #10b981, #059669)';
+				const envLabel = env === "prod" ? "Production" : "Demo";
+				const remoteBtnBg =
+					env === "prod"
+						? "linear-gradient(135deg, #f59e0b, #d97706)"
+						: "linear-gradient(135deg, #10b981, #059669)";
 
-                previewModal.innerHTML = `
+				previewModal.innerHTML = `
                     <div class="sc-diff-dialog" style="max-width: 1100px; height: 80vh;">
                         <div class="sc-diff-header">
                             <div style="font-size: 14px; font-weight: 700; color: #fff; font-family: var(--mono, monospace);">
@@ -4111,23 +4885,28 @@ const SyncCenter = {
                     </div>
                 `;
 
-                document.body.appendChild(previewModal);
-            })
-            .catch(() => {
-                UI.hideLoading();
-                UI.showToast('Lỗi kết nối khi tải nội dung snapshot', 'error');
-            });
-    },
+				document.body.appendChild(previewModal);
+			})
+			.catch(() => {
+				UI.hideLoading();
+				UI.showToast("Lỗi kết nối khi tải nội dung snapshot", "error");
+			});
+	},
 
-    formatBytes(bytes) {
-        if (!bytes || bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-    },
+	formatBytes(bytes) {
+		if (!bytes || bytes === 0) return "0 B";
+		const k = 1024;
+		const sizes = ["B", "KB", "MB", "GB"];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+	},
 
-    escapeHtml(unsafe) {
-        return (unsafe || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-    }
+	escapeHtml(unsafe) {
+		return (unsafe || "")
+			.replace(/&/g, "&amp;")
+			.replace(/</g, "&lt;")
+			.replace(/>/g, "&gt;")
+			.replace(/"/g, "&quot;")
+			.replace(/'/g, "&#039;");
+	},
 };

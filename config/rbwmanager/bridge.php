@@ -293,12 +293,9 @@ class RamboWoonBridge
             }
         }
 
-        $this->updateHtaccess($appConfig);
-        $results[] = "Htaccess rules configured (SSL & Lock)";
-
-        if (!empty($appConfig) && isset($appConfig['ssl']) && empty($_POST['skip_htaccess'])) {
+        if (empty($_POST['skip_htaccess'])) {
             $this->updateHtaccess($appConfig);
-            $results[] = "Htaccess configured (SSL: " . ($appConfig['ssl'] ? 'On' : 'Off') . ")";
+            $results[] = "Htaccess configured (SSL: " . (!empty($appConfig['ssl']) ? 'On' : 'Off') . ")";
         }
 
         $clearDb = isset($_POST['clear_db']) ? (int)$_POST['clear_db'] : 0;
@@ -323,8 +320,16 @@ class RamboWoonBridge
                     }
 
                     // Prepend lock timeout & disable foreign keys, and perform domain replacement
+                    // Ensure target database default charset is utf8mb4 BEFORE creating/importing tables
+                    try {
+                        $pdoInit = $this->getPdoConnection($dbConfig);
+                        $pdoInit->exec("ALTER DATABASE `{$dbname}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+                    } catch (\Exception $e) {}
+
+                    // Prepend utf8mb4, lock timeout & disable foreign keys, and perform domain replacement
                     $sqlContent = file_exists($sqlFile) ? file_get_contents($sqlFile) : '';
                     $prefixSql = "SET SESSION lock_wait_timeout = 5;\nSET FOREIGN_KEY_CHECKS = 0;\n";
+                    $prefixSql = "SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci';\nSET CHARACTER SET utf8mb4;\nSET SESSION lock_wait_timeout = 5;\nSET FOREIGN_KEY_CHECKS = 0;\n";
 
                     if (!empty($appConfig['demo_domain']) && !empty($appConfig['prod_domain'])) {
                         $demoDom = trim($appConfig['demo_domain'], '/');
@@ -566,12 +571,11 @@ class RamboWoonBridge
         }
 
         $keysToUpdate = ['DB_HOST', 'DB_DATABASE', 'DB_NAME', 'DB_DB', 'DB_USERNAME', 'DB_USER', 'DB_PASSWORD', 'DB_PASS', 'RANDOMKEY', 'SITE_PATH', 'APP_URL', 'ENVIRONMENT'];
+        $keysToUpdate = ['DB_HOST', 'DB_DATABASE', 'DB_NAME', 'DB_DB', 'DB_USERNAME', 'DB_USER', 'DB_PASSWORD', 'DB_PASS', 'RANDOMKEY', 'SITE_PATH', 'APP_URL'];
         if (!empty($appConfig['is_production'])) {
+            $keysToUpdate[] = 'ENVIRONMENT';
             $keysToUpdate[] = 'TURNSTILE_SITEKEY';
             $keysToUpdate[] = 'TURNSTILE_SECRETKEY';
-        }
-        if (!empty($appConfig['skip_lock'])) { // skip_lock is true for Demo
-            $keysToUpdate[] = 'TURNSTILE_ACTIVE';
         }
 
         foreach ($lines as $line) {
@@ -614,10 +618,8 @@ class RamboWoonBridge
                 $val = $sitePath;
             } else if ($key === 'APP_URL' && !empty($cleanUrl)) {
                 $val = $cleanUrl . '${SITE_PATH}';
-            } else if ($key === 'ENVIRONMENT') {
+            } else if ($key === 'ENVIRONMENT' && !empty($appConfig['is_production'])) {
                 $val = "production";
-            } else if ($key === 'TURNSTILE_ACTIVE' && !empty($appConfig['skip_lock'])) {
-                $val = "true";
             } else if ($key === 'TURNSTILE_SITEKEY' && !empty($appConfig['is_production'])) {
                 if (!empty($appConfig['turnstile_sitekey'])) $val = $appConfig['turnstile_sitekey'];
             } else if ($key === 'TURNSTILE_SECRETKEY' && !empty($appConfig['is_production'])) {
@@ -633,12 +635,6 @@ class RamboWoonBridge
         if (!in_array('DB_USERNAME', $processedKeys) && !empty($dbConfig['user'])) $newLines[] = "DB_USERNAME=" . $dbConfig['user'];
         if (!in_array('DB_PASSWORD', $processedKeys) && !empty($dbConfig['pass'])) $newLines[] = "DB_PASSWORD=" . $dbConfig['pass'];
         if (!in_array('DB_HOST', $processedKeys)) $newLines[] = "DB_HOST=localhost";
-        if (!in_array('ENVIRONMENT', $processedKeys)) $newLines[] = "ENVIRONMENT=production";
-
-        if (!empty($appConfig['skip_lock'])) { // Demo
-            if (!in_array('TURNSTILE_ACTIVE', $processedKeys)) $newLines[] = "TURNSTILE_ACTIVE=true";
-        }
-
         if (!empty($appConfig['is_production']) && !empty($appConfig['turnstile_sitekey'])) {
             if (!in_array('TURNSTILE_SITEKEY', $processedKeys)) $newLines[] = "TURNSTILE_SITEKEY=" . $appConfig['turnstile_sitekey'];
             if (!in_array('TURNSTILE_SECRETKEY', $processedKeys)) $newLines[] = "TURNSTILE_SECRETKEY=" . $appConfig['turnstile_secretkey'];
@@ -744,7 +740,9 @@ class RamboWoonBridge
             $content = preg_replace('/(RewriteRule\s+.*?\s+)http:\/\//i', '$1https://', $content);
         } else {
             // Remove existing SSL block if present
+            // Remove existing SSL block and standalone HTTPS redirect rules if SSL is disabled
             $content = preg_replace('/# BEGIN RamboWoon SSL.*?# END RamboWoon SSL\s*/is', '', $content);
+            $content = preg_replace('/^\s*RewriteCond\s+%\{HTTPS\}\s+off\s*\r?\n\s*RewriteRule\s+.*https:\/\/%\{HTTP_HOST\}.*\r?\n?/im', '', $content);
         }
 
         // 2. Handle Lock mechanism (DirectoryIndex)
@@ -816,8 +814,16 @@ class RamboWoonBridge
             }
 
             // Prepend lock timeout & disable foreign keys to prevent hangs
+            // Ensure target database default charset is utf8mb4 BEFORE importing tables
+            try {
+                $pdoInit = $this->getPdoConnection($dbConfig);
+                $pdoInit->exec("ALTER DATABASE `{$dbname}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+            } catch (\Exception $e) {}
+
+            // Prepend utf8mb4, lock timeout & disable foreign keys to prevent hangs
             $sqlContent = file_exists($sqlFile) ? file_get_contents($sqlFile) : '';
             $prefixSql = "SET SESSION lock_wait_timeout = 5;\nSET FOREIGN_KEY_CHECKS = 0;\n";
+            $prefixSql = "SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci';\nSET CHARACTER SET utf8mb4;\nSET SESSION lock_wait_timeout = 5;\nSET FOREIGN_KEY_CHECKS = 0;\n";
             file_put_contents($sqlFile, $prefixSql . $sqlContent);
 
             if (function_exists('exec')) {
@@ -928,12 +934,17 @@ class RamboWoonBridge
         if (!$fp) return false;
         
         $query = '';
+        $pdo->exec("SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci';");
+        $pdo->exec("SET CHARACTER SET utf8mb4;");
         $pdo->exec("SET FOREIGN_KEY_CHECKS=0;");
         $pdo->exec("SET SESSION lock_wait_timeout = 5;");
         
         while (($line = fgets($fp)) !== false) {
             $trimmed = trim($line);
-            if (empty($trimmed) || strpos($trimmed, '--') === 0 || strpos($trimmed, '#') === 0 || strpos($trimmed, '/*') === 0) {
+            if (empty($trimmed) || strpos($trimmed, '--') === 0 || strpos($trimmed, '#') === 0) {
+                continue;
+            }
+            if (strpos($trimmed, '/*') === 0 && strpos($trimmed, '/*!') !== 0) {
                 continue;
             }
             

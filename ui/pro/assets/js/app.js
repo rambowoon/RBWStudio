@@ -1758,10 +1758,22 @@ const App = {
 			}
 		} catch (e) {}
 
+		let projDemo = null;
+		try {
+			const pCfgRes = await Api.getProjectConfig(name, category);
+			if (pCfgRes && pCfgRes.status === "success" && pCfgRes.data) {
+				projDemo = pCfgRes.data.deployed?.demo || null;
+			}
+		} catch (e) {}
+
 		document.getElementById("pre-deploy-project-desc").innerText =
 			`Dự án: ${name} (${category}) - Chỉ Deploy Database`;
 		document.getElementById("manual_db_suffix").value = "";
-		document.getElementById("pre_deploy_ssl").checked = false;
+		document.getElementById("pre_deploy_ssl").checked = !!(
+			projDemo &&
+			typeof projDemo.url === "string" &&
+			projDemo.url.toLowerCase().startsWith("https://")
+		);
 		document.getElementById("pre_deploy_pack_upload").checked = false;
 		if (document.getElementById("pre_deploy_use_7zip")) {
 			document.getElementById("pre_deploy_use_7zip").checked = false;
@@ -1783,15 +1795,19 @@ const App = {
 				opt.innerText = "⚠️ Chưa cấu hình Server Demo (vào Cài đặt chung)";
 				demoSelect.appendChild(opt);
 			} else {
-				const defaultId = this.globalData.default_demo_id || (list[0] && list[0].id) || "";
+				const preferredId =
+					(projDemo && projDemo.demo_server_id) ||
+					this.globalData.default_demo_id ||
+					(list[0] && list[0].id) ||
+					"";
 				list.forEach((demo) => {
 					const option = document.createElement("option");
 					option.value = demo.id;
 					option.innerText =
 						(demo.name || demo.web_domain || "Server Demo") +
 						(demo.web_domain ? " (" + demo.web_domain + ")" : "") +
-						(demo.id === defaultId ? " ⭐" : "");
-					if (demo.id === defaultId) option.selected = true;
+						(demo.id === this.globalData.default_demo_id ? " ⭐" : "");
+					if (demo.id === preferredId) option.selected = true;
 					demoSelect.appendChild(option);
 				});
 			}

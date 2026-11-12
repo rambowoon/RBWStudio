@@ -1787,6 +1787,7 @@ pub fn export_local_mysql_db(source_db_name: &str, out_sql_path: &Path) -> Resul
         .arg(format!("-P{}", port))
         .arg("-uroot")
         .arg("--default-character-set=utf8mb4")
+        .arg("--hex-blob")
         .arg("--single-transaction")
         .arg("--routines")
         .arg(source_db_name);
@@ -1799,7 +1800,10 @@ pub fn export_local_mysql_db(source_db_name: &str, out_sql_path: &Path) -> Resul
             stderr
         });
     }
-    fs::write(out_sql_path, &out.stdout).map_err(|e| format!("Lỗi ghi file SQL: {}", e))
+    let mut final_sql = Vec::with_capacity(out.stdout.len() + 96);
+    final_sql.extend_from_slice(b"SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci';\nSET CHARACTER SET utf8mb4;\n");
+    final_sql.extend_from_slice(&out.stdout);
+    fs::write(out_sql_path, &final_sql).map_err(|e| format!("Lỗi ghi file SQL: {}", e))
 }
 
 pub fn run_mysql_tsv(db: &ProjectDbEnv, sql: &str) -> Result<Vec<Vec<String>>, String> {
@@ -2482,6 +2486,96 @@ pub fn load_project_media_types(project_path: &Path) -> Value {
     Value::Array(types)
 }
 
+fn extract_sub_dimensions(sub_obj: &serde_json::Map<String, Value>) -> (u32, u32) {
+    let re_thumb = Regex::new(r"(\d+)x(\d+)").ok();
+    let mut w: u32 = sub_obj
+        .get("width")
+        .or_else(|| sub_obj.get("width_photo"))
+        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .unwrap_or(0) as u32;
+    let mut h: u32 = sub_obj
+        .get("height")
+        .or_else(|| sub_obj.get("height_photo"))
+        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .unwrap_or(0) as u32;
+    if (w == 0 || h == 0) && re_thumb.is_some() {
+        if let Some(thumb_str) = sub_obj
+            .get("thumb")
+            .or_else(|| sub_obj.get("thumb_photo"))
+            .and_then(|v| v.as_str())
+        {
+            if let Some(c) = re_thumb.as_ref().unwrap().captures(thumb_str) {
+                w = c.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                h = c.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+            }
+        }
+    }
+    if w == 0 || h == 0 {
+        if let Some(photo_cfg) = sub_obj
+            .get("images")
+            .and_then(|v| v.as_object())
+            .and_then(|imgs| imgs.get("photo"))
+            .and_then(|v| v.as_object())
+        {
+            let pw = photo_cfg
+                .get("width")
+                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                .unwrap_or(0) as u32;
+            let ph = photo_cfg
+                .get("height")
+                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                .unwrap_or(0) as u32;
+            if pw > 0 && ph > 0 {
+                return (pw, ph);
+            }
+            if let Some(t) = photo_cfg.get("thumb").and_then(|v| v.as_str()) {
+                if let Some(c) = re_thumb.as_ref().and_then(|re| re.captures(t)) {
+                    let tw = c.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                    let th = c.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                    if tw > 0 && th > 0 {
+                        return (tw, th);
+                    }
+                }
+            }
+        }
+    }
+    (w, h)
+}
+
+fn dir_has_images(dir: &Path) -> bool {
+    if !dir.is_dir() {
+        return false;
+    }
+    if let Ok(entries) = fs::read_dir(dir) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_file() {
+                let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+                if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "svg" | "bmp") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn find_project_source_images_dir(p_root: &Path) -> Option<PathBuf> {
+    let candidates = [
+        p_root.join("assets/images/images"),
+        p_root.join("assets/images"),
+        p_root.join("upload/photo"),
+        p_root.join("upload/product"),
+        p_root.join("upload/news"),
+        p_root.join("upload"),
+    ];
+    candidates
+        .iter()
+        .find(|d| dir_has_images(d))
+        .cloned()
+        .or_else(|| candidates.iter().find(|d| d.is_dir()).cloned())
+}
+
 pub fn handle_scan_images_endpoint(project_name: &str, category: &str, main_key: &str) -> Value {
     let cat_opt = if category.is_empty() { None } else { Some(category) };
     let proj = match find_project(project_name, cat_opt) {
@@ -2495,34 +2589,15 @@ pub fn handle_scan_images_endpoint(project_name: &str, category: &str, main_key:
 
     // Parse subtypes and dimensions from config/{main_key}.php
     let mut subtypes: Vec<(String, u32, u32)> = Vec::new();
-    let re_thumb = Regex::new(r"(\d+)x(\d+)").ok();
 
     if cfg_file.is_file() {
         if let Some(parsed) = parse_php_array_file(&cfg_file) {
             if let Some(obj) = parsed.as_object() {
                 for (sub_key, val) in obj {
-                    let mut w: u32 = 0;
-                    let mut h: u32 = 0;
-                    if let Some(sub_obj) = val.as_object() {
-                        w = sub_obj
-                            .get("width")
-                            .or_else(|| sub_obj.get("width_photo"))
-                            .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
-                            .unwrap_or(0) as u32;
-                        h = sub_obj
-                            .get("height")
-                            .or_else(|| sub_obj.get("height_photo"))
-                            .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
-                            .unwrap_or(0) as u32;
-                        if (w == 0 || h == 0) && re_thumb.is_some() {
-                            if let Some(thumb_str) = sub_obj.get("thumb").or_else(|| sub_obj.get("thumb_photo")).and_then(|v| v.as_str()) {
-                                if let Some(c) = re_thumb.as_ref().unwrap().captures(thumb_str) {
-                                    w = c.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                                    h = c.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                                }
-                            }
-                        }
-                    }
+                    let (w, h) = val
+                        .as_object()
+                        .map(extract_sub_dimensions)
+                        .unwrap_or((0, 0));
                     if !sub_key.is_empty() {
                         subtypes.push((sub_key.clone(), w, h));
                     }
@@ -2559,14 +2634,7 @@ pub fn handle_scan_images_endpoint(project_name: &str, category: &str, main_key:
         }
     }
 
-    // Locate source images directory
-    let candidates = [
-        p_root.join("assets/images/images"),
-        p_root.join("assets/images"),
-        p_root.join("upload/photo"),
-        p_root.join("upload"),
-    ];
-    let source_dir = match candidates.iter().find(|d| d.is_dir()).cloned() {
+    let source_dir = match find_project_source_images_dir(p_root) {
         Some(d) => d,
         None => return json!({ "status": "error", "message": "Không tìm thấy thư mục ảnh nguồn của dự án (assets/images/images)" }),
     };
@@ -2644,6 +2712,94 @@ pub fn handle_scan_images_endpoint(project_name: &str, category: &str, main_key:
     })
 }
 
+fn get_table_columns(db: &ProjectDbEnv, full_table: &str) -> HashSet<String> {
+    let mut cols = HashSet::new();
+    let sql = format!("SHOW COLUMNS FROM `{}`;", full_table);
+    if let Ok(out) = run_mysql_query(db, &sql, true) {
+        for line in out.lines() {
+            if let Some(col) = line.split('\t').next() {
+                let c = col.trim().to_lowercase();
+                if !c.is_empty() && c != "field" {
+                    cols.insert(c);
+                }
+            }
+        }
+    }
+    cols
+}
+
+fn build_seed_insert_sql(
+    full_table: &str,
+    cols: &HashSet<String>,
+    sub_type: &str,
+    name_vi: &str,
+    photo: &str,
+    numb: usize,
+    now: u64,
+    act_val: &str,
+) -> String {
+    let slug_vi = format!("{}-mau-{}-{}", make_slug(name_vi), numb, now % 10000);
+    let esc = |s: &str| s.replace('\\', "\\\\").replace('\'', "''");
+
+    let mut fields: Vec<&str> = Vec::new();
+    let mut values: Vec<String> = Vec::new();
+
+    if cols.is_empty() || cols.contains("namevi") {
+        fields.push("`namevi`");
+        values.push(format!("'{}'", esc(name_vi)));
+    }
+    if cols.contains("slugvi") {
+        fields.push("`slugvi`");
+        values.push(format!("'{}'", esc(&slug_vi)));
+    }
+    if cols.contains("descvi") {
+        fields.push("`descvi`");
+        values.push("'Mô tả mẫu tự động'".to_string());
+    }
+    if cols.contains("contentvi") {
+        fields.push("`contentvi`");
+        values.push("'<p>Nội dung mẫu tự động</p>'".to_string());
+    }
+    if cols.is_empty() || cols.contains("photo") {
+        fields.push("`photo`");
+        values.push(format!("'{}'", esc(photo)));
+    }
+    if cols.contains("numb") {
+        fields.push("`numb`");
+        values.push(numb.to_string());
+    }
+    if cols.contains("status") {
+        fields.push("`status`");
+        values.push("'hienthi,noibat'".to_string());
+    }
+    if cols.contains("is_show") {
+        fields.push("`is_show`");
+        values.push("1".to_string());
+    }
+    if cols.is_empty() || cols.contains("type") {
+        fields.push("`type`");
+        values.push(format!("'{}'", esc(sub_type)));
+    }
+    if !act_val.is_empty() && cols.contains("act") {
+        fields.push("`act`");
+        values.push(format!("'{}'", esc(act_val)));
+    }
+    if cols.contains("date_created") {
+        fields.push("`date_created`");
+        values.push(now.to_string());
+    }
+
+    if fields.is_empty() {
+        return String::new();
+    }
+    format!(
+        "INSERT INTO `{}` ({}) VALUES ({});",
+        full_table,
+        fields.join(", "),
+        values.join(", ")
+    )
+}
+
 pub fn handle_auto_update_endpoint(body_obj: &Map<String, Value>) -> Value {
     let mut project_name = body_obj.get("project_name").and_then(|v| v.as_str()).unwrap_or("");
     if project_name.is_empty() {
@@ -2659,13 +2815,7 @@ pub fn handle_auto_update_endpoint(body_obj: &Map<String, Value>) -> Value {
     };
 
     let p_root = Path::new(&proj.path);
-    let candidates = [
-        p_root.join("assets/images/images"),
-        p_root.join("assets/images"),
-        p_root.join("upload/photo"),
-        p_root.join("upload"),
-    ];
-    let source_dir = match candidates.iter().find(|d| d.is_dir()).cloned() {
+    let source_dir = match find_project_source_images_dir(p_root) {
         Some(d) => d,
         None => return json!({ "status": "error", "message": "Không tìm thấy thư mục ảnh nguồn" }),
     };
@@ -2683,7 +2833,8 @@ pub fn handle_auto_update_endpoint(body_obj: &Map<String, Value>) -> Value {
     let _ = fs::create_dir_all(&target_dir);
 
     let images_arr = body_obj.get("images").and_then(|v| v.as_array());
-    let mut updated_count = 0;
+    let mut updated_count = 0usize;
+    let mut details_map: serde_json::Map<String, Value> = serde_json::Map::new();
 
     let db = parse_project_db_env(p_root);
     let base_table = match main_key {
@@ -2692,6 +2843,8 @@ pub fn handle_auto_update_endpoint(body_obj: &Map<String, Value>) -> Value {
         "type-static" => "static",
         _ => "news",
     };
+    let prefix = if db.prefix.trim().is_empty() { "table_" } else { db.prefix.trim() };
+    let full_table = format!("{}{}", prefix, base_table);
 
     if let Some(imgs) = images_arr {
         for item in imgs {
@@ -2701,22 +2854,70 @@ pub fn handle_auto_update_endpoint(body_obj: &Map<String, Value>) -> Value {
                 let src_file = source_dir.join(file);
                 if src_file.is_file() {
                     let dest_file = target_dir.join(file);
-                    let _ = fs::copy(&src_file, &dest_file);
-                    updated_count += 1;
+                    let copied = if fs::copy(&src_file, &dest_file).is_ok() { 1 } else { 0 };
+                    updated_count += copied;
+
+                    let mut updated_rows = 0usize;
+                    let mut deleted_old = 0usize;
 
                     if !db.name.is_empty() && !sub_type.is_empty() {
                         let safe_file = file.replace('\'', "''");
                         let safe_type = sub_type.replace('\'', "''");
-                        let sql1 = format!(
-                            "UPDATE `{}{}` SET `photo` = '{}' WHERE `type` = '{}' LIMIT 1;",
-                            db.prefix, base_table, safe_file, safe_type
+
+                        // Check old photo file so we can clean it up if replaced
+                        let sel_sql = format!(
+                            "SELECT `photo` FROM `{}` WHERE `type` = '{}' LIMIT 1;",
+                            full_table, safe_type
                         );
-                        let _ = run_mysql_query(&db, &sql1, true);
-                        let sql2 = format!(
-                            "UPDATE `table_{}` SET `photo` = '{}' WHERE `type` = '{}' LIMIT 1;",
-                            base_table, safe_file, safe_type
+                        if let Ok(old_out) = run_mysql_query(&db, &sel_sql, true) {
+                            let old_photo = old_out.trim();
+                            if !old_photo.is_empty() && old_photo != file {
+                                let old_path = target_dir.join(old_photo);
+                                if old_path.is_file() && fs::remove_file(&old_path).is_ok() {
+                                    deleted_old += 1;
+                                }
+                            }
+                        }
+
+                        let upd_sql = format!(
+                            "UPDATE `{}` SET `photo` = '{}' WHERE `type` = '{}'; SELECT ROW_COUNT();",
+                            full_table, safe_file, safe_type
                         );
-                        let _ = run_mysql_query(&db, &sql2, true);
+                        if let Ok(res_out) = run_mysql_query(&db, &upd_sql, true) {
+                            let affected = res_out.lines().last().and_then(|l| l.trim().parse::<usize>().ok()).unwrap_or(0);
+                            if affected > 0 {
+                                updated_rows = affected;
+                            } else {
+                                // Insert if no row exists yet for this type
+                                let cols = get_table_columns(&db, &full_table);
+                                let now = now_unix();
+                                let ins_sql = build_seed_insert_sql(
+                                    &full_table,
+                                    &cols,
+                                    sub_type,
+                                    sub_type,
+                                    file,
+                                    1,
+                                    now,
+                                    if base_table == "photo" { "photo_static" } else { "" },
+                                );
+                                if !ins_sql.is_empty() && run_mysql_query(&db, &ins_sql, true).is_ok() {
+                                    updated_rows = 1;
+                                }
+                            }
+                        }
+                    }
+
+                    let entry = details_map
+                        .entry(sub_type.to_string())
+                        .or_insert_with(|| json!({ "updated_rows": 0, "deleted_old_files": 0, "copied_new_files": 0 }));
+                    if let Some(obj) = entry.as_object_mut() {
+                        let cur_u = obj.get("updated_rows").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let cur_d = obj.get("deleted_old_files").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let cur_c = obj.get("copied_new_files").and_then(|v| v.as_u64()).unwrap_or(0);
+                        obj.insert("updated_rows".to_string(), json!(cur_u + updated_rows as u64));
+                        obj.insert("deleted_old_files".to_string(), json!(cur_d + deleted_old as u64));
+                        obj.insert("copied_new_files".to_string(), json!(cur_c + copied as u64));
                     }
                 }
             }
@@ -2726,7 +2927,8 @@ pub fn handle_auto_update_endpoint(body_obj: &Map<String, Value>) -> Value {
     json!({
         "status": "success",
         "message": format!("Đã tự động cập nhật {} ảnh vào dự án {}!", updated_count, proj.name),
-        "updated": updated_count
+        "updated": updated_count,
+        "details": Value::Object(details_map)
     })
 }
 
@@ -2771,7 +2973,28 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
             }
 
             let mut normalized = serde_json::Map::new();
-            let re_thumb = Regex::new(r"(\d+)x(\d+)").ok();
+            let table_cat = match main_key {
+                "type-products" => "product",
+                "type-static" => "static",
+                "type-news" => "news",
+                _ => "photo",
+            };
+            let db = parse_project_db_env(Path::new(&proj.path));
+            let mut count_map: HashMap<String, u64> = HashMap::new();
+            if !db.name.is_empty() {
+                let prefix = if db.prefix.trim().is_empty() { "table_" } else { db.prefix.trim() };
+                let cnt_sql = format!("SELECT `type`, COUNT(*) FROM `{}{}` GROUP BY `type`;", prefix, table_cat);
+                if let Ok(out) = run_mysql_query(&db, &cnt_sql, true) {
+                    for line in out.lines() {
+                        let mut parts = line.split('\t');
+                        if let (Some(t), Some(c)) = (parts.next(), parts.next()) {
+                            if let Ok(n) = c.trim().parse::<u64>() {
+                                count_map.insert(t.trim().to_string(), n);
+                            }
+                        }
+                    }
+                }
+            }
 
             if let Some(obj) = sub_types_raw.as_object() {
                 for (sub_key, val) in obj {
@@ -2789,30 +3012,22 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
                         .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())));
                     let has_images = sub_obj
                         .and_then(|o| o.get("images"))
-                        .map(|v| v.as_bool().unwrap_or(v.as_i64().unwrap_or(0) == 1))
-                        .unwrap_or(true);
-                    let mut w: u32 = sub_obj
-                        .and_then(|o| o.get("width"))
-                        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
-                        .unwrap_or(0) as u32;
-                    let mut h: u32 = sub_obj
-                        .and_then(|o| o.get("height"))
-                        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
-                        .unwrap_or(0) as u32;
-                    if (w == 0 || h == 0) && re_thumb.is_some() {
-                        if let Some(t_str) = sub_obj.and_then(|o| o.get("thumb")).and_then(|v| v.as_str()) {
-                            if let Some(c) = re_thumb.as_ref().unwrap().captures(t_str) {
-                                w = c.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                                h = c.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                        .map(|v| {
+                            if v.is_object() {
+                                true
+                            } else {
+                                v.as_bool().unwrap_or(v.as_i64().unwrap_or(0) == 1)
                             }
-                        }
-                    }
+                        })
+                        .unwrap_or(true);
+                    let (w, h) = sub_obj.map(extract_sub_dimensions).unwrap_or((0, 0));
 
                     let ratio_obj = if w > 0 && h > 0 {
                         json!({ "width": w, "height": h })
                     } else {
                         Value::Null
                     };
+                    let rec_cnt = count_map.get(sub_key).copied().unwrap_or(0);
 
                     normalized.insert(
                         sub_key.clone(),
@@ -2827,15 +3042,10 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
                             "ratio": ratio_obj,
                             "width": w,
                             "height": h,
-                            "table": match main_key {
-                                "type-products" => "product",
-                                "type-static" => "static",
-                                "type-news" => "news",
-                                _ => "photo"
-                            },
+                            "table": table_cat,
                             "type_column": "type",
                             "type_value": sub_key,
-                            "record_count": 0
+                            "record_count": rec_cnt
                         }),
                     );
                 }
@@ -2856,32 +3066,45 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
                 .or_else(|| body_obj.get("folder").and_then(|v| v.as_str()))
                 .or_else(|| body_obj.get("folder_path").and_then(|v| v.as_str()))
                 .unwrap_or("");
+            let subdir = query.get("subdir").map(|s| s.trim_matches(['/', '\\'])).unwrap_or("");
+
             let mut folder = PathBuf::from(folder_param);
-            if folder_param == "project_images" || folder_param.is_empty() || !folder.is_dir() {
+            if folder_param == "custom_pool" {
+                let pool = get_settings_data()
+                    .get("images_pool_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if !pool.is_empty() {
+                    folder = PathBuf::from(pool);
+                }
+            } else if folder_param == "project_images" || folder_param.is_empty() || !folder.is_dir() {
                 if let Some(proj) = find_project(project_name, cat_opt) {
-                    let p_root = Path::new(&proj.path);
-                    let candidates = [
-                        p_root.join("assets/images/images"),
-                        p_root.join("assets/images"),
-                        p_root.join("upload/photo"),
-                        p_root.join("upload/product"),
-                        p_root.join("upload"),
-                    ];
-                    if let Some(cand) = candidates.iter().find(|d| d.is_dir()) {
-                        folder = cand.clone();
+                    if let Some(cand) = find_project_source_images_dir(Path::new(&proj.path)) {
+                        folder = cand;
                     }
                 }
+            }
+            if !subdir.is_empty() && folder.join(subdir).is_dir() {
+                folder = folder.join(subdir);
             }
             if !folder.is_dir() {
                 return json!({ "status": "error", "message": "Thư mục không tồn tại" });
             }
+            let mut subfolders = Vec::new();
             let mut files = Vec::new();
             if let Ok(entries) = fs::read_dir(&folder) {
                 for entry in entries.flatten() {
                     let p = entry.path();
-                    if p.is_file() {
+                    if p.is_dir() {
+                        let dname = entry.file_name().to_string_lossy().to_string();
+                        if !dname.starts_with('.') {
+                            subfolders.push(dname);
+                        }
+                    } else if p.is_file() {
                         let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
-                        if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp") {
+                        if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif") {
                             let (w, h) = get_image_dimensions_fast(&p);
                             let size = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
                             let fname = entry.file_name().to_string_lossy().to_string();
@@ -2902,7 +3125,8 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
                     }
                 }
             }
-            json!({ "status": "success", "images": files, "total": files.len() })
+            subfolders.sort();
+            json!({ "status": "success", "images": files, "subfolders": subfolders, "total": files.len() })
         }
         "seed" => {
             let proj = match find_project(project_name, cat_opt) {
@@ -2914,63 +3138,149 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
             if db.name.is_empty() {
                 return json!({ "status": "error", "message": "Dự án chưa cấu hình DB_NAME trong .env" });
             }
-            let table_cat = body_obj.get("table").and_then(|v| v.as_str()).unwrap_or("product");
-            let type_key = body_obj.get("type").and_then(|v| v.as_str()).unwrap_or("san-pham");
-            let count = body_obj
-                .get("count")
-                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
-                .unwrap_or(8)
-                .clamp(1, 50) as usize;
-            let folder_path = body_obj.get("folder").and_then(|v| v.as_str()).unwrap_or("");
+            let main_key = body_obj.get("main_key").and_then(|v| v.as_str()).unwrap_or("type-photo");
+            let table_cat = match main_key {
+                "type-products" => "product",
+                "type-static" => "static",
+                "type-news" => "news",
+                _ => "photo",
+            };
+            let upload_sub = match main_key {
+                "type-products" => "product",
+                "type-photo" => "photo",
+                _ => "news",
+            };
+            let prefix = if db.prefix.trim().is_empty() { "table_" } else { db.prefix.trim() };
+            let full_table = format!("{}{}", prefix, table_cat);
+            let cols = get_table_columns(&db, &full_table);
 
-            let mut source_imgs = Vec::new();
-            if !folder_path.is_empty() && Path::new(folder_path).is_dir() {
-                if let Ok(entries) = fs::read_dir(folder_path) {
-                    for entry in entries.flatten() {
-                        let p = entry.path();
-                        if p.is_file() {
-                            source_imgs.push(p);
+            let seed_count = body_obj
+                .get("seed_count")
+                .or_else(|| body_obj.get("count"))
+                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                .unwrap_or(5)
+                .clamp(1, 50) as usize;
+
+            let folder_param = body_obj.get("folder").and_then(|v| v.as_str()).unwrap_or("project_images");
+            let source_dir = if folder_param == "custom_pool" {
+                let pool = get_settings_data()
+                    .get("images_pool_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                PathBuf::from(pool)
+            } else if folder_param == "project_images" || folder_param.is_empty() {
+                find_project_source_images_dir(p_root).unwrap_or_else(|| p_root.join("assets/images"))
+            } else {
+                PathBuf::from(folder_param)
+            };
+
+            let upload_dir = if p_root.join("public").join("upload").join(upload_sub).is_dir() {
+                p_root.join("public").join("upload").join(upload_sub)
+            } else {
+                p_root.join("upload").join(upload_sub)
+            };
+            let _ = fs::create_dir_all(&upload_dir);
+
+            let mut sub_entries: Vec<(String, Vec<String>)> = Vec::new();
+            if let Some(sub_map) = body_obj.get("sub_types").and_then(|v| v.as_object()) {
+                for (sub_key, arr_val) in sub_map {
+                    let mut imgs = Vec::new();
+                    if let Some(arr) = arr_val.as_array() {
+                        for item in arr {
+                            if let Some(s) = item.as_str() {
+                                imgs.push(s.to_string());
+                            } else if let Some(s) = item.get("file").or_else(|| item.get("name")).and_then(|v| v.as_str()) {
+                                imgs.push(s.to_string());
+                            }
                         }
+                    }
+                    sub_entries.push((sub_key.clone(), imgs));
+                }
+            } else if let Some(t) = body_obj.get("type").and_then(|v| v.as_str()) {
+                sub_entries.push((t.to_string(), Vec::new()));
+            }
+
+            if sub_entries.is_empty() {
+                return json!({ "status": "error", "message": "Chưa chọn sub-type nào để tạo dữ liệu mẫu" });
+            }
+
+            let now = now_unix();
+            let mut details = serde_json::Map::new();
+            let mut errors: Vec<String> = Vec::new();
+            let mut total_seeded = 0usize;
+
+            for (sub_type, selected_files) in &sub_entries {
+                let mut sql_statements = Vec::new();
+                let count_for_sub = if selected_files.is_empty() {
+                    1
+                } else {
+                    seed_count.max(selected_files.len()).min(50)
+                };
+
+                for i in 1..=count_for_sub {
+                    let mut photo_name = String::new();
+                    if !selected_files.is_empty() {
+                        let fname = &selected_files[(i - 1) % selected_files.len()];
+                        let candidate = if Path::new(fname).is_file() {
+                            Some(PathBuf::from(fname))
+                        } else if source_dir.join(fname).is_file() {
+                            Some(source_dir.join(fname))
+                        } else {
+                            find_project_source_images_dir(p_root)
+                                .map(|d| d.join(fname))
+                                .filter(|p| p.is_file())
+                        };
+                        if let Some(src) = candidate {
+                            let ext = src.extension().and_then(|s| s.to_str()).unwrap_or("jpg");
+                            photo_name = format!("seed-{}-{}-{}.{}", sub_type, now, i, ext);
+                            let _ = fs::copy(&src, upload_dir.join(&photo_name));
+                        }
+                    }
+                    let name_vi = format!("{} mẫu {}", sub_type.replace('-', " "), i);
+                    let act_val = if table_cat == "photo" { "man_photo" } else { "" };
+                    let stmt = build_seed_insert_sql(
+                        &full_table,
+                        &cols,
+                        sub_type,
+                        &name_vi,
+                        &photo_name,
+                        i,
+                        now,
+                        act_val,
+                    );
+                    if !stmt.is_empty() {
+                        sql_statements.push(stmt);
+                    }
+                }
+
+                if sql_statements.is_empty() {
+                    errors.push(format!("Không tạo được câu SQL cho '{}'", sub_type));
+                    continue;
+                }
+
+                match run_mysql_query(&db, &sql_statements.join("\n"), true) {
+                    Ok(_) => {
+                        total_seeded += count_for_sub;
+                        details.insert(sub_type.clone(), json!({ "seeded": count_for_sub }));
+                    }
+                    Err(e) => {
+                        errors.push(format!("Lỗi SQL '{}': {}", sub_type, e.trim()));
                     }
                 }
             }
 
-            let upload_dir = p_root.join("upload").join(table_cat);
-            let _ = fs::create_dir_all(&upload_dir);
-            let now = now_unix();
-            let mut sql_statements = Vec::new();
-
-            for i in 1..=count {
-                let mut photo_name = String::new();
-                if !source_imgs.is_empty() {
-                    let src = &source_imgs[(i - 1) % source_imgs.len()];
-                    let ext = src.extension().and_then(|s| s.to_str()).unwrap_or("jpg");
-                    photo_name = format!("seed-{}-{}-{}.{}", type_key, now, i, ext);
-                    let _ = fs::copy(src, upload_dir.join(&photo_name));
-                }
-                let name_vi = format!("Mẫu {} số {}", type_key.replace('-', " "), i);
-                let slug_vi = format!("{}-mau-{}-{}", make_slug(&name_vi), i, now % 10000);
-                let sql = format!(
-                    "INSERT INTO `{}{}` (`slugvi`, `namevi`, `descvi`, `contentvi`, `photo`, `numb`, `status`, `type`, `date_created`) VALUES ('{}', '{}', 'Mô tả mẫu tự động', '<p>Nội dung mẫu tự động</p>', '{}', {}, 'hienthi,noibat', '{}', {});",
-                    db.prefix,
-                    table_cat,
-                    slug_vi.replace('\'', "\\'"),
-                    name_vi.replace('\'', "\\'"),
-                    photo_name.replace('\'', "\\'"),
-                    i,
-                    type_key.replace('\'', "\\'"),
-                    now
-                );
-                sql_statements.push(sql);
+            if total_seeded == 0 && !errors.is_empty() {
+                return json!({ "status": "error", "message": errors.join(" | "), "errors": errors });
             }
 
-            match run_mysql_query(&db, &sql_statements.join("\n"), true) {
-                Ok(_) => json!({
-                    "status": "success",
-                    "message": format!("Đã tạo thành công {} dữ liệu mẫu cho '{}'!", count, type_key)
-                }),
-                Err(e) => json!({ "status": "error", "message": format!("Lỗi SQL: {}", e) }),
-            }
+            json!({
+                "status": "success",
+                "details": Value::Object(details),
+                "errors": errors,
+                "message": format!("Đã tạo thành công {} bản ghi dữ liệu mẫu!", total_seeded)
+            })
         }
         _ => json!({ "status": "error", "message": "Action không hợp lệ" }),
     }
@@ -3388,9 +3698,14 @@ pub fn handle_setup_local_source(
     };
 
     let existing_db = parse_project_db_env(p_root);
+    let existing_is_local_matching = !existing_db.name.trim().is_empty()
+        && existing_db.host.eq_ignore_ascii_case("localhost")
+        && existing_db.user == "root"
+        && existing_db.pass.is_empty()
+        && existing_db.name.trim().eq_ignore_ascii_case(&default_db_name);
     let db_name = if !db_name_req.trim().is_empty() {
         db_name_req.trim().to_string()
-    } else if !existing_db.name.trim().is_empty() {
+    } else if existing_is_local_matching {
         existing_db.name.trim().to_string()
     } else {
         default_db_name
@@ -3532,6 +3847,10 @@ pub fn handle_setup_local_source(
                             env_lines.push(format!("SITE_PATH={}", site_path));
                             updated_keys.insert("SITE_PATH".to_string());
                         }
+                        "APP_URL" => {
+                            env_lines.push("APP_URL=http://localhost${SITE_PATH}".to_string());
+                            updated_keys.insert("APP_URL".to_string());
+                        }
                         "DB_DATABASE" => {
                             env_lines.push(format!("DB_DATABASE={}", db_name));
                             updated_keys.insert("DB_DATABASE".to_string());
@@ -3601,6 +3920,20 @@ pub fn handle_setup_local_source(
             env_lines.push("DB_PASSWORD=".to_string());
         }
         let _ = fs::write(&env_file, env_lines.join("\n") + "\n");
+    }
+
+    // 5b. Clean .htaccess for local HTTP (remove forced HTTPS redirects & lock.php)
+    let htaccess_file = p_root.join(".htaccess");
+    if htaccess_file.is_file() {
+        if let Ok(ht) = fs::read_to_string(&htaccess_file) {
+            let re_ssl_block = Regex::new(r"(?is)# BEGIN RamboWoon SSL.*?# END RamboWoon SSL\s*").unwrap();
+            let re_https_redirect = Regex::new(r"(?im)^\s*RewriteCond\s+%\{HTTPS\}\s+(?:on|off)\s*\r?\n\s*RewriteRule\s+.*?(?:https?|http)://%\{HTTP_HOST\}.*?\r?\n?").unwrap();
+            let re_lock = Regex::new(r"(?i)\block\.php\s*").unwrap();
+            let cleaned = re_ssl_block.replace_all(&ht, "");
+            let cleaned = re_https_redirect.replace_all(&cleaned, "");
+            let cleaned = re_lock.replace_all(&cleaned, "");
+            let _ = fs::write(&htaccess_file, cleaned.trim().to_string() + "\n");
+        }
     }
 
     // 6. Save configured_local: true in SQLite
@@ -4524,51 +4857,509 @@ pub fn get_sync_backup_dir(project_name: &str, category: &str) -> PathBuf {
     dir
 }
 
-pub fn handle_fm_list(project_name: &str, category: &str, rel_dir: &str) -> Value {
-    let proj = match find_project(project_name, Some(category)) {
-        Some(p) => p,
-        None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
-    };
-    let clean_rel = rel_dir.trim_matches('/').trim_matches('\\');
-    let target = if clean_rel.is_empty() {
-        PathBuf::from(&proj.path)
-    } else {
-        Path::new(&proj.path).join(clean_rel)
-    };
-    if !target.is_dir() {
-        return json!({ "status": "error", "message": "Thư mục không tồn tại" });
+fn sanitize_remote_rel(rel: &str) -> Result<String, String> {
+    let norm = rel.replace('\\', "/");
+    let mut parts = Vec::new();
+    for seg in norm.split('/') {
+        let s = seg.trim();
+        if s.is_empty() || s == "." {
+            continue;
+        }
+        if s == ".." {
+            return Err("Đường dẫn không hợp lệ (chứa '..')".to_string());
+        }
+        parts.push(s);
     }
-    let mut items = Vec::new();
-    if let Ok(entries) = fs::read_dir(&target) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            let fname = entry.file_name().to_string_lossy().to_string();
-            if fname == "." || fname == ".." {
+    Ok(parts.join("/"))
+}
+
+fn join_remote_path(base: &str, rel: &str) -> String {
+    let b = base.trim_end_matches('/');
+    let r = rel.trim_matches('/');
+    let joined = if r.is_empty() {
+        b.to_string()
+    } else if b.is_empty() {
+        format!("/{}", r)
+    } else {
+        format!("{}/{}", b, r)
+    };
+    if joined.starts_with('/') {
+        joined
+    } else {
+        format!("/{}", joined)
+    }
+}
+
+fn resolve_fm_target(
+    project_name: &str,
+    category: &str,
+    env: &str,
+) -> Result<(DeployServerCfg, String), String> {
+    let proj = find_project(project_name, Some(category))
+        .ok_or_else(|| format!("Dự án '{}' không tồn tại", project_name))?;
+    let proj_cfg = get_project_config_entry(project_name, category);
+
+    if env.trim().eq_ignore_ascii_case("prod") {
+        let pmap = proj_cfg
+            .get("prod")
+            .and_then(|v| v.as_object())
+            .ok_or_else(|| "Chưa cấu hình Hosting Production cho dự án này.".to_string())?;
+        let ps = |k: &str| {
+            pmap.get(k)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        };
+        let ftp_host = ps("ftp_host");
+        let ftp_user = ps("ftp_user");
+        let ftp_pass = ps("ftp_pass");
+        if ftp_host.is_empty() || ftp_user.is_empty() || ftp_pass.is_empty() {
+            return Err("Thiếu thông tin FTP Host / User / Pass Production cho dự án này.".to_string());
+        }
+        let mut web_domain = ps("web_domain");
+        if web_domain.is_empty() {
+            web_domain = proj_cfg
+                .get("deployed")
+                .and_then(|d| d.get("production"))
+                .and_then(|d| d.get("url"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+        }
+        let mut ftp_root = ps("ftp_root");
+        if ftp_root.is_empty() {
+            ftp_root = "/public_html".to_string();
+        }
+        let clean_dom = web_domain
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_end_matches('/');
+        if !clean_dom.is_empty() {
+            ftp_root = ftp_root.replace("{domain}", clean_dom);
+        }
+        let da_user = {
+            let d = ps("da_user");
+            if d.is_empty() { ftp_user.clone() } else { d }
+        };
+        let da_port = {
+            let p = ps("da_port");
+            if p.is_empty() { "1111".to_string() } else { p }
+        };
+        let cfg = DeployServerCfg {
+            id: "production".to_string(),
+            ftp_host,
+            ftp_user,
+            ftp_pass,
+            ftp_root: ftp_root.clone(),
+            web_domain,
+            da_user,
+            da_port,
+            db_name: ps("db_name"),
+            db_user: ps("db_user"),
+            db_pass: ps("db_pass"),
+            ssl: pmap.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false),
+            clear_db: false,
+            turnstile_sitekey: String::new(),
+            turnstile_secretkey: String::new(),
+            email_user: String::new(),
+            email_pass: String::new(),
+        };
+        return Ok((cfg, join_remote_path(&ftp_root, "")));
+    }
+
+    // Demo environment
+    let demo_dep = proj_cfg.get("deployed").and_then(|d| d.get("demo"));
+    let demo_server_id = demo_dep
+        .and_then(|d| d.get("demo_server_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let custom_domain = demo_dep
+        .and_then(|d| d.get("custom_domain"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let srv = resolve_demo_server_cfg(&proj_cfg, demo_server_id, custom_domain)?;
+
+    let demo_sub = demo_dep
+        .and_then(|d| d.get("demo_path"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().trim_matches('/').to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| proj.rel_path.replace('\\', "/"));
+
+    let base_root = join_remote_path(&srv.ftp_root, &demo_sub);
+    Ok((srv, base_root))
+}
+
+fn url_encode_path(p: &str) -> String {
+    let mut out = String::new();
+    for b in p.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'/' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+fn da_fm_list_detailed(cfg: &DeployServerCfg, abs_dir: &str, rel_prefix: &str) -> Result<Vec<Value>, String> {
+    let qs_path = url_encode_path(abs_dir);
+    let endpoint = format!("CMD_API_FILE_MANAGER?action=json&path={}", qs_path);
+    let raw = da_get(cfg, &endpoint)?;
+    let lower = raw.to_lowercase();
+    if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&raw) {
+        let mut items = Vec::new();
+        for (k, v) in map {
+            let trimmed = k.trim().trim_start_matches('/').to_string();
+            if trimmed.is_empty() || trimmed == "." || trimmed == ".." || trimmed == "info" || trimmed == "error" {
                 continue;
             }
-            let is_dir = p.is_dir();
-            let size = if is_dir {
-                0
+            if let Some(meta) = v.as_object() {
+                let base = trimmed.rsplit('/').next().unwrap_or(&trimmed).to_string();
+                if base.is_empty() || base == "." || base == ".." {
+                    continue;
+                }
+                let ty = meta.get("type").and_then(|x| x.as_str()).unwrap_or("");
+                let is_dir = ty.eq_ignore_ascii_case("dir")
+                    || meta.get("is_dir").and_then(|x| x.as_bool()).unwrap_or(false);
+                let size = meta
+                    .get("size")
+                    .and_then(|x| x.as_u64().or_else(|| x.as_str().and_then(|s| s.parse::<u64>().ok())))
+                    .unwrap_or(0);
+                let mtime = meta
+                    .get("mtime")
+                    .and_then(|x| x.as_i64().or_else(|| x.as_str().and_then(|s| s.parse::<i64>().ok())))
+                    .unwrap_or(0);
+                let perms = meta
+                    .get("permission")
+                    .or_else(|| meta.get("perms"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or(if is_dir { "0755" } else { "0644" })
+                    .to_string();
+                let item_rel = if rel_prefix.is_empty() {
+                    base.clone()
+                } else {
+                    format!("{}/{}", rel_prefix, base)
+                };
+                items.push(json!({
+                    "name": base,
+                    "path": item_rel,
+                    "type": if is_dir { "dir" } else { "file" },
+                    "is_dir": is_dir,
+                    "size": size,
+                    "mtime": mtime,
+                    "perms": perms
+                }));
+            }
+        }
+        return Ok(items);
+    }
+    if lower.contains("does not exist")
+        || lower.contains("unable to open directory")
+        || lower.contains("cannot read directory")
+    {
+        return Err("Thư mục không tồn tại trên máy chủ".to_string());
+    }
+    Err("DirectAdmin không trả về danh sách JSON hợp lệ".to_string())
+}
+
+fn parse_ftp_ls_detailed(stdout: &str, rel_prefix: &str) -> Vec<Value> {
+    let mut items = Vec::new();
+    for raw_line in stdout.lines() {
+        let line = raw_line.trim_end_matches('\r');
+        if line.trim().is_empty() || line.starts_with("total ") {
+            continue;
+        }
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        if tokens.len() >= 9 && (line.starts_with('d') || line.starts_with('-') || line.starts_with('l')) {
+            let perms = tokens[0];
+            let is_dir = perms.starts_with('d');
+            let size = tokens[4].parse::<u64>().unwrap_or(0);
+            let name = tokens[8..].join(" ");
+            let name = if perms.starts_with('l') {
+                name.split(" -> ").next().unwrap_or(&name).to_string()
             } else {
-                fs::metadata(&p).map(|m| m.len()).unwrap_or(0)
+                name
             };
-            let mtime = file_mtime_secs(&p);
-            let item_rel = if clean_rel.is_empty() {
-                fname.clone()
+            if name == "." || name == ".." || name.is_empty() {
+                continue;
+            }
+            let item_rel = if rel_prefix.is_empty() {
+                name.clone()
             } else {
-                format!("{}/{}", clean_rel, fname)
+                format!("{}/{}", rel_prefix, name)
             };
             items.push(json!({
-                "name": fname,
+                "name": name,
+                "path": item_rel,
+                "type": if is_dir { "dir" } else { "file" },
+                "is_dir": is_dir,
+                "size": if is_dir { 0 } else { size },
+                "mtime": 0,
+                "perms": perms
+            }));
+        } else if tokens.len() >= 4 && (tokens[2] == "<DIR>" || tokens[2].chars().all(|c| c.is_ascii_digit())) {
+            let is_dir = tokens[2] == "<DIR>";
+            let size = if is_dir { 0 } else { tokens[2].parse::<u64>().unwrap_or(0) };
+            let name = tokens[3..].join(" ");
+            if name == "." || name == ".." || name.is_empty() {
+                continue;
+            }
+            let item_rel = if rel_prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{}/{}", rel_prefix, name)
+            };
+            items.push(json!({
+                "name": name,
                 "path": item_rel,
                 "type": if is_dir { "dir" } else { "file" },
                 "is_dir": is_dir,
                 "size": size,
-                "mtime": mtime,
-                "perms": "0755"
+                "mtime": 0,
+                "perms": if is_dir { "0755" } else { "0644" }
             }));
         }
     }
+    items
+}
+
+fn ftp_list_detailed(cfg: &DeployServerCfg, abs_dir: &str, rel_prefix: &str) -> Result<Vec<Value>, String> {
+    let rel = abs_dir.trim_matches('/');
+    let url = if rel.is_empty() {
+        format!("ftp://{}/", cfg.ftp_host)
+    } else {
+        format!("ftp://{}/{}/", cfg.ftp_host, rel)
+    };
+    let user_pass = format!("{}:{}", cfg.ftp_user, cfg.ftp_pass);
+
+    let mut last_err = String::new();
+    for use_ssl in [true, false] {
+        let mut args = vec![
+            "-s", "-S", "--connect-timeout", "10", "--max-time", "20", "--disable-epsv",
+        ];
+        if use_ssl {
+            args.extend(["--ssl", "--insecure", "--no-sessionid"]);
+        }
+        args.extend(["--user", &user_pass, &url]);
+
+        if let Ok(o) = create_hidden_command("C:\\Windows\\System32\\curl.exe").args(&args).output() {
+            if o.status.success() {
+                let txt = String::from_utf8_lossy(&o.stdout);
+                return Ok(parse_ftp_ls_detailed(&txt, rel_prefix));
+            }
+            let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            if !err.is_empty() {
+                last_err = err;
+            }
+        }
+    }
+
+    Err(if last_err.is_empty() {
+        "Không thể kết nối FTP để đọc thư mục".to_string()
+    } else {
+        last_err
+    })
+}
+
+fn remote_download_bytes(cfg: &DeployServerCfg, abs_file: &str) -> Result<Vec<u8>, String> {
+    let rel = abs_file.trim_start_matches('/');
+    let url = format!("ftp://{}/{}", cfg.ftp_host, rel);
+    let user_pass = format!("{}:{}", cfg.ftp_user, cfg.ftp_pass);
+    let mut last_err = String::new();
+
+    for use_ssl in [true, false] {
+        let mut args = vec![
+            "-s", "-S", "-f", "--connect-timeout", "10", "--max-time", "30", "--disable-epsv",
+        ];
+        if use_ssl {
+            args.extend(["--ssl", "--insecure", "--no-sessionid"]);
+        }
+        args.extend(["--user", &user_pass, &url]);
+        if let Ok(o) = create_hidden_command("C:\\Windows\\System32\\curl.exe").args(&args).output() {
+            if o.status.success() {
+                return Ok(o.stdout);
+            }
+            let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            if !err.is_empty() {
+                last_err = err;
+            }
+        }
+    }
+    Err(if last_err.is_empty() {
+        "Không thể tải file từ máy chủ".to_string()
+    } else {
+        last_err
+    })
+}
+
+fn remote_upload_bytes(cfg: &DeployServerCfg, abs_file: &str, bytes: &[u8]) -> Result<(), String> {
+    let tmp_dir = get_manager_data_root().join("temp_conv");
+    let _ = fs::create_dir_all(&tmp_dir);
+    let tmp_file = tmp_dir.join(format!("fm_up_{}.tmp", now_unix()));
+    fs::write(&tmp_file, bytes).map_err(|e| format!("Lỗi tạo file tạm: {}", e))?;
+
+    let rel = abs_file.trim_start_matches('/');
+    let url = format!("ftp://{}/{}", cfg.ftp_host, rel);
+    let user_pass = format!("{}:{}", cfg.ftp_user, cfg.ftp_pass);
+    let tmp_str = tmp_file.to_string_lossy().to_string();
+    let mut last_err = String::new();
+    let mut ok = false;
+
+    for use_ssl in [true, false] {
+        let mut args = vec![
+            "-s", "-S", "--ftp-create-dirs", "--connect-timeout", "15", "--max-time", "120", "--disable-epsv",
+        ];
+        if use_ssl {
+            args.extend(["--ssl", "--insecure", "--no-sessionid"]);
+        }
+        args.extend(["--user", &user_pass, "-T", &tmp_str, &url]);
+        if let Ok(o) = create_hidden_command("C:\\Windows\\System32\\curl.exe").args(&args).output() {
+            if o.status.success() {
+                ok = true;
+                break;
+            }
+            let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            if !err.is_empty() {
+                last_err = err;
+            }
+        }
+    }
+
+    let _ = fs::remove_file(&tmp_file);
+    if ok {
+        Ok(())
+    } else {
+        Err(if last_err.is_empty() {
+            "Upload lên máy chủ thất bại".to_string()
+        } else {
+            last_err
+        })
+    }
+}
+
+fn ftp_exec_quote(cfg: &DeployServerCfg, quote_cmd: &str) -> Result<(), String> {
+    let url = format!("ftp://{}/", cfg.ftp_host);
+    let user_pass = format!("{}:{}", cfg.ftp_user, cfg.ftp_pass);
+    let mut last_err = String::new();
+    for use_ssl in [true, false] {
+        let mut args = vec![
+            "-s", "-S", "--connect-timeout", "10", "--max-time", "20", "--disable-epsv",
+        ];
+        if use_ssl {
+            args.extend(["--ssl", "--insecure", "--no-sessionid"]);
+        }
+        args.extend(["--user", &user_pass, "-Q", quote_cmd, &url]);
+        if let Ok(o) = create_hidden_command("C:\\Windows\\System32\\curl.exe").args(&args).output() {
+            if o.status.success() {
+                return Ok(());
+            }
+            let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            if !err.is_empty() {
+                last_err = err;
+            }
+        }
+    }
+    Err(if last_err.is_empty() {
+        format!("Lệnh FTP '{}' thất bại", quote_cmd)
+    } else {
+        last_err
+    })
+}
+
+fn remote_mkdir(cfg: &DeployServerCfg, abs_dir: &str) -> Result<(), String> {
+    let parent = abs_dir.rsplit_once('/').map(|(p, _)| if p.is_empty() { "/" } else { p }).unwrap_or("/");
+    let name = abs_dir.rsplit('/').next().unwrap_or("");
+    if name.is_empty() {
+        return Err("Tên thư mục không hợp lệ".to_string());
+    }
+    if let Ok(raw) = da_post_form(
+        cfg,
+        "CMD_API_FILE_MANAGER",
+        &[("action", "mkdir"), ("path", parent), ("name", name)],
+    ) {
+        let dec = url_decode_simple(&raw).to_lowercase();
+        if dec.contains("error=0") {
+            return Ok(());
+        }
+    }
+    ftp_exec_quote(cfg, &format!("MKD {}", abs_dir))
+}
+
+fn remote_delete_entry(
+    cfg: &DeployServerCfg,
+    base_root: &str,
+    abs_target: &str,
+    is_dir: bool,
+) -> Result<(), String> {
+    let root_norm = base_root.trim_end_matches('/');
+    let prefix = format!("{}/", root_norm);
+    if !abs_target.starts_with(&prefix) || abs_target.len() <= prefix.len() {
+        return Err("Từ chối xóa thư mục gốc hoặc đường dẫn ngoài dự án!".to_string());
+    }
+
+    // Attempt 1: DirectAdmin File Manager API (handles recursive dir & file cleanly)
+    let parent = abs_target
+        .rsplit_once('/')
+        .map(|(p, _)| if p.is_empty() { "/" } else { p })
+        .unwrap_or("/");
+    if let Ok(raw) = da_post_form(
+        cfg,
+        "CMD_API_FILE_MANAGER",
+        &[
+            ("action", "multiple"),
+            ("button", "delete"),
+            ("path", parent),
+            ("select0", abs_target),
+        ],
+    ) {
+        let dec = url_decode_simple(&raw).to_lowercase();
+        if dec.contains("error=0") {
+            return Ok(());
+        }
+    }
+
+    // Attempt 2: FTP DELE / recursive RMD
+    if !is_dir {
+        return ftp_exec_quote(cfg, &format!("DELE {}", abs_target));
+    }
+
+    if let Ok(children) = ftp_list_detailed(cfg, abs_target, "") {
+        for ch in children {
+            let cname = ch.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let cdir = ch.get("is_dir").and_then(|v| v.as_bool()).unwrap_or(false);
+            if cname.is_empty() || cname == "." || cname == ".." {
+                continue;
+            }
+            let child_abs = format!("{}/{}", abs_target.trim_end_matches('/'), cname);
+            remote_delete_entry(cfg, base_root, &child_abs, cdir)?;
+        }
+    }
+    ftp_exec_quote(cfg, &format!("RMD {}", abs_target))
+}
+
+pub fn handle_fm_list(project_name: &str, category: &str, rel_dir: &str, env: &str) -> Value {
+    let clean_rel = match sanitize_remote_rel(rel_dir) {
+        Ok(r) => r,
+        Err(e) => return json!({ "status": "error", "message": e }),
+    };
+    let (cfg, base_root) = match resolve_fm_target(project_name, category, env) {
+        Ok(v) => v,
+        Err(e) => return json!({ "status": "error", "message": e }),
+    };
+    let abs_dir = join_remote_path(&base_root, &clean_rel);
+
+    let mut items = match da_fm_list_detailed(&cfg, &abs_dir, &clean_rel) {
+        Ok(v) => v,
+        Err(_) => match ftp_list_detailed(&cfg, &abs_dir, &clean_rel) {
+            Ok(v) => v,
+            Err(e) => return json!({ "status": "error", "message": format!("Không thể duyệt thư mục trên host ({}): {}", abs_dir, e) }),
+        },
+    };
+
     items.sort_by(|a, b| {
         let da = a.get("is_dir").and_then(|v| v.as_bool()).unwrap_or(false);
         let db = b.get("is_dir").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -4579,66 +5370,142 @@ pub fn handle_fm_list(project_name: &str, category: &str, rel_dir: &str) -> Valu
         let nb = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
         na.to_lowercase().cmp(&nb.to_lowercase())
     });
+
     json!({
         "status": "success",
         "path": clean_rel,
+        "remote_root": base_root,
+        "host": cfg.ftp_host,
         "items": items,
         "data": items
     })
 }
 
-pub fn handle_fm_get(project_name: &str, category: &str, rel_file: &str) -> Value {
-    let proj = match find_project(project_name, Some(category)) {
-        Some(p) => p,
-        None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
+pub fn handle_fm_get(project_name: &str, category: &str, rel_file: &str, env: &str) -> Value {
+    let clean_rel = match sanitize_remote_rel(rel_file) {
+        Ok(r) if !r.is_empty() => r,
+        _ => return json!({ "status": "error", "message": "Đường dẫn file không hợp lệ" }),
     };
-    let clean_rel = rel_file.trim_start_matches('/').trim_start_matches('\\');
-    let fpath = Path::new(&proj.path).join(clean_rel);
-    if !fpath.is_file() {
-        return json!({ "status": "error", "message": "File không tồn tại" });
-    }
-    match fs::read_to_string(&fpath) {
-        Ok(content) => json!({
+    let (cfg, base_root) = match resolve_fm_target(project_name, category, env) {
+        Ok(v) => v,
+        Err(e) => return json!({ "status": "error", "message": e }),
+    };
+    let abs_file = join_remote_path(&base_root, &clean_rel);
+    match remote_download_bytes(&cfg, &abs_file) {
+        Ok(bytes) => json!({
             "status": "success",
-            "content": content,
+            "content": String::from_utf8_lossy(&bytes).to_string(),
             "path": clean_rel
         }),
-        Err(_) => {
-            let bytes = fs::read(&fpath).unwrap_or_default();
-            json!({
-                "status": "success",
-                "content": String::from_utf8_lossy(&bytes).to_string(),
-                "path": clean_rel
-            })
-        }
+        Err(e) => json!({ "status": "error", "message": e }),
     }
 }
 
-pub fn handle_fm_save(project_name: &str, category: &str, rel_file: &str, content: &str) -> Value {
-    let proj = match find_project(project_name, Some(category)) {
-        Some(p) => p,
-        None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
+pub fn handle_fm_save(
+    project_name: &str,
+    category: &str,
+    rel_file: &str,
+    content: &str,
+    env: &str,
+) -> Value {
+    let clean_rel = match sanitize_remote_rel(rel_file) {
+        Ok(r) if !r.is_empty() => r,
+        _ => return json!({ "status": "error", "message": "Đường dẫn file không hợp lệ" }),
     };
-    let clean_rel = rel_file.trim_start_matches('/').trim_start_matches('\\');
-    let fpath = Path::new(&proj.path).join(clean_rel);
+    let (cfg, base_root) = match resolve_fm_target(project_name, category, env) {
+        Ok(v) => v,
+        Err(e) => return json!({ "status": "error", "message": e }),
+    };
+    let abs_file = join_remote_path(&base_root, &clean_rel);
 
-    // Save a snapshot backup before overwriting
-    if fpath.is_file() {
+    // Save a remote backup snapshot before overwriting
+    if let Ok(old_bytes) = remote_download_bytes(&cfg, &abs_file) {
         let bdir = get_sync_backup_dir(project_name, category);
-        let safe_bname = format!(
-            "{}__{}.bak",
-            clean_rel.replace('/', "__").replace('\\', "__"),
-            now_unix()
-        );
-        let _ = fs::copy(&fpath, bdir.join(safe_bname));
+        save_sync_backup_snapshot(&bdir, &clean_rel, env, "remote_before_edit", now_unix(), &old_bytes);
     }
-    if let Some(parent) = fpath.parent() {
-        let _ = fs::create_dir_all(parent);
+
+    match remote_upload_bytes(&cfg, &abs_file, content.as_bytes()) {
+        Ok(_) => json!({ "status": "success", "message": "Đã lưu file lên host thành công!" }),
+        Err(e) => json!({ "status": "error", "message": format!("Không thể lưu file lên host: {}", e) }),
     }
-    match fs::write(&fpath, content) {
-        Ok(_) => json!({ "status": "success", "message": "Đã lưu file thành công!" }),
-        Err(e) => json!({ "status": "error", "message": format!("Không thể ghi file: {}", e) }),
+}
+
+fn save_sync_backup_snapshot(
+    bdir: &Path,
+    clean_rel: &str,
+    env: &str,
+    backup_type: &str,
+    ts: u64,
+    bytes: &[u8],
+) {
+    let norm_env = if env.eq_ignore_ascii_case("prod") { "prod" } else { "demo" };
+    let suffix = match backup_type {
+        "remote_before_upload" => "host",
+        "local_before_download" => "local",
+        "before_restore" => "restore",
+        _ => "edit",
+    };
+    let safe_bname = format!(
+        "{}__{}_{}_{}.bak",
+        clean_rel.replace('/', "__").replace('\\', "__"),
+        norm_env,
+        ts,
+        suffix
+    );
+    let bpath = bdir.join(&safe_bname);
+    if fs::write(&bpath, bytes).is_ok() {
+        let dt = chrono::DateTime::from_timestamp(ts as i64, 0)
+            .map(|d| d.with_timezone(&Local));
+        let date_str = dt.as_ref().map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default();
+        let time_str = dt.as_ref().map(|d| d.format("%H:%M:%S").to_string()).unwrap_or_default();
+        let meta = json!({
+            "backup_file": safe_bname,
+            "original_rel_path": clean_rel.replace('\\', "/"),
+            "env": norm_env,
+            "type": backup_type,
+            "timestamp": ts,
+            "date": date_str,
+            "time": time_str,
+            "size": bytes.len(),
+        });
+        let meta_path = bdir.join(format!("{}.meta.json", safe_bname));
+        let _ = fs::write(meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default());
     }
+}
+
+fn parse_legacy_backup_meta(fname: &str, size: u64, mtime: u64) -> Value {
+    let b_type = if fname.ends_with("_host.bak") {
+        "remote_before_upload"
+    } else if fname.ends_with("_local.bak") {
+        "local_before_download"
+    } else if fname.ends_with("_restore.bak") {
+        "before_restore"
+    } else {
+        "remote_before_edit"
+    };
+    let env = if fname.contains("__prod_") { "prod" } else { "demo" };
+    let orig_rel = fname
+        .split("__")
+        .collect::<Vec<&str>>()
+        .split_last()
+        .map(|(_, head)| head.join("/"))
+        .unwrap_or_else(|| fname.to_string());
+    let dt = chrono::DateTime::from_timestamp(mtime as i64, 0)
+        .map(|d| d.with_timezone(&Local));
+    let date_str = dt.as_ref().map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default();
+    let time_str = dt.as_ref().map(|d| d.format("%H:%M:%S").to_string()).unwrap_or_default();
+    json!({
+        "id": fname,
+        "backup_file": fname,
+        "original_rel_path": orig_rel,
+        "env": env,
+        "type": b_type,
+        "size": size,
+        "mtime": mtime,
+        "timestamp": mtime,
+        "date": date_str,
+        "time": time_str,
+    })
 }
 
 pub fn handle_fm_list_backups(project_name: &str, category: &str) -> Value {
@@ -4649,30 +5516,48 @@ pub fn handle_fm_list_backups(project_name: &str, category: &str) -> Value {
             let p = entry.path();
             if p.is_file() {
                 let fname = entry.file_name().to_string_lossy().to_string();
+                if fname.ends_with(".meta.json") {
+                    continue;
+                }
                 let size = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
                 let mtime = file_mtime_secs(&p);
-                let orig_rel = fname
-                    .split("__")
-                    .collect::<Vec<&str>>()
-                    .split_last()
-                    .map(|(_, head)| head.join("/"))
-                    .unwrap_or_else(|| fname.clone());
-                backups.push(json!({
-                    "id": fname,
-                    "filename": fname,
-                    "file": orig_rel,
-                    "size": size,
-                    "mtime": mtime,
-                    "date": chrono::DateTime::from_timestamp(mtime as i64, 0)
-                        .map(|dt| dt.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string())
-                        .unwrap_or_default()
-                }));
+                let meta_path = bdir.join(format!("{}.meta.json", fname));
+                let mut item = if let Ok(raw) = fs::read_to_string(&meta_path) {
+                    if let Ok(mut parsed) = serde_json::from_str::<Value>(&raw) {
+                        if parsed.get("backup_file").is_none() {
+                            parsed["backup_file"] = json!(fname);
+                        }
+                        if parsed.get("mtime").is_none() {
+                            parsed["mtime"] = json!(mtime);
+                        }
+                        if parsed.get("size").is_none() {
+                            parsed["size"] = json!(size);
+                        }
+                        parsed
+                    } else {
+                        parse_legacy_backup_meta(&fname, size, mtime)
+                    }
+                } else {
+                    parse_legacy_backup_meta(&fname, size, mtime)
+                };
+                if item.get("mtime").and_then(|v| v.as_u64()).is_none() {
+                    item["mtime"] = json!(mtime);
+                }
+                backups.push(item);
             }
         }
     }
     backups.sort_by(|a, b| {
-        let ma = a.get("mtime").and_then(|v| v.as_u64()).unwrap_or(0);
-        let mb = b.get("mtime").and_then(|v| v.as_u64()).unwrap_or(0);
+        let ma = a
+            .get("timestamp")
+            .or_else(|| a.get("mtime"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let mb = b
+            .get("timestamp")
+            .or_else(|| b.get("mtime"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
         mb.cmp(&ma)
     });
     json!({ "status": "success", "backups": backups, "data": backups })
@@ -4689,7 +5574,14 @@ pub fn handle_fm_get_backup_content(project_name: &str, category: &str, backup_i
     json!({ "status": "success", "content": content })
 }
 
-pub fn handle_fm_restore_backup(project_name: &str, category: &str, backup_id: &str) -> Value {
+pub fn handle_fm_restore_backup(
+    project_name: &str,
+    category: &str,
+    backup_id: &str,
+    rel_path_override: &str,
+    target: &str,
+    env: &str,
+) -> Value {
     let proj = match find_project(project_name, Some(category)) {
         Some(p) => p,
         None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
@@ -4700,28 +5592,75 @@ pub fn handle_fm_restore_backup(project_name: &str, category: &str, backup_id: &
     if !bpath.is_file() {
         return json!({ "status": "error", "message": "Bản sao lưu không tồn tại" });
     }
-    let orig_rel = safe
-        .split("__")
-        .collect::<Vec<&str>>()
-        .split_last()
-        .map(|(_, head)| head.join("/"))
+    let meta_rel = fs::read_to_string(bdir.join(format!("{}.meta.json", safe)))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|v| v.get("original_rel_path").and_then(|s| s.as_str()).map(|s| s.to_string()))
         .unwrap_or_default();
-    if orig_rel.is_empty() {
-        return json!({ "status": "error", "message": "Không xác định được đường dẫn gốc" });
+
+    let orig_rel = if !rel_path_override.trim().is_empty() {
+        rel_path_override.trim().replace('\\', "/").trim_start_matches('/').to_string()
+    } else if !meta_rel.is_empty() {
+        meta_rel
+    } else {
+        safe.split("__")
+            .collect::<Vec<&str>>()
+            .split_last()
+            .map(|(_, head)| head.join("/"))
+            .unwrap_or_default()
+    };
+    if orig_rel.is_empty() || orig_rel.contains("..") {
+        return json!({ "status": "error", "message": "Không xác định được đường dẫn gốc hợp lệ" });
     }
-    let dest = Path::new(&proj.path).join(&orig_rel);
-    if let Some(parent) = dest.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    match fs::copy(&bpath, &dest) {
-        Ok(_) => json!({ "status": "success", "message": format!("Đã khôi phục file {}!", orig_rel) }),
-        Err(e) => json!({ "status": "error", "message": e.to_string() }),
+
+    let backup_bytes = match fs::read(&bpath) {
+        Ok(b) => b,
+        Err(e) => return json!({ "status": "error", "message": format!("Không đọc được file backup: {}", e) }),
+    };
+    let norm_env = if env.eq_ignore_ascii_case("prod") { "prod" } else { "demo" };
+    let ts = now_unix();
+
+    if target.eq_ignore_ascii_case("remote") {
+        let (cfg, base_root) = match resolve_fm_target(project_name, category, norm_env) {
+            Ok(v) => v,
+            Err(e) => return json!({ "status": "error", "message": e }),
+        };
+        let abs_remote = join_remote_path(&base_root, &orig_rel);
+        if let Ok(cur_remote) = remote_download_bytes(&cfg, &abs_remote) {
+            save_sync_backup_snapshot(&bdir, &orig_rel, norm_env, "before_restore", ts, &cur_remote);
+        }
+        match remote_upload_bytes(&cfg, &abs_remote, &backup_bytes) {
+            Ok(_) => json!({
+                "status": "success",
+                "message": format!("Đã khôi phục file {} lên {}!", orig_rel, if norm_env == "prod" { "Production" } else { "Demo" })
+            }),
+            Err(e) => json!({ "status": "error", "message": format!("Lỗi upload khi khôi phục: {}", e) }),
+        }
+    } else {
+        let dest = Path::new(&proj.path).join(&orig_rel);
+        if dest.is_file() {
+            if let Ok(cur_local) = fs::read(&dest) {
+                save_sync_backup_snapshot(&bdir, &orig_rel, norm_env, "before_restore", ts, &cur_local);
+            }
+        }
+        if let Some(parent) = dest.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        match fs::write(&dest, &backup_bytes) {
+            Ok(_) => json!({ "status": "success", "message": format!("Đã khôi phục file {} về Local!", orig_rel) }),
+            Err(e) => json!({ "status": "error", "message": e.to_string() }),
+        }
     }
 }
 
-pub fn handle_fm_delete_backups(project_name: &str, category: &str, backup_id: &str) -> Value {
+pub fn handle_fm_delete_backups(
+    project_name: &str,
+    category: &str,
+    backup_files: &[String],
+    delete_all: bool,
+) -> Value {
     let bdir = get_sync_backup_dir(project_name, category);
-    if backup_id == "all" || backup_id.is_empty() {
+    if delete_all {
         if let Ok(entries) = fs::read_dir(&bdir) {
             for entry in entries.flatten() {
                 let _ = fs::remove_file(entry.path());
@@ -4729,54 +5668,363 @@ pub fn handle_fm_delete_backups(project_name: &str, category: &str, backup_id: &
         }
         return json!({ "status": "success", "message": "Đã xóa toàn bộ bản sao lưu!" });
     }
-    let safe = Path::new(backup_id).file_name().and_then(|s| s.to_str()).unwrap_or("");
-    let _ = fs::remove_file(bdir.join(safe));
-    json!({ "status": "success", "message": "Đã xóa bản sao lưu!" })
+    if backup_files.is_empty() {
+        return json!({ "status": "error", "message": "Không có bản sao lưu nào được chọn để xóa" });
+    }
+    let mut deleted = 0usize;
+    for bf in backup_files {
+        let safe = Path::new(bf).file_name().and_then(|s| s.to_str()).unwrap_or("");
+        if safe.is_empty() {
+            continue;
+        }
+        if fs::remove_file(bdir.join(safe)).is_ok() {
+            deleted += 1;
+        }
+        let _ = fs::remove_file(bdir.join(format!("{}.meta.json", safe)));
+    }
+    json!({ "status": "success", "message": format!("Đã xóa {} bản sao lưu!", deleted) })
 }
 
-pub fn handle_fm_sync_center_compare(project_name: &str, category: &str) -> Value {
-    let proj = match find_project(project_name, Some(category)) {
-        Some(p) => p,
-        None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
-    };
-    let p_root = Path::new(&proj.path);
-    let mut modified_files = Vec::new();
-    let scan_dirs = ["config", "sources", "templates", "admin", "assets/css", "assets/js"];
-    for sub in &scan_dirs {
-        let d = p_root.join(sub);
-        if d.is_dir() {
-            let mut stack = vec![d];
-            while let Some(curr) = stack.pop() {
-                if let Ok(entries) = fs::read_dir(&curr) {
-                    for entry in entries.flatten() {
-                        let ep = entry.path();
-                        if ep.is_dir() {
-                            stack.push(ep);
-                        } else if ep.is_file() {
-                            if let Ok(rel) = ep.strip_prefix(p_root) {
-                                let rel_str = rel.to_string_lossy().replace('\\', "/");
-                                let size = fs::metadata(&ep).map(|m| m.len()).unwrap_or(0);
-                                let mtime = file_mtime_secs(&ep);
-                                modified_files.push(json!({
-                                    "path": rel_str,
-                                    "status": "modified",
-                                    "local_size": size,
-                                    "local_mtime": mtime
-                                }));
-                            }
-                        }
-                    }
-                }
-                if modified_files.len() >= 150 {
-                    break;
+fn is_sync_path_excluded(rel_path: &str, include_cleardata: bool, full_path: &Path) -> bool {
+    let clean = rel_path.replace('\\', "/").trim_matches('/').to_lowercase();
+    if clean.is_empty() {
+        return false;
+    }
+    if clean.ends_with(".sql") || clean.ends_with(".bak") {
+        return true;
+    }
+
+    // Match bridge.php scanFiles() segment regex: backup, backups, back_up, old, olds at any level
+    let re_seg = Regex::new(r"(?i)(^|[_\-.0-9])(backup|backups|back_up|old|olds)([_\-.0-9]|$)").unwrap();
+    let segments: Vec<&str> = clean.split('/').collect();
+    if segments.iter().any(|seg| re_seg.is_match(seg)) {
+        return true;
+    }
+
+    let first_part = segments.first().copied().unwrap_or("");
+    let default_excludes = [
+        "backup", "backups", "old", "olds",
+        "bootstrap", "caches", "compiled", "config_contents", "thumbs", "upload",
+        "vendor", "watermarks", "watermark", "logs",
+        ".agents", ".git", ".gitignore", ".idea", ".vscode", "tools", "docs",
+        "graphify-out", "composer.json", "package-lock.json", "package.json",
+        "node_modules", "tmp",
+        "assets/caches", "assets/images/images",
+        "src/views/templates/layout/backup", "assets/css/backup",
+        "assets/admin/json", "libraries/config.php",
+    ];
+    for ex in default_excludes {
+        if !ex.contains('/') {
+            if first_part == ex {
+                return true;
+            }
+        } else if clean == ex || clean.starts_with(&format!("{}/", ex)) {
+            return true;
+        }
+    }
+
+    let fname = segments.last().copied().unwrap_or("");
+    let excluded_files = [
+        "readme.md", "vite.config.js", ".env", ".htaccess", "data.dat",
+        ".gitignore", "composer.json", "package-lock.json", "package.json",
+        "bridge.php", "dist.zip", "dist.sql",
+    ];
+    if excluded_files.contains(&fname) {
+        return true;
+    }
+
+    if !include_cleardata {
+        if clean.contains("cleardata") {
+            return true;
+        }
+        if clean == "src/routes/web.php" && full_path.is_file() {
+            if let Ok(content) = fs::read_to_string(full_path) {
+                if content.to_lowercase().contains("cleardata") {
+                    return true;
                 }
             }
         }
     }
+
+    false
+}
+
+fn collect_local_sync_files(
+    p_root: &Path,
+    include_cleardata: bool,
+) -> HashMap<String, (u64, i64, String)> {
+    let mut out = HashMap::new();
+    let mut stack = vec![p_root.to_path_buf()];
+    while let Some(curr) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&curr) else { continue };
+        for entry in entries.flatten() {
+            let ep = entry.path();
+            let Ok(rel) = ep.strip_prefix(p_root) else { continue };
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+
+            if is_sync_path_excluded(&rel_str, include_cleardata, &ep) {
+                continue;
+            }
+
+            if ep.is_dir() {
+                stack.push(ep);
+            } else if ep.is_file() {
+                let size = fs::metadata(&ep).map(|m| m.len()).unwrap_or(0);
+                let mtime = file_mtime_secs(&ep) as i64;
+                let md5_str = if size < 2 * 1024 * 1024 {
+                    if let Ok(bytes) = fs::read(&ep) {
+                        format!("{:x}", md5::compute(&bytes))
+                    } else {
+                        format!("sz_{}", size)
+                    }
+                } else {
+                    format!("sz_{}", size)
+                };
+                out.insert(rel_str, (size, mtime, md5_str));
+            }
+        }
+    }
+    out
+}
+
+pub fn handle_fm_sync_center_compare(
+    project_name: &str,
+    category: &str,
+    env: &str,
+    include_cleardata: bool,
+    allow_upload_bridge: bool,
+) -> Value {
+    let proj = match find_project(project_name, Some(category)) {
+        Some(p) => p,
+        None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
+    };
+    let (srv, base_root) = match resolve_fm_target(project_name, category, env) {
+        Ok(v) => v,
+        Err(e) => return json!({ "status": "error", "message": e }),
+    };
+
+    let rel_sub = if env.eq_ignore_ascii_case("prod") {
+        String::new()
+    } else {
+        base_root
+            .trim_start_matches(&srv.ftp_root)
+            .trim_matches('/')
+            .to_string()
+    };
+    let inc_str = if include_cleardata { "1" } else { "0" }.to_string();
+
+    if allow_upload_bridge {
+        if let Ok(bp) = find_bridge_php_path() {
+            let _ = ftp_upload_file_to_rel(&srv, &rel_sub, &bp, "bridge.php");
+        }
+    }
+
+    let remote_res = call_remote_bridge_post(
+        &srv,
+        &rel_sub,
+        "action=scanFiles",
+        &[("include_cleardata", inc_str)],
+    );
+
+    let remote_files_obj = match remote_res {
+        Ok(val) if val.get("status").and_then(|v| v.as_str()) == Some("success") => {
+            val.get("files").and_then(|v| v.as_object()).cloned().unwrap_or_default()
+        }
+        Ok(val) => {
+            let msg = val.get("message").and_then(|v| v.as_str()).unwrap_or("Bridge lỗi");
+            return json!({ "status": "error", "message": msg });
+        }
+        Err(_) if !allow_upload_bridge => {
+            return json!({
+                "status": "bridge_missing",
+                "code": "BRIDGE_MISSING",
+                "env_label": if env.eq_ignore_ascii_case("prod") { "Production Server" } else { "Demo Server" }
+            });
+        }
+        Err(e) => return json!({ "status": "error", "message": e }),
+    };
+
+    let local_files = collect_local_sync_files(Path::new(&proj.path), include_cleardata);
+
+    let mut local_newer = Vec::new();
+    let mut local_only = Vec::new();
+    let mut remote_newer = Vec::new();
+    let mut remote_only = Vec::new();
+    let mut conflict = Vec::new();
+
+    for (path, (l_size, l_mtime, l_md5)) in &local_files {
+        if let Some(r_val) = remote_files_obj.get(path) {
+            let r_size = r_val.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+            let r_mtime = r_val.get("mtime").and_then(|v| v.as_i64()).unwrap_or(0);
+            let r_md5 = r_val.get("md5").and_then(|v| v.as_str()).unwrap_or("");
+            if r_md5 == l_md5 && r_size == *l_size {
+                continue;
+            }
+            let item = json!({
+                "path": path,
+                "local_size": l_size,
+                "local_mtime": l_mtime,
+                "remote_size": r_size,
+                "remote_mtime": r_mtime,
+                "reason": "Nội dung khác nhau"
+            });
+            if (*l_mtime - r_mtime).abs() <= 5 {
+                conflict.push(item);
+            } else if *l_mtime > r_mtime {
+                local_newer.push(item);
+            } else {
+                remote_newer.push(item);
+            }
+        } else {
+            local_only.push(json!({
+                "path": path,
+                "local_size": l_size,
+                "local_mtime": l_mtime,
+                "remote_size": 0,
+                "remote_mtime": 0,
+                "reason": "Chỉ có ở Local"
+            }));
+        }
+    }
+
+    for (path, r_val) in &remote_files_obj {
+        if !local_files.contains_key(path) {
+            let r_size = r_val.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+            let r_mtime = r_val.get("mtime").and_then(|v| v.as_i64()).unwrap_or(0);
+            remote_only.push(json!({
+                "path": path,
+                "local_size": 0,
+                "local_mtime": 0,
+                "remote_size": r_size,
+                "remote_mtime": r_mtime,
+                "reason": "Chỉ có trên Host"
+            }));
+        }
+    }
+
     json!({
         "status": "success",
-        "files": modified_files,
-        "total": modified_files.len()
+        "comparison": {
+            "local_newer": local_newer,
+            "local_only": local_only,
+            "remote_newer": remote_newer,
+            "remote_only": remote_only,
+            "conflict": conflict
+        }
+    })
+}
+
+pub fn handle_fm_sync_center_execute(
+    project_name: &str,
+    category: &str,
+    env: &str,
+    actions: &Map<String, Value>,
+) -> Value {
+    let proj = match find_project(project_name, Some(category)) {
+        Some(p) => p,
+        None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
+    };
+    let (cfg, base_root) = match resolve_fm_target(project_name, category, env) {
+        Ok(v) => v,
+        Err(e) => return json!({ "status": "error", "message": e }),
+    };
+
+    let p_root = Path::new(&proj.path);
+    let bdir = get_sync_backup_dir(project_name, category);
+    let ts = now_unix();
+    let mut results = Vec::new();
+    let mut ok_count = 0usize;
+
+    // 1. Upload (Local -> Host): backup existing remote file before overwriting
+    if let Some(up_arr) = actions.get("upload").and_then(|v| v.as_array()) {
+        for val in up_arr {
+            let raw_path = val.as_str().unwrap_or("");
+            let clean_rel = match sanitize_remote_rel(raw_path) {
+                Ok(r) if !r.is_empty() => r,
+                _ => {
+                    results.push(json!({ "path": raw_path, "action": "upload", "status": "error", "message": "Đường dẫn không hợp lệ" }));
+                    continue;
+                }
+            };
+            let local_path = p_root.join(&clean_rel);
+            let bytes = match fs::read(&local_path) {
+                Ok(b) => b,
+                Err(e) => {
+                    results.push(json!({ "path": clean_rel, "action": "upload", "status": "error", "message": format!("Không đọc được file local: {}", e) }));
+                    continue;
+                }
+            };
+            let abs_remote = join_remote_path(&base_root, &clean_rel);
+
+            // Backup remote file before overwriting (isolated by category + project)
+            if let Ok(old_remote) = remote_download_bytes(&cfg, &abs_remote) {
+                save_sync_backup_snapshot(&bdir, &clean_rel, env, "remote_before_upload", ts, &old_remote);
+            }
+
+            match remote_upload_bytes(&cfg, &abs_remote, &bytes) {
+                Ok(_) => {
+                    ok_count += 1;
+                    results.push(json!({ "path": clean_rel, "action": "upload", "status": "success" }));
+                }
+                Err(e) => {
+                    results.push(json!({ "path": clean_rel, "action": "upload", "status": "error", "message": e }));
+                }
+            }
+        }
+    }
+
+    // 2. Download (Host -> Local): backup existing local file before overwriting
+    if let Some(dn_arr) = actions.get("download").and_then(|v| v.as_array()) {
+        for val in dn_arr {
+            let raw_path = val.as_str().unwrap_or("");
+            let clean_rel = match sanitize_remote_rel(raw_path) {
+                Ok(r) if !r.is_empty() => r,
+                _ => {
+                    results.push(json!({ "path": raw_path, "action": "download", "status": "error", "message": "Đường dẫn không hợp lệ" }));
+                    continue;
+                }
+            };
+            let abs_remote = join_remote_path(&base_root, &clean_rel);
+            let remote_bytes = match remote_download_bytes(&cfg, &abs_remote) {
+                Ok(b) => b,
+                Err(e) => {
+                    results.push(json!({ "path": clean_rel, "action": "download", "status": "error", "message": e }));
+                    continue;
+                }
+            };
+
+            let local_path = p_root.join(&clean_rel);
+            if local_path.is_file() {
+                if let Ok(old_local) = fs::read(&local_path) {
+                    save_sync_backup_snapshot(&bdir, &clean_rel, env, "local_before_download", ts, &old_local);
+                }
+            }
+            if let Some(parent) = local_path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            match fs::write(&local_path, &remote_bytes) {
+                Ok(_) => {
+                    ok_count += 1;
+                    results.push(json!({ "path": clean_rel, "action": "download", "status": "success" }));
+                }
+                Err(e) => {
+                    results.push(json!({ "path": clean_rel, "action": "download", "status": "error", "message": format!("Không ghi được file local: {}", e) }));
+                }
+            }
+        }
+    }
+
+    add_project_history(
+        project_name,
+        category,
+        "Sync Center",
+        &format!("Đồng bộ {}/{} file ({})", ok_count, results.len(), env),
+    );
+
+    json!({
+        "status": "success",
+        "results": results,
+        "message": format!("Đã đồng bộ {}/{} file và sao lưu bản cũ theo dự án!", ok_count, results.len())
     })
 }
 
@@ -5773,14 +7021,14 @@ fn pack_project_for_deploy(proj_path: &Path, zip_path: &Path, use_7zip: bool) ->
 fn find_bridge_php_path() -> Result<PathBuf, String> {
     let base = config::get_base_dir();
     for p in [
-        base.join("www").join("RBWManager").join("bridge.php"),
         get_manager_data_root().join("bridge.php"),
+        base.join("www").join("RBWManager").join("bridge.php"),
     ] {
         if p.is_file() {
             return Ok(p);
         }
     }
-    Err("Không tìm thấy tệp bridge.php trong www/RBWManager/".to_string())
+    Err("Không tìm thấy tệp bridge.php trong config/rbwmanager/ hoặc www/RBWManager/".to_string())
 }
 
 pub fn handle_pre_check_deploy_demo(body_obj: &Map<String, Value>) -> Value {
@@ -7235,7 +8483,8 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
         "setupLocalSource" => {
             let db_name = get_param("db_name");
             let force_overwrite = body_obj
-                .get("force_overwrite_db")
+                .get("forceOverwriteDb")
+                .or_else(|| body_obj.get("force_overwrite_db"))
                 .and_then(|v| v.as_bool());
             handle_setup_local_source(&project, &category, &db_name, force_overwrite)
         }
@@ -7261,63 +8510,159 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
         "deleteScreenshot" => handle_delete_screenshot(&project, &category),
         "fmList" => {
             let path = get_param("path");
-            handle_fm_list(&project, &category, &path)
+            let env = get_param("env");
+            handle_fm_list(&project, &category, &path, &env)
         }
         "fmGet" => {
             let path = get_param("path");
-            handle_fm_get(&project, &category, &path)
+            let env = get_param("env");
+            handle_fm_get(&project, &category, &path, &env)
         }
         "fmSave" => {
             let path = get_param("path");
             let content = get_param("content");
-            handle_fm_save(&project, &category, &path, &content)
+            let env = get_param("env");
+            handle_fm_save(&project, &category, &path, &content, &env)
         }
         "fmGetDiff" => {
             let path = get_param("path");
-            let local_res = handle_fm_get(&project, &category, &path);
-            let local_content = local_res.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            let env = get_param("env");
+            let remote_res = handle_fm_get(&project, &category, &path, &env);
+            let remote_content = remote_res.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            let local_content = find_project(&project, Some(&category))
+                .and_then(|proj| {
+                    sanitize_remote_rel(&path).ok().and_then(|rel| {
+                        if rel.is_empty() {
+                            None
+                        } else {
+                            fs::read_to_string(Path::new(&proj.path).join(rel)).ok()
+                        }
+                    })
+                })
+                .unwrap_or_default();
             json!({
                 "status": "success",
                 "local": local_content,
-                "remote": local_content,
-                "identical": true
+                "remote": remote_content,
+                "identical": local_content == remote_content
             })
         }
         "fmListBackups" => handle_fm_list_backups(&project, &category),
         "fmGetBackupContent" => {
-            let id = get_param("id");
-            handle_fm_get_backup_content(&project, &category, &id)
+            let mut backup_file = get_param("backup_file");
+            if backup_file.is_empty() {
+                backup_file = get_param("id");
+            }
+            handle_fm_get_backup_content(&project, &category, &backup_file)
         }
         "fmRestoreBackup" => {
-            let id = get_param("id");
-            handle_fm_restore_backup(&project, &category, &id)
+            let mut backup_file = get_param("backup_file");
+            if backup_file.is_empty() {
+                backup_file = get_param("id");
+            }
+            let rel_path = get_param("path");
+            let mut target = get_param("target");
+            if target.is_empty() {
+                target = "local".to_string();
+            }
+            let mut env = get_param("env");
+            if env.is_empty() {
+                env = "demo".to_string();
+            }
+            handle_fm_restore_backup(&project, &category, &backup_file, &rel_path, &target, &env)
         }
         "fmDeleteBackups" => {
-            let id = get_param("id");
-            handle_fm_delete_backups(&project, &category, &id)
-        }
-        "fmDelete" => {
-            let path = get_param("path");
-            if let Some(proj) = find_project(&project, Some(&category)) {
-                let target = Path::new(&proj.path).join(path.trim_start_matches('/'));
-                if target.is_dir() {
-                    let _ = fs::remove_dir_all(target);
-                } else if target.is_file() {
-                    let _ = fs::remove_file(target);
+            let delete_all = body_obj.get("all").and_then(|v| v.as_bool()).unwrap_or(false)
+                || get_param("id") == "all";
+            let mut files: Vec<String> = body_obj
+                .get("backup_files")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if files.is_empty() {
+                let single = {
+                    let bf = get_param("backup_file");
+                    if bf.is_empty() { get_param("id") } else { bf }
+                };
+                if !single.is_empty() && single != "all" {
+                    files.push(single);
                 }
             }
-            json!({ "status": "success", "message": "Đã xóa mục đã chọn!" })
+            handle_fm_delete_backups(&project, &category, &files, delete_all)
+        }
+        "fmDelete" => {
+            let env = get_param("env");
+            let (cfg, base_root) = match resolve_fm_target(&project, &category, &env) {
+                Ok(v) => v,
+                Err(e) => return json!({ "status": "error", "message": e }),
+            };
+
+            let mut targets: Vec<(String, bool)> = Vec::new();
+            if let Some(arr) = body_obj.get("items").and_then(|v| v.as_array()) {
+                for item in arr {
+                    let ipath = item.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                    let is_dir = item.get("isDir").and_then(|v| v.as_bool()).unwrap_or(false);
+                    if let Ok(clean) = sanitize_remote_rel(ipath) {
+                        if !clean.is_empty() {
+                            targets.push((clean, is_dir));
+                        }
+                    }
+                }
+            } else {
+                let single = get_param("path");
+                if let Ok(clean) = sanitize_remote_rel(&single) {
+                    if !clean.is_empty() {
+                        let is_dir = body_obj.get("isDir").and_then(|v| v.as_bool()).unwrap_or(false);
+                        targets.push((clean, is_dir));
+                    }
+                }
+            }
+
+            if targets.is_empty() {
+                return json!({
+                    "status": "error",
+                    "message": "Không có đường dẫn file/thư mục hợp lệ để xóa trên host!"
+                });
+            }
+
+            let mut deleted = 0usize;
+            let mut last_err = String::new();
+            for (rel, is_dir) in &targets {
+                let abs_target = join_remote_path(&base_root, rel);
+                match remote_delete_entry(&cfg, &base_root, &abs_target, *is_dir) {
+                    Ok(_) => deleted += 1,
+                    Err(e) => last_err = e,
+                }
+            }
+
+            if deleted == targets.len() {
+                json!({ "status": "success", "message": format!("Đã xóa {} mục trên host!", deleted) })
+            } else if deleted > 0 {
+                json!({ "status": "error", "message": format!("Đã xóa {}/{} mục trên host. Lỗi: {}", deleted, targets.len(), last_err) })
+            } else {
+                json!({ "status": "error", "message": format!("Xóa trên host thất bại: {}", last_err) })
+            }
         }
         "fmCreateDir" => {
             let path = get_param("path");
-            let name = get_param("name");
-            if let Some(proj) = find_project(&project, Some(&category)) {
-                let target = Path::new(&proj.path)
-                    .join(path.trim_start_matches('/'))
-                    .join(name.trim_matches('/'));
-                let _ = fs::create_dir_all(target);
+            let env = get_param("env");
+            let clean_rel = match sanitize_remote_rel(&path) {
+                Ok(r) if !r.is_empty() => r,
+                _ => return json!({ "status": "error", "message": "Tên thư mục không hợp lệ" }),
+            };
+            let (cfg, base_root) = match resolve_fm_target(&project, &category, &env) {
+                Ok(v) => v,
+                Err(e) => return json!({ "status": "error", "message": e }),
+            };
+            let abs_dir = join_remote_path(&base_root, &clean_rel);
+            match remote_mkdir(&cfg, &abs_dir) {
+                Ok(_) => json!({ "status": "success", "message": "Đã tạo thư mục trên host!" }),
+                Err(e) => json!({ "status": "error", "message": format!("Không thể tạo thư mục trên host: {}", e) }),
             }
-            json!({ "status": "success", "message": "Đã tạo thư mục mới!" })
         }
         "fmOpenInEditor" => {
             let path = get_param("path");
@@ -7327,8 +8672,22 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
             }
             json!({ "status": "success", "message": "Đã mở file trong VS Code!" })
         }
-        "fmSyncCenterCompare" => handle_fm_sync_center_compare(&project, &category),
-        "fmSyncCenterExecute" | "fmSyncLocalFile" => {
+        "fmSyncCenterCompare" => {
+            let env = get_param("env");
+            let inc = body_obj.get("include_cleardata").and_then(|v| v.as_bool()).unwrap_or(false);
+            let allow_bridge = body_obj.get("allow_upload_bridge").and_then(|v| v.as_bool()).unwrap_or(false);
+            handle_fm_sync_center_compare(&project, &category, &env, inc, allow_bridge)
+        }
+        "fmSyncCenterExecute" => {
+            let env = get_param("env");
+            let actions_map = body_obj
+                .get("actions")
+                .and_then(|v| v.as_object())
+                .cloned()
+                .unwrap_or_default();
+            handle_fm_sync_center_execute(&project, &category, &env, &actions_map)
+        }
+        "fmSyncLocalFile" => {
             add_project_history(&project, &category, "Sync Center", "Đồng bộ file thành công");
             json!({ "status": "success", "message": "Đã đồng bộ các file đã chọn thành công!" })
         }
@@ -7405,31 +8764,33 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
         }
         "fmUpload" => {
             let rel_file = get_param("path");
-            let proj = match find_project(&project, Some(&category)) {
-                Some(p) => p,
-                None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
+            let env = get_param("env");
+            let clean_rel = match sanitize_remote_rel(&rel_file) {
+                Ok(r) if !r.is_empty() => r,
+                _ => return json!({ "status": "error", "message": "Đường dẫn upload không hợp lệ" }),
             };
-            let clean_rel = rel_file.trim_start_matches('/').trim_start_matches('\\');
-            let fpath = Path::new(&proj.path).join(clean_rel);
-            if let Some(parent) = fpath.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
-            let mut written = false;
+            let (cfg, base_root) = match resolve_fm_target(&project, &category, &env) {
+                Ok(v) => v,
+                Err(e) => return json!({ "status": "error", "message": e }),
+            };
+            let abs_file = join_remote_path(&base_root, &clean_rel);
+
+            let mut upload_res: Option<Result<(), String>> = None;
             if let Some(Value::Object(map)) = &req.body {
                 if let Some(files) = map.get("files").and_then(|v| v.as_array()) {
                     if let Some(first) = files.first().and_then(|v| v.as_object()) {
                         if let Some(b64) = first.get("data").and_then(|v| v.as_str()) {
                             if let Ok(bytes) = general_purpose::STANDARD.decode(b64) {
-                                written = fs::write(&fpath, bytes).is_ok();
+                                upload_res = Some(remote_upload_bytes(&cfg, &abs_file, &bytes));
                             }
                         }
                     }
                 }
             }
-            if written {
-                json!({ "status": "success", "message": "Tải lên thành công" })
-            } else {
-                json!({ "status": "error", "message": "Không thể ghi tệp tải lên" })
+            match upload_res {
+                Some(Ok(_)) => json!({ "status": "success", "message": "Tải lên host thành công" }),
+                Some(Err(e)) => json!({ "status": "error", "message": e }),
+                None => json!({ "status": "error", "message": "Không đọc được tệp tải lên" }),
             }
         }
         "fmCheckSyncStatus" => {
