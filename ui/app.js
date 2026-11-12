@@ -548,16 +548,12 @@ function populateGeneralSettingsForm() {
 
 async function refreshColorPickerStatusUI(statusObj = null) {
   const el = document.getElementById("cfgColorHotkeyStatus");
-  const headerBtn = document.getElementById("btnColorPicker");
   try {
     const st = statusObj || await tauriInvoke("get_color_picker_status");
-    if (headerBtn && st?.hotkey) {
-      headerBtn.title = `Lấy mã màu màn hình (${st.hotkey})`;
-    }
     if (!el || !st) return;
     if (st.registered) {
       el.style.color = "var(--green, #10b981)";
-      el.textContent = `● Phím tắt toàn cục ${st.hotkey} đang hoạt động`;
+      el.textContent = `● Phím tắt toàn cục ${st.hotkey} đang hoạt động (đặt con trỏ vào điểm màu rồi nhấn để copy HEX)`;
     } else if (st.error) {
       el.style.color = "#f59e0b";
       el.textContent = `⚠ ${st.error}`;
@@ -566,14 +562,6 @@ async function refreshColorPickerStatusUI(statusObj = null) {
       el.textContent = st.hotkey ? `Phím tắt: ${st.hotkey}` : "Chưa đặt phím tắt";
     }
   } catch (_) {}
-}
-
-async function triggerColorPicker() {
-  try {
-    await tauriInvoke("start_color_picker", { hideTray: false });
-  } catch (err) {
-    showToast("Lỗi mở công cụ lấy mã màu: " + err, "error");
-  }
 }
 
 appState.demoServers = [];
@@ -1080,9 +1068,6 @@ function bindGeneralEvents() {
     const inp = document.getElementById("cfgGeminiKey");
     if (inp) inp.type = inp.type === "password" ? "text" : "password";
   });
-
-  document.getElementById("btnColorPicker")?.addEventListener("click", triggerColorPicker);
-  document.getElementById("btnTestColorPicker")?.addEventListener("click", triggerColorPicker);
 
   document.getElementById("cfgColorHotkey")?.addEventListener("keydown", (e) => {
     if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;

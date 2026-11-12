@@ -99,39 +99,13 @@ async fn save_general_settings(app: AppHandle, settings: AppSettings, demo_confi
 }
 
 #[tauri::command]
-async fn start_color_picker(app: AppHandle, hide_tray: Option<bool>) -> Result<(), String> {
-    color_picker::launch_picker(app, hide_tray.unwrap_or(false)).await
+fn start_color_picker(app: AppHandle) -> Result<String, String> {
+    color_picker::pick_color_at_cursor(&app)
 }
 
 #[tauri::command]
 fn get_color_picker_status() -> color_picker::ColorPickerStatus {
     color_picker::get_status()
-}
-
-#[tauri::command]
-fn get_picker_data() -> Result<color_picker::PickerInitData, String> {
-    color_picker::get_picker_payload()
-}
-
-#[tauri::command]
-fn get_picker_image() -> Result<tauri::ipc::Response, String> {
-    let bytes = color_picker::get_picker_bmp_bytes()?;
-    Ok(tauri::ipc::Response::new(bytes))
-}
-
-#[tauri::command]
-fn show_picker_window(app: AppHandle) -> Result<(), String> {
-    color_picker::show_picker_window(&app)
-}
-
-#[tauri::command]
-fn finish_color_picker(app: AppHandle, value: String, hex: String) -> Result<(), String> {
-    color_picker::finish_picker(&app, &value, &hex)
-}
-
-#[tauri::command]
-fn cancel_color_picker(app: AppHandle) {
-    color_picker::cancel_picker(&app);
 }
 
 #[tauri::command]
@@ -1119,21 +1093,23 @@ fn main() {
                 if let WindowEvent::Focused(false) = event {
                     let _ = window.hide();
                 }
-            } else if let WindowEvent::CloseRequested { api, .. } = event {
-                let settings = config::load_app_settings();
-                if settings.minimize_to_tray {
-                    api.prevent_close();
-                    let _ = window.hide();
-                } else {
-                    api.prevent_close();
-                    let _ = window.hide();
-                    let app_handle = window.app_handle().clone();
-                    std::thread::spawn(move || {
-                        let _ = services::stop_web_service();
-                        let _ = services::stop_php_service();
-                        let _ = services::stop_mysql_service();
-                        app_handle.exit(0);
-                    });
+            } else if window.label() == "main" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    let settings = config::load_app_settings();
+                    if settings.minimize_to_tray {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    } else {
+                        api.prevent_close();
+                        let _ = window.hide();
+                        let app_handle = window.app_handle().clone();
+                        std::thread::spawn(move || {
+                            let _ = services::stop_web_service();
+                            let _ = services::stop_php_service();
+                            let _ = services::stop_mysql_service();
+                            app_handle.exit(0);
+                        });
+                    }
                 }
             }
         })
@@ -1209,12 +1185,7 @@ fn main() {
             rbw_pro_dispatch,
             rbw_pro_load_image,
             start_color_picker,
-            get_color_picker_status,
-            get_picker_data,
-            get_picker_image,
-            show_picker_window,
-            finish_color_picker,
-            cancel_color_picker
+            get_color_picker_status
         ])
         .run(tauri::generate_context!())
         .expect("Lỗi khởi chạy ứng dụng RBWStudio");

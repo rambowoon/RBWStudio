@@ -25,7 +25,6 @@
     </div>
 
     <div class="header-right" data-tauri-drag-region>
-      <button class="hbtn" id="btnColorPicker" title="Lấy mã màu màn hình (Pipette)"><i data-icon="pipette" data-size="15"></i></button>
       <button class="hbtn" id="btnToggleTheme" title="Chuyển giao diện Sáng / Tối"><span id="themeIcon"></span></button>
       <span class="hdivider"></span>
       <button class="hbtn" id="btnMinimize" title="Thu nhỏ"><i data-icon="minus" data-size="15"></i></button>
@@ -299,10 +298,7 @@
             </div>
             <div class="field">
               <label>Phím tắt lấy mã màu</label>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <input type="text" class="input" id="cfgColorHotkey" value="Ctrl+Shift+C" placeholder="VD: Ctrl+Shift+C" style="flex:1;" />
-                <button type="button" class="btn btn-ghost btn-sm" id="btnTestColorPicker" title="Mở công cụ lấy mã màu ngay"><i data-icon="pipette" data-size="14"></i>Lấy màu</button>
-              </div>
+              <input type="text" class="input" id="cfgColorHotkey" value="Ctrl+Shift+C" placeholder="VD: Ctrl+Shift+C" />
               <small id="cfgColorHotkeyStatus" style="display:block;margin-top:4px;font-size:11.5px;color:var(--text-muted);"></small>
             </div>
           </div>

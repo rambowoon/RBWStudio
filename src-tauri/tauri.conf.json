@@ -27,7 +27,7 @@
         "url": "tray.html",
         "title": "RBWStudio Menu",
         "width": 270,
-        "height": 435,
+        "height": 460,
         "resizable": false,
         "maximizable": false,
         "decorations": false,
