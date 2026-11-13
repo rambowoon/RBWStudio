@@ -230,9 +230,7 @@ async fn switch_service_version(service_name: String, version: String) -> Result
 async fn start_all_services() -> Result<ServiceStatus, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let settings = config::load_app_settings();
-        let _ = services::start_php_service(&settings);
-        let _ = services::start_web_service(&settings);
-        let _ = services::start_mysql_service(&settings);
+        services::start_all_services_fast(&settings);
 
         // Active poll up to 2 seconds for ports to become alive
         for _ in 0..20 {
@@ -912,9 +910,7 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             "start_all" => {
                 std::thread::spawn(|| {
                     let settings = config::load_app_settings();
-                    let _ = services::start_php_service(&settings);
-                    let _ = services::start_web_service(&settings);
-                    let _ = services::start_mysql_service(&settings);
+                    services::start_all_services_fast(&settings);
                 });
             }
             "stop_all" => {
@@ -931,9 +927,7 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = services::stop_php_service();
                     let _ = services::stop_mysql_service();
                     std::thread::sleep(std::time::Duration::from_millis(300));
-                    let _ = services::start_php_service(&settings);
-                    let _ = services::start_web_service(&settings);
-                    let _ = services::start_mysql_service(&settings);
+                    services::start_all_services_fast(&settings);
                 });
             }
             "toggle_web" => {
@@ -1094,11 +1088,9 @@ fn main() {
 
             // Nếu khởi động cùng Windows (hoặc cấu hình auto_start bật)
             if is_autostart || settings.auto_start {
-                // Tự động start tất cả dịch vụ (PHP, Web, MySQL)
+                // Tự động start tất cả dịch vụ song song (PHP, Web, MySQL)
                 std::thread::spawn(move || {
-                    let _ = services::start_php_service(&settings);
-                    let _ = services::start_web_service(&settings);
-                    let _ = services::start_mysql_service(&settings);
+                    services::start_all_services_fast(&settings);
                 });
 
                 // Ẩn cửa sổ chính xuống khay hệ thống nếu chạy từ autostart

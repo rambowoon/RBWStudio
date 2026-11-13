@@ -515,6 +515,27 @@ $cfg['SendErrorReports']              = 'never';
     let _ = fs::write(config_real, content);
 }
 
+pub fn start_all_services_fast(settings: &AppSettings) {
+    let settings_clone = settings.clone();
+    let php_handle = std::thread::spawn(move || {
+        let _ = start_php_service(&settings_clone);
+    });
+
+    let settings_clone2 = settings.clone();
+    let mysql_handle = std::thread::spawn(move || {
+        let _ = start_mysql_service(&settings_clone2);
+    });
+
+    let settings_clone3 = settings.clone();
+    let web_handle = std::thread::spawn(move || {
+        let _ = start_web_service(&settings_clone3);
+    });
+
+    let _ = php_handle.join();
+    let _ = mysql_handle.join();
+    let _ = web_handle.join();
+}
+
 pub fn ensure_ssl_cert(domain: &str) -> (PathBuf, PathBuf) {
     let ssl_dir = if domain == "localhost" {
         config::get_base_dir().join("ssl")
