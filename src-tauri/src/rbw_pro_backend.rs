@@ -816,6 +816,7 @@ fn parse_php_val(b: &[u8], pos: &mut usize) -> Option<Value> {
     }
     // Check ternary like (!empty($configSetting['order'])) ? [...] : []
     if b[*pos] == b'(' {
+        let cond_start = *pos;
         let mut depth = 0usize;
         while *pos < b.len() {
             if b[*pos] == b'(' {
@@ -829,16 +830,21 @@ fn parse_php_val(b: &[u8], pos: &mut usize) -> Option<Value> {
             }
             *pos += 1;
         }
+        let cond_str = String::from_utf8_lossy(&b[cond_start..*pos]).replace(' ', "");
         skip_php_ws_and_comments(b, pos);
         if *pos < b.len() && b[*pos] == b'?' {
             *pos += 1;
-            let branch = parse_php_val(b, pos);
+            let true_branch = parse_php_val(b, pos);
             skip_php_ws_and_comments(b, pos);
+            let mut false_branch = None;
             if *pos < b.len() && b[*pos] == b':' {
                 *pos += 1;
-                let _ = parse_php_val(b, pos);
+                false_branch = parse_php_val(b, pos);
             }
-            return branch;
+            if cond_str.contains("!empty($") || cond_str.contains("isset($") {
+                return false_branch.or(true_branch);
+            }
+            return true_branch;
         }
     }
 
@@ -1694,22 +1700,33 @@ pub fn ensure_mysql_running() -> Result<(String, u16), String> {
     ))
 }
 
-pub fn run_mysql_query(db: &ProjectDbEnv, sql: &str, use_db: bool) -> Result<String, String> {
-    let exe = find_mysql_exe().ok_or_else(|| "Không tìm thấy mysql.exe trong bin/mysql".to_string())?;
+fn prepare_mysql_cmd(
+    exe: &Path,
+    db: &ProjectDbEnv,
+    use_db: bool,
+    batch_raw: bool,
+) -> std::process::Command {
     let mut cmd = create_hidden_command(&exe.to_string_lossy());
-    cmd.arg(format!("-h{}", db.host))
+    cmd.arg("--skip-ssl")
+        .arg(format!("-h{}", db.host))
         .arg(format!("-P{}", db.port))
         .arg(format!("-u{}", db.user))
-        .arg("--default-character-set=utf8mb4")
-        .arg("--batch")
-        .arg("--raw")
-        .arg("-N");
+        .arg("--default-character-set=utf8mb4");
+    if batch_raw {
+        cmd.arg("--batch").arg("--raw").arg("-N");
+    }
     if !db.pass.is_empty() {
         cmd.arg(format!("-p{}", db.pass));
     }
     if use_db && !db.name.is_empty() {
         cmd.arg(&db.name);
     }
+    cmd
+}
+
+pub fn run_mysql_query(db: &ProjectDbEnv, sql: &str, use_db: bool) -> Result<String, String> {
+    let exe = find_mysql_exe().ok_or_else(|| "Không tìm thấy mysql.exe trong bin/mysql".to_string())?;
+    let mut cmd = prepare_mysql_cmd(&exe, db, use_db, true);
     cmd.arg("-e").arg(sql);
     let out = cmd.output().map_err(|e| format!("Lỗi chạy mysql.exe: {}", e))?;
     if !out.status.success() {
@@ -1717,6 +1734,53 @@ pub fn run_mysql_query(db: &ProjectDbEnv, sql: &str, use_db: bool) -> Result<Str
         return Err(stderr);
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
+pub fn run_mysql_stdin(db: &ProjectDbEnv, sql: &str, use_db: bool) -> Result<String, String> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let exe = find_mysql_exe().ok_or_else(|| "Không tìm thấy mysql.exe trong bin/mysql".to_string())?;
+    let mut cmd = prepare_mysql_cmd(&exe, db, use_db, true);
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| format!("Lỗi chạy mysql.exe: {}", e))?;
+    let payload = sql.as_bytes().to_vec();
+    let writer_handle = child.stdin.take().map(|mut stdin| {
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(&payload);
+            let _ = stdin.flush();
+        })
+    });
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("Lỗi đợi mysql.exe: {}", e))?;
+    if let Some(h) = writer_handle {
+        let _ = h.join();
+    }
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        return Err(stderr);
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
+pub fn sql_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 8);
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            '\0' => out.push_str("\\0"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\x1a' => out.push_str("\\Z"),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 pub fn run_mysql_import_file(db: &ProjectDbEnv, sql_path: &Path) -> Result<(), String> {
@@ -1744,17 +1808,7 @@ pub fn run_mysql_import_file(db: &ProjectDbEnv, sql_path: &Path) -> Result<(), S
     sanitized.push_str("SET FOREIGN_KEY_CHECKS=1;\n");
 
     let exe = find_mysql_exe().ok_or_else(|| "Không tìm thấy mysql.exe trong bin/mysql".to_string())?;
-    let mut cmd = create_hidden_command(&exe.to_string_lossy());
-    cmd.arg(format!("-h{}", db.host))
-        .arg(format!("-P{}", db.port))
-        .arg(format!("-u{}", db.user))
-        .arg("--default-character-set=utf8mb4");
-    if !db.pass.is_empty() {
-        cmd.arg(format!("-p{}", db.pass));
-    }
-    if !db.name.is_empty() {
-        cmd.arg(&db.name);
-    }
+    let mut cmd = prepare_mysql_cmd(&exe, db, true, false);
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -1783,7 +1837,8 @@ pub fn export_local_mysql_db(source_db_name: &str, out_sql_path: &Path) -> Resul
     let (host, port) = ensure_mysql_running()?;
     let exe = find_mysqldump_exe().ok_or_else(|| "Không tìm thấy mysqldump.exe trong bin/mysql".to_string())?;
     let mut cmd = create_hidden_command(&exe.to_string_lossy());
-    cmd.arg(format!("-h{}", host))
+    cmd.arg("--skip-ssl")
+        .arg(format!("-h{}", host))
         .arg(format!("-P{}", port))
         .arg("-uroot")
         .arg("--default-character-set=utf8mb4")
@@ -1817,6 +1872,24 @@ pub fn run_mysql_tsv(db: &ProjectDbEnv, sql: &str) -> Result<Vec<Vec<String>>, S
         rows.push(cols);
     }
     Ok(rows)
+}
+
+pub fn inspect_db_schema(db: &ProjectDbEnv) -> Result<HashMap<String, Vec<String>>, String> {
+    let sql = format!(
+        "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '{}' ORDER BY TABLE_NAME, ORDINAL_POSITION;",
+        sql_escape(&db.name)
+    );
+    let rows = run_mysql_tsv(db, &sql)?;
+    let mut schema: HashMap<String, Vec<String>> = HashMap::new();
+    for cols in rows {
+        if cols.len() >= 2 {
+            schema
+                .entry(cols[0].to_lowercase())
+                .or_default()
+                .push(cols[1].to_lowercase());
+        }
+    }
+    Ok(schema)
 }
 
 // ============================================================================
@@ -2486,62 +2559,6 @@ pub fn load_project_media_types(project_path: &Path) -> Value {
     Value::Array(types)
 }
 
-fn extract_sub_dimensions(sub_obj: &serde_json::Map<String, Value>) -> (u32, u32) {
-    let re_thumb = Regex::new(r"(\d+)x(\d+)").ok();
-    let mut w: u32 = sub_obj
-        .get("width")
-        .or_else(|| sub_obj.get("width_photo"))
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
-        .unwrap_or(0) as u32;
-    let mut h: u32 = sub_obj
-        .get("height")
-        .or_else(|| sub_obj.get("height_photo"))
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
-        .unwrap_or(0) as u32;
-    if (w == 0 || h == 0) && re_thumb.is_some() {
-        if let Some(thumb_str) = sub_obj
-            .get("thumb")
-            .or_else(|| sub_obj.get("thumb_photo"))
-            .and_then(|v| v.as_str())
-        {
-            if let Some(c) = re_thumb.as_ref().unwrap().captures(thumb_str) {
-                w = c.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                h = c.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-            }
-        }
-    }
-    if w == 0 || h == 0 {
-        if let Some(photo_cfg) = sub_obj
-            .get("images")
-            .and_then(|v| v.as_object())
-            .and_then(|imgs| imgs.get("photo"))
-            .and_then(|v| v.as_object())
-        {
-            let pw = photo_cfg
-                .get("width")
-                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
-                .unwrap_or(0) as u32;
-            let ph = photo_cfg
-                .get("height")
-                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
-                .unwrap_or(0) as u32;
-            if pw > 0 && ph > 0 {
-                return (pw, ph);
-            }
-            if let Some(t) = photo_cfg.get("thumb").and_then(|v| v.as_str()) {
-                if let Some(c) = re_thumb.as_ref().and_then(|re| re.captures(t)) {
-                    let tw = c.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                    let th = c.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                    if tw > 0 && th > 0 {
-                        return (tw, th);
-                    }
-                }
-            }
-        }
-    }
-    (w, h)
-}
-
 fn dir_has_images(dir: &Path) -> bool {
     if !dir.is_dir() {
         return false;
@@ -2560,20 +2577,527 @@ fn dir_has_images(dir: &Path) -> bool {
     false
 }
 
-fn find_project_source_images_dir(p_root: &Path) -> Option<PathBuf> {
+pub fn resolve_project_bases(proj_path: &Path) -> (PathBuf, PathBuf) {
+    if proj_path.join("core").join("config").is_dir() {
+        return (proj_path.join("core"), proj_path.to_path_buf());
+    }
+    if proj_path.join("config").is_dir()
+        && proj_path.join("public").is_dir()
+        && !proj_path.join("upload").is_dir()
+    {
+        return (proj_path.to_path_buf(), proj_path.join("public"));
+    }
+    (proj_path.to_path_buf(), proj_path.to_path_buf())
+}
+
+pub fn find_assets_images_dir(laravel_base: &Path, public_base: &Path) -> Option<PathBuf> {
     let candidates = [
-        p_root.join("assets/images/images"),
-        p_root.join("assets/images"),
-        p_root.join("upload/photo"),
-        p_root.join("upload/product"),
-        p_root.join("upload/news"),
-        p_root.join("upload"),
+        public_base.join("assets").join("images").join("images"),
+        laravel_base.join("assets").join("images").join("images"),
+        public_base.join("assets").join("images"),
+        laravel_base.join("assets").join("images"),
     ];
     candidates
         .iter()
         .find(|d| dir_has_images(d))
         .cloned()
         .or_else(|| candidates.iter().find(|d| d.is_dir()).cloned())
+}
+
+pub fn clear_project_caches_dir(laravel_base: &Path) -> usize {
+    let caches_dir = laravel_base.join("caches");
+    if !caches_dir.is_dir() {
+        return 0;
+    }
+    let mut removed = 0usize;
+    if let Ok(entries) = fs::read_dir(&caches_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            if name == ".htaccess" || name == ".gitignore" || name == "index.html" {
+                continue;
+            }
+            if p.is_dir() {
+                if fs::remove_dir_all(&p).is_ok() {
+                    removed += 1;
+                }
+            } else if p.is_file() && fs::remove_file(&p).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    removed
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CategoryLevelCfg {
+    pub level: String,
+    pub title: String,
+    pub has_images: bool,
+    pub has_name: bool,
+    pub has_desc: bool,
+    pub has_content: bool,
+    pub has_slug: bool,
+    pub status_keys: Vec<String>,
+    pub ratio: Option<(u32, u32)>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NormalizedSubType {
+    pub sub_type: String,
+    pub title: String,
+    pub kind: String,
+    pub is_static_photo: bool,
+    pub has_images: bool,
+    pub ratio: Option<(u32, u32)>,
+    pub number: bool,
+    pub has_title: bool,
+    pub has_name: bool,
+    pub has_desc: bool,
+    pub has_desc_cke: bool,
+    pub has_content: bool,
+    pub has_content_cke: bool,
+    pub has_slug: bool,
+    pub has_link: bool,
+    pub has_phone: bool,
+    pub has_price: bool,
+    pub has_code: bool,
+    pub status_keys: Vec<String>,
+    pub images_keys: Vec<String>,
+    pub options2_fields: Vec<String>,
+    pub categories: HashMap<String, CategoryLevelCfg>,
+    pub record_count: usize,
+}
+
+fn php_val_bool(v: Option<&Value>) -> bool {
+    match v {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
+        Some(Value::String(s)) => {
+            let l = s.trim().to_lowercase();
+            !l.is_empty() && l != "false" && l != "0" && l != "no"
+        }
+        Some(Value::Object(m)) => !m.is_empty(),
+        Some(Value::Array(a)) => !a.is_empty(),
+        _ => false,
+    }
+}
+
+fn php_val_u32(v: Option<&Value>) -> u32 {
+    match v {
+        Some(Value::Number(n)) => n.as_u64().unwrap_or(0) as u32,
+        Some(Value::String(s)) => s.trim().parse::<u32>().unwrap_or(0),
+        _ => 0,
+    }
+}
+
+fn extract_status_keys(obj: &Map<String, Value>) -> Vec<String> {
+    let mut keys = Vec::new();
+    if let Some(st) = obj.get("status").and_then(|v| v.as_object()) {
+        for (k, v) in st {
+            if !k.is_empty() && v != &Value::Bool(false) {
+                keys.push(k.clone());
+            }
+        }
+    }
+    keys
+}
+
+fn extract_ratio_opt(obj: &Map<String, Value>) -> Option<(u32, u32)> {
+    let re_thumb = Regex::new(r"(\d+)x(\d+)").ok();
+    let check_obj = |m: &Map<String, Value>| -> Option<(u32, u32)> {
+        let mut w = php_val_u32(m.get("width").or_else(|| m.get("width_photo")));
+        let mut h = php_val_u32(m.get("height").or_else(|| m.get("height_photo")));
+        if (w == 0 || h == 0) && re_thumb.is_some() {
+            if let Some(t) = m
+                .get("thumb")
+                .or_else(|| m.get("thumb_photo"))
+                .and_then(|v| v.as_str())
+            {
+                if let Some(c) = re_thumb.as_ref().unwrap().captures(t) {
+                    w = c.get(1).and_then(|x| x.as_str().parse().ok()).unwrap_or(0);
+                    h = c.get(2).and_then(|x| x.as_str().parse().ok()).unwrap_or(0);
+                }
+            }
+        }
+        if w > 0 && h > 0 {
+            Some((w, h))
+        } else {
+            None
+        }
+    };
+
+    if let Some(imgs) = obj.get("images").and_then(|v| v.as_object()) {
+        if let Some(photo) = imgs.get("photo").and_then(|v| v.as_object()) {
+            if let Some(r) = check_obj(photo) {
+                return Some(r);
+            }
+        }
+        for (_, child) in imgs {
+            if let Some(cm) = child.as_object() {
+                if let Some(r) = check_obj(cm) {
+                    return Some(r);
+                }
+            }
+        }
+    }
+    check_obj(obj)
+}
+
+fn find_type_config_file(laravel_base: &Path, main_key: &str) -> Option<PathBuf> {
+    let mut candidates = vec![laravel_base.join("config").join(format!("{}.php", main_key))];
+    if main_key == "type-products" {
+        candidates.push(laravel_base.join("config").join("type-product.php"));
+        candidates.push(laravel_base.join("libraries").join("type").join("config-type-product.php"));
+    } else if main_key == "type-photo" {
+        candidates.push(laravel_base.join("libraries").join("type").join("config-type-photo.php"));
+    } else if main_key == "type-news" {
+        candidates.push(laravel_base.join("libraries").join("type").join("config-type-news.php"));
+    } else if main_key == "type-static" {
+        candidates.push(laravel_base.join("libraries").join("type").join("config-type-static.php"));
+    }
+    candidates.into_iter().find(|p| p.is_file())
+}
+
+fn parse_normalized_entry(
+    sub_key: &str,
+    sub_obj: &Map<String, Value>,
+    main_key: &str,
+    wrapper_hint: Option<&str>,
+) -> NormalizedSubType {
+    let title = sub_obj
+        .get("title_main")
+        .or_else(|| sub_obj.get("title_main_photo"))
+        .or_else(|| sub_obj.get("title"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| sub_key.to_string());
+
+    let mut images_keys = Vec::new();
+    let mut images_enabled = false;
+    if let Some(imgs_val) = sub_obj.get("images") {
+        match imgs_val {
+            Value::Bool(true) => {
+                images_enabled = true;
+                images_keys.push("photo".to_string());
+            }
+            Value::Object(m) => {
+                for (k, v) in m {
+                    if v != &Value::Bool(false) && !k.is_empty() {
+                        images_keys.push(k.clone());
+                        images_enabled = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let ratio = extract_ratio_opt(sub_obj);
+    let has_images = if main_key == "type-static" {
+        images_enabled || ratio.is_some()
+    } else if main_key == "type-photo" {
+        sub_obj.get("images") != Some(&Value::Bool(false))
+    } else {
+        images_enabled || ratio.is_some() || php_val_bool(sub_obj.get("show_images"))
+    };
+    if has_images && images_keys.is_empty() {
+        images_keys.push("photo".to_string());
+    }
+
+    let status_keys = extract_status_keys(sub_obj);
+    let number = php_val_bool(sub_obj.get("number"));
+
+    let explicit_kind = sub_obj
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_lowercase())
+        .unwrap_or_default();
+
+    let kind = if main_key == "type-static" {
+        "static".to_string()
+    } else if !explicit_kind.is_empty() {
+        explicit_kind
+    } else if main_key == "type-photo" {
+        if wrapper_hint == Some("photo_static") {
+            "static".to_string()
+        } else if wrapper_hint == Some("man_photo") || php_val_bool(sub_obj.get("album")) {
+            "album".to_string()
+        } else if matches!(
+            sub_key,
+            "logo" | "logo-footer" | "logo_footer" | "favicon" | "watermark" | "watermark_product" | "watermark_news" | "popup" | "banner" | "banner-qc"
+        ) && !number
+            && status_keys.is_empty()
+        {
+            "static".to_string()
+        } else if number || !status_keys.is_empty() {
+            "album".to_string()
+        } else {
+            "static".to_string()
+        }
+    } else {
+        "man".to_string()
+    };
+
+    let is_static_photo = main_key == "type-photo" && kind == "static";
+
+    let mut options2_fields = Vec::new();
+    if let Some(opt2) = sub_obj.get("options2").and_then(|v| v.as_object()) {
+        for (k, v) in opt2 {
+            if v != &Value::Bool(false) && !k.is_empty() {
+                options2_fields.push(k.clone());
+            }
+        }
+    }
+
+    let mut categories: HashMap<String, CategoryLevelCfg> = HashMap::new();
+    if let Some(cats_obj) = sub_obj.get("categories").and_then(|v| v.as_object()) {
+        for level in ["list", "cat", "item", "sub"] {
+            if let Some(lvl_obj) = cats_obj.get(level).and_then(|v| v.as_object()) {
+                if lvl_obj.is_empty() {
+                    continue;
+                }
+                let lvl_title = lvl_obj
+                    .get("title_main_categories")
+                    .or_else(|| lvl_obj.get("title_main"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("{} {}", title, level));
+                let lvl_ratio = extract_ratio_opt(lvl_obj);
+                let lvl_has_img = php_val_bool(lvl_obj.get("images")) || lvl_ratio.is_some();
+                categories.insert(
+                    level.to_string(),
+                    CategoryLevelCfg {
+                        level: level.to_string(),
+                        title: lvl_title,
+                        has_images: lvl_has_img,
+                        has_name: lvl_obj.get("name") != Some(&Value::Bool(false)),
+                        has_desc: php_val_bool(lvl_obj.get("desc")),
+                        has_content: php_val_bool(lvl_obj.get("content")),
+                        has_slug: php_val_bool(lvl_obj.get("slug")),
+                        status_keys: extract_status_keys(lvl_obj),
+                        ratio: lvl_ratio,
+                    },
+                );
+            }
+        }
+    }
+
+    let has_name = php_val_bool(sub_obj.get("name")) || php_val_bool(sub_obj.get("title"));
+    let has_title = php_val_bool(sub_obj.get("title")) || has_name;
+
+    NormalizedSubType {
+        sub_type: sub_key.to_string(),
+        title,
+        kind,
+        is_static_photo,
+        has_images,
+        ratio,
+        number,
+        has_title,
+        has_name,
+        has_desc: php_val_bool(sub_obj.get("desc")),
+        has_desc_cke: php_val_bool(sub_obj.get("desc_cke")),
+        has_content: php_val_bool(sub_obj.get("content")),
+        has_content_cke: php_val_bool(sub_obj.get("content_cke")),
+        has_slug: php_val_bool(sub_obj.get("slug")),
+        has_link: php_val_bool(sub_obj.get("link")) || php_val_bool(sub_obj.get("link_video")),
+        has_phone: php_val_bool(sub_obj.get("phone")),
+        has_price: php_val_bool(sub_obj.get("regular_price"))
+            || php_val_bool(sub_obj.get("sale_price"))
+            || php_val_bool(sub_obj.get("discount")),
+        has_code: php_val_bool(sub_obj.get("code")),
+        status_keys,
+        images_keys,
+        options2_fields,
+        categories,
+        record_count: 0,
+    }
+}
+
+pub fn load_normalized_subtypes(laravel_base: &Path, main_key: &str) -> Vec<NormalizedSubType> {
+    let cfg_file = match find_type_config_file(laravel_base, main_key) {
+        Some(f) => f,
+        None => return Vec::new(),
+    };
+    let parsed = match parse_php_array_file(&cfg_file) {
+        Some(v) => v,
+        None => return Vec::new(),
+    };
+    let obj = match parsed.as_object() {
+        Some(m) => m,
+        None => return Vec::new(),
+    };
+
+    let mut result = Vec::new();
+    let mut seen = HashSet::new();
+
+    for (key, val) in obj {
+        if key.is_empty() {
+            continue;
+        }
+        let sub_map = match val.as_object() {
+            Some(m) if !m.is_empty() => m,
+            _ => continue,
+        };
+
+        if matches!(key.as_str(), "photo_static" | "man_photo" | "custom_Multi")
+            && !sub_map.contains_key("title_main")
+            && !sub_map.contains_key("title_main_photo")
+        {
+            for (inner_key, inner_val) in sub_map {
+                if let Some(inner_map) = inner_val.as_object() {
+                    if inner_map.is_empty() || inner_key.is_empty() {
+                        continue;
+                    }
+                    if seen.insert(inner_key.clone()) {
+                        result.push(parse_normalized_entry(
+                            inner_key,
+                            inner_map,
+                            main_key,
+                            Some(key.as_str()),
+                        ));
+                    }
+                }
+            }
+        } else if seen.insert(key.clone()) {
+            result.push(parse_normalized_entry(key, sub_map, main_key, None));
+        }
+    }
+    result
+}
+
+fn default_keywords_for_subtype(sub_key: &str) -> Vec<&'static str> {
+    let k = sub_key.to_lowercase();
+    if k.contains("logo-footer") || k.contains("logofooter") || k.contains("logo_footer") {
+        return vec!["logo-footer", "logofooter", "logo_footer", "footer-logo"];
+    }
+    if k == "logo" || k.starts_with("logo") {
+        return vec!["logo", "thuonghieu", "thuong-hieu", "brand"];
+    }
+    if k.contains("favicon") {
+        return vec!["favicon", "fav"];
+    }
+    if k.contains("watermark") {
+        return vec!["watermark", "dongdau", "dong-dau"];
+    }
+    if k.contains("slide") {
+        return vec!["slide", "slider", "slideshow", "hero", "bia"];
+    }
+    if k.contains("banner") || k.contains("quang-cao") || k.contains("quangcao") {
+        return vec!["banner", "quangcao", "quang-cao", "qc", "promo", "ads"];
+    }
+    if k.contains("social") || k.contains("mxh") || k.contains("mangxahoi") || k.contains("mang-xa-hoi") {
+        return vec![
+            "social", "mxh", "mangxahoi", "mang-xa-hoi", "facebook", "zalo", "youtube", "tiktok",
+            "instagram", "icon-mxh",
+        ];
+    }
+    if k.contains("doitac") || k.contains("doi-tac") || k.contains("partner") {
+        return vec!["doitac", "doi-tac", "partner"];
+    }
+    if k.contains("album") || k.contains("thuvien") || k.contains("thu-vien") || k.contains("gallery") {
+        return vec!["album", "thuvien", "thu-vien", "gallery", "hinhanh", "hinh-anh"];
+    }
+    if k.contains("video") || k.contains("clip") {
+        return vec!["video", "clip", "media"];
+    }
+    if k.contains("tieuchi") || k.contains("tieu-chi") {
+        return vec!["tieuchi", "tieu-chi", "camket", "cam-ket", "visao", "vi-sao"];
+    }
+    if k.contains("feedback") || k.contains("cam-nhan") || k.contains("ykien") || k.contains("y-kien") {
+        return vec!["feedback", "camnhan", "cam-nhan", "ykien", "y-kien", "review"];
+    }
+    if k.contains("san-pham") || k.contains("sanpham") || k.contains("product") {
+        return vec!["sanpham", "san-pham", "sp", "product", "prod"];
+    }
+    if k.contains("tin-tuc") || k.contains("tintuc") || k.contains("news") || k.contains("blog") {
+        return vec!["tintuc", "tin-tuc", "tt", "news", "blog", "baiviet", "bai-viet"];
+    }
+    if k.contains("dich-vu") || k.contains("dichvu") || k.contains("service") {
+        return vec!["dichvu", "dich-vu", "dv", "service"];
+    }
+    if k.contains("du-an") || k.contains("duan") || k.contains("project") {
+        return vec!["duan", "du-an", "congtrinh", "cong-trinh", "project"];
+    }
+    if k.contains("gioi-thieu") || k.contains("gioithieu") || k.contains("about") {
+        return vec!["gioithieu", "gioi-thieu", "about", "aboutus", "vechungtoi"];
+    }
+    if k.contains("chinh-sach") || k.contains("chinhsach") || k.contains("policy") {
+        return vec!["chinhsach", "chinh-sach", "policy", "huongdan", "huong-dan"];
+    }
+    if k.contains("bang-gia") || k.contains("banggia") || k.contains("pricing") {
+        return vec!["banggia", "bang-gia", "baogia", "bao-gia", "pricing"];
+    }
+    if k.contains("tuyen-dung") || k.contains("tuyendung") {
+        return vec!["tuyendung", "tuyen-dung", "career", "job"];
+    }
+    if k.contains("footer") {
+        return vec!["footer", "chantrang", "chan-trang"];
+    }
+    if k.contains("popup") {
+        return vec!["popup", "pop-up", "modal"];
+    }
+    Vec::new()
+}
+
+fn candidate_keywords_for_subtype(sub: &NormalizedSubType) -> Vec<String> {
+    let mut kws: Vec<String> = Vec::new();
+    let add_kw = |list: &mut Vec<String>, s: &str| {
+        let clean = strip_accents(s).to_lowercase();
+        let trimmed = clean.trim();
+        if trimmed.len() >= 2 && !list.iter().any(|x| x == trimmed) {
+            list.push(trimmed.to_string());
+        }
+        let compact = trimmed.replace(['-', '_', ' '], "");
+        if compact.len() >= 2 && !list.iter().any(|x| x == &compact) {
+            list.push(compact);
+        }
+    };
+
+    add_kw(&mut kws, &sub.sub_type);
+    add_kw(&mut kws, &sub.title);
+    for kw in default_keywords_for_subtype(&sub.sub_type) {
+        add_kw(&mut kws, kw);
+    }
+    let title_ascii = strip_accents(&sub.title).to_lowercase();
+    for part in title_ascii.split(|c: char| !c.is_ascii_alphanumeric()) {
+        if part.len() >= 3 {
+            add_kw(&mut kws, part);
+        }
+    }
+    kws
+}
+
+fn is_ratio_within_pct(w: u32, h: u32, target: (u32, u32), max_pct: f64) -> Option<f64> {
+    if w == 0 || h == 0 || target.0 == 0 || target.1 == 0 {
+        return None;
+    }
+    let img_r = w as f64 / h as f64;
+    let tgt_r = target.0 as f64 / target.1 as f64;
+    let diff = (img_r - tgt_r).abs() / tgt_r;
+    if diff <= max_pct {
+        Some(diff)
+    } else {
+        None
+    }
+}
+
+fn is_size_compatible_for_keyword(w: u32, h: u32, target: Option<(u32, u32)>) -> bool {
+    let Some((tw, th)) = target else {
+        return true;
+    };
+    if tw == 0 || th == 0 || w == 0 || h == 0 {
+        return true;
+    }
+    if tw.max(th) <= 50 && w.max(h) > 150 {
+        return false;
+    }
+    let img_r = w as f64 / h as f64;
+    let tgt_r = tw as f64 / th as f64;
+    let factor = (img_r / tgt_r).max(tgt_r / img_r);
+    factor <= 5.0
 }
 
 pub fn handle_scan_images_endpoint(project_name: &str, category: &str, main_key: &str) -> Value {
@@ -2584,122 +3108,205 @@ pub fn handle_scan_images_endpoint(project_name: &str, category: &str, main_key:
     };
 
     let p_root = Path::new(&proj.path);
+    let (laravel_base, public_base) = resolve_project_bases(p_root);
     let key = if main_key.is_empty() { "type-photo" } else { main_key };
-    let cfg_file = p_root.join("config").join(format!("{}.php", key));
 
-    // Parse subtypes and dimensions from config/{main_key}.php
-    let mut subtypes: Vec<(String, u32, u32)> = Vec::new();
+    let subtypes: Vec<NormalizedSubType> = load_normalized_subtypes(&laravel_base, key)
+        .into_iter()
+        .filter(|s| s.has_images)
+        .collect();
 
-    if cfg_file.is_file() {
-        if let Some(parsed) = parse_php_array_file(&cfg_file) {
-            if let Some(obj) = parsed.as_object() {
-                for (sub_key, val) in obj {
-                    let (w, h) = val
-                        .as_object()
-                        .map(extract_sub_dimensions)
-                        .unwrap_or((0, 0));
-                    if !sub_key.is_empty() {
-                        subtypes.push((sub_key.clone(), w, h));
-                    }
-                }
-            }
-        }
-
-        if subtypes.is_empty() {
-            if let Ok(content) = fs::read_to_string(&cfg_file) {
-                if let Ok(re_block) = Regex::new(r#"(?s)['"]([a-zA-Z0-9_-]+)['"]\s*=>\s*\[(.*?)\]"#) {
-                    let re_w = Regex::new(r#"['"]width['"]\s*=>\s*(\d+)"#).ok();
-                    let re_h = Regex::new(r#"['"]height['"]\s*=>\s*(\d+)"#).ok();
-                    for cap in re_block.captures_iter(&content) {
-                        let sub_key = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-                        let body = cap.get(2).map(|m| m.as_str()).unwrap_or("");
-                        let mut w: u32 = 0;
-                        let mut h: u32 = 0;
-                        if let Some(rw) = &re_w {
-                            if let Some(c) = rw.captures(body) {
-                                w = c.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                            }
-                        }
-                        if let Some(rh) = &re_h {
-                            if let Some(c) = rh.captures(body) {
-                                h = c.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                            }
-                        }
-                        if !sub_key.is_empty() && !subtypes.iter().any(|(k, _, _)| k == sub_key) {
-                            subtypes.push((sub_key.to_string(), w, h));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let source_dir = match find_project_source_images_dir(p_root) {
+    let source_dir = match find_assets_images_dir(&laravel_base, &public_base) {
         Some(d) => d,
-        None => return json!({ "status": "error", "message": "Không tìm thấy thư mục ảnh nguồn của dự án (assets/images/images)" }),
+        None => {
+            return json!({
+                "status": "error",
+                "message": "Không tìm thấy thư mục ảnh nguồn của dự án (assets/images/images)"
+            });
+        }
     };
 
-    let mut groups: serde_json::Map<String, Value> = serde_json::Map::new();
-    for (sub_key, _, _) in &subtypes {
-        groups.insert(sub_key.clone(), Value::Array(Vec::new()));
+    let mut groups: Map<String, Value> = Map::new();
+    let mut sub_ratios: Map<String, Value> = Map::new();
+    let mut sub_info: Map<String, Value> = Map::new();
+
+    for sub in &subtypes {
+        groups.insert(sub.sub_type.clone(), Value::Array(Vec::new()));
+        if let Some((tw, th)) = sub.ratio {
+            sub_ratios.insert(sub.sub_type.clone(), json!([tw, th]));
+        } else {
+            sub_ratios.insert(sub.sub_type.clone(), Value::Null);
+        }
+        sub_info.insert(
+            sub.sub_type.clone(),
+            json!({
+                "title": sub.title,
+                "kind": sub.kind,
+                "has_images": sub.has_images,
+                "number": sub.number,
+                "is_static_photo": sub.is_static_photo,
+            }),
+        );
     }
 
+    #[derive(Clone)]
+    struct ScannedFile {
+        fname: String,
+        abs_path: String,
+        w: u32,
+        h: u32,
+        size: u64,
+        ratio: f64,
+    }
+
+    let mut scanned_files: Vec<ScannedFile> = Vec::new();
     if let Ok(entries) = fs::read_dir(&source_dir) {
         for entry in entries.flatten() {
             let p = entry.path();
-            if p.is_file() {
-                let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
-                if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "svg" | "bmp") {
-                    let fname = entry.file_name().to_string_lossy().to_string();
-                    let fsize = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
-                    let (w, h) = get_image_dimensions_fast(&p);
-                    let ratio = if h > 0 { (w as f64 / h as f64 * 100.0).round() / 100.0 } else { 0.0 };
+            if !p.is_file() {
+                continue;
+            }
+            let fname = entry.file_name().to_string_lossy().to_string();
+            let fl = fname.to_lowercase();
+            if fl.starts_with("thumb_") || fl.starts_with('_') {
+                continue;
+            }
+            let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+            if !matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "svg" | "bmp" | "ico") {
+                continue;
+            }
+            let size = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+            let (w, h) = get_image_dimensions_fast(&p);
+            let ratio = if h > 0 { (w as f64 / h as f64 * 100.0).round() / 100.0 } else { 0.0 };
+            scanned_files.push(ScannedFile {
+                fname,
+                abs_path: p.to_string_lossy().to_string(),
+                w,
+                h,
+                size,
+                ratio,
+            });
+        }
+    }
+    scanned_files.sort_by(|a, b| a.fname.to_lowercase().cmp(&b.fname.to_lowercase()));
 
-                    let fn_clean = fname.to_lowercase().replace(['-', '_', ' '], "");
+    let sub_keywords: Vec<(usize, Vec<String>)> = subtypes
+        .iter()
+        .enumerate()
+        .map(|(idx, s)| (idx, candidate_keywords_for_subtype(s)))
+        .collect();
 
-                    let mut matched_sub = String::new();
-                    let mut match_source = "name";
+    for sf in &scanned_files {
+        let stem = Path::new(&sf.fname)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&sf.fname);
+        let stem_ascii = strip_accents(stem).to_lowercase();
+        let stem_compact = stem_ascii.replace(['-', '_', ' '], "");
 
-                    // 1. Direct name match
-                    for (sub_key, _sw, _sh) in &subtypes {
-                        let sub_clean = sub_key.to_lowercase().replace(['-', '_', ' '], "");
-                        if fn_clean.contains(&sub_clean) {
-                            matched_sub = sub_key.clone();
-                            match_source = "name";
-                            break;
-                        }
+        let mut best_idx: Option<usize> = None;
+        let mut best_score: i64 = 0;
+        let mut match_source = "keyword";
+
+        // 1. Keyword match with specificity scoring
+        for (idx, kws) in &sub_keywords {
+            let sub = &subtypes[*idx];
+            if !is_size_compatible_for_keyword(sf.w, sf.h, sub.ratio) {
+                continue;
+            }
+            let mut sub_score: i64 = 0;
+            for kw in kws {
+                let mut s: i64 = 0;
+                if stem_ascii == *kw || stem_compact == *kw {
+                    s = 5000 + (kw.len() as i64 * 20);
+                } else if stem_ascii.starts_with(kw) || stem_compact.starts_with(kw) {
+                    let next_char = stem_ascii.as_bytes().get(kw.len()).copied();
+                    let sep_or_digit = matches!(next_char, None | Some(b'-') | Some(b'_') | Some(b' ') | Some(b'0'..=b'9'));
+                    s = if sep_or_digit { 3000 } else { 1800 } + (kw.len() as i64 * 20);
+                } else if stem_ascii.contains(kw.as_str()) || stem_compact.contains(kw.as_str()) {
+                    s = 1000 + (kw.len() as i64 * 20);
+                }
+                if s > 0 && kw == &sub.sub_type.to_lowercase() {
+                    s += 400;
+                }
+                if s > sub_score {
+                    sub_score = s;
+                }
+            }
+            if sub_score > 0 {
+                if let Some((tw, th)) = sub.ratio {
+                    if let Some(diff) = is_ratio_within_pct(sf.w, sf.h, (tw, th), 0.15) {
+                        sub_score += ((1.0 - diff) * 100.0) as i64;
                     }
+                }
+                if sub_score > best_score {
+                    best_score = sub_score;
+                    best_idx = Some(*idx);
+                }
+            }
+        }
 
-                    // 2. Ratio match fallback if no name match
-                    if matched_sub.is_empty() && w > 0 && h > 0 {
-                        for (sub_key, sw, sh) in &subtypes {
-                            if *sw > 0 && *sh > 0 {
-                                let s_ratio = (*sw as f64 / *sh as f64 * 100.0).round() / 100.0;
-                                if (ratio - s_ratio).abs() < 0.12 {
-                                    matched_sub = sub_key.clone();
-                                    match_source = "ratio";
-                                    break;
-                                }
-                            }
-                        }
+        // 2. Ratio match fallback (<= 5%)
+        if best_idx.is_none() && sf.w > 0 && sf.h > 0 {
+            let mut best_diff = 0.051_f64;
+            for (idx, sub) in subtypes.iter().enumerate() {
+                if let Some((tw, th)) = sub.ratio {
+                    if tw.max(th) <= 50 && sf.w.max(sf.h) > 150 {
+                        continue;
                     }
-
-                    if !matched_sub.is_empty() {
-                        let abs_path = p.to_string_lossy().to_string();
-                        let preview_url = format!("seed_images.php?action=serve_image&path={}", urlencoding_encode(&abs_path));
-                        let img_item = json!({
-                            "file": fname,
-                            "width": w,
-                            "height": h,
-                            "size": fsize,
-                            "preview_url": preview_url,
-                            "match_source": match_source
-                        });
-                        if let Some(arr) = groups.get_mut(&matched_sub).and_then(|v| v.as_array_mut()) {
-                            arr.push(img_item);
+                    if let Some(diff) = is_ratio_within_pct(sf.w, sf.h, (tw, th), 0.05) {
+                        if diff < best_diff {
+                            best_diff = diff;
+                            best_idx = Some(idx);
+                            match_source = "ratio";
                         }
                     }
                 }
+            }
+        }
+
+        if let Some(idx) = best_idx {
+            let sub_key = &subtypes[idx].sub_type;
+            let preview_url = format!(
+                "seed_images.php?action=serve_image&path={}",
+                urlencoding_encode(&sf.abs_path)
+            );
+            let item = json!({
+                "file": sf.fname,
+                "width": sf.w,
+                "height": sf.h,
+                "size": sf.size,
+                "ratio": sf.ratio,
+                "preview_url": preview_url,
+                "match_source": match_source,
+            });
+            if let Some(arr) = groups.get_mut(sub_key).and_then(|v| v.as_array_mut()) {
+                arr.push(item);
+            }
+        }
+    }
+
+    // 3. Special rule for favicon: fallback to logo.png / logo.ico if favicon group is empty
+    if let Some(fav_arr) = groups.get_mut("favicon").and_then(|v| v.as_array_mut()) {
+        if fav_arr.is_empty() {
+            let logo_fallback = scanned_files
+                .iter()
+                .find(|sf| matches!(sf.fname.to_lowercase().as_str(), "logo.ico" | "logo.png" | "favicon.ico" | "favicon.png"))
+                .or_else(|| scanned_files.iter().find(|sf| sf.fname.to_lowercase().starts_with("logo.")));
+            if let Some(sf) = logo_fallback {
+                let preview_url = format!(
+                    "seed_images.php?action=serve_image&path={}",
+                    urlencoding_encode(&sf.abs_path)
+                );
+                fav_arr.push(json!({
+                    "file": sf.fname,
+                    "width": sf.w,
+                    "height": sf.h,
+                    "size": sf.size,
+                    "ratio": sf.ratio,
+                    "preview_url": preview_url,
+                    "match_source": "fallback_logo",
+                }));
             }
         }
     }
@@ -2707,97 +3314,375 @@ pub fn handle_scan_images_endpoint(project_name: &str, category: &str, main_key:
     json!({
         "status": "success",
         "groups": groups,
+        "sub_ratios": sub_ratios,
+        "sub_info": sub_info,
+        "image_count": scanned_files.len(),
+        "source_dir": source_dir.to_string_lossy(),
         "main_key": key,
-        "project": proj.name
+        "project": proj.name,
     })
 }
 
-fn get_table_columns(db: &ProjectDbEnv, full_table: &str) -> HashSet<String> {
-    let mut cols = HashSet::new();
-    let sql = format!("SHOW COLUMNS FROM `{}`;", full_table);
-    if let Ok(out) = run_mysql_query(db, &sql, true) {
-        for line in out.lines() {
-            if let Some(col) = line.split('\t').next() {
-                let c = col.trim().to_lowercase();
-                if !c.is_empty() && c != "field" {
-                    cols.insert(c);
+pub fn inspect_db_col_types(db: &ProjectDbEnv) -> HashMap<(String, String), String> {
+    let sql = format!(
+        "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '{}';",
+        sql_escape(&db.name)
+    );
+    let mut map = HashMap::new();
+    if let Ok(rows) = run_mysql_tsv(db, &sql) {
+        for cols in rows {
+            if cols.len() >= 3 {
+                map.insert(
+                    (cols[0].to_lowercase(), cols[1].to_lowercase()),
+                    cols[2].to_lowercase(),
+                );
+            }
+        }
+    }
+    map
+}
+
+fn copy_image_to_upload(
+    src_file: &Path,
+    public_base: &Path,
+    upload_folder: &str,
+    seq_idx: usize,
+) -> Result<String, String> {
+    use rand::Rng;
+    let stem = src_file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("img");
+    let mut clean_stem = make_slug(stem);
+    if clean_stem.is_empty() {
+        clean_stem = "img".to_string();
+    }
+    let ext = src_file
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_lowercase())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "jpg".to_string());
+
+    let date_subpath = Local::now().format("%Y/%m/%d").to_string();
+    let rng_hex: u16 = rand::thread_rng().gen();
+    let new_name = format!("{}-{}-{}-{:04x}.{}", clean_stem, now_unix(), seq_idx, rng_hex, ext);
+    let dest_dir = public_base
+        .join("upload")
+        .join(upload_folder)
+        .join(&date_subpath);
+    fs::create_dir_all(&dest_dir)
+        .map_err(|e| format!("Không thể tạo thư mục upload {}: {}", dest_dir.display(), e))?;
+    let dest_file = dest_dir.join(&new_name);
+    fs::copy(src_file, &dest_file)
+        .map_err(|e| format!("Lỗi copy ảnh {}: {}", src_file.display(), e))?;
+    Ok(format!("{}/{}/{}", upload_folder, date_subpath, new_name))
+}
+
+fn delete_old_upload_file(
+    old_rel: &str,
+    new_rel: &str,
+    upload_folder: &str,
+    public_base: &Path,
+    laravel_base: &Path,
+) -> bool {
+    let trimmed = old_rel.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with("http://")
+        || trimmed.starts_with("https://")
+        || trimmed.starts_with("//")
+        || trimmed == new_rel
+    {
+        return false;
+    }
+    let norm = trimmed.trim_start_matches(['/', '\\']).replace('\\', "/");
+    let new_abs = public_base.join("upload").join(new_rel);
+
+    let mut candidates = Vec::new();
+    for base in [public_base, laravel_base] {
+        candidates.push(base.join("upload").join(&norm));
+        if !norm.contains('/') {
+            candidates.push(base.join("upload").join(upload_folder).join(&norm));
+        }
+        if norm.starts_with("upload/") {
+            candidates.push(base.join(&norm));
+        }
+    }
+
+    for cand in candidates {
+        if cand.is_file() && cand != new_abs {
+            if fs::remove_file(&cand).is_ok() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn fetch_existing_slugs(
+    db: &ProjectDbEnv,
+    schema: &HashMap<String, Vec<String>>,
+    prefix: &str,
+) -> HashSet<String> {
+    let mut set = HashSet::new();
+    let slug_tbl = format!("{}slug", prefix);
+    let Some(cols) = schema.get(&slug_tbl.to_lowercase()) else {
+        return set;
+    };
+    if !cols.iter().any(|c| c == "slugvi") {
+        return set;
+    }
+    let where_deleted = if cols.iter().any(|c| c == "deleted_at") {
+        " WHERE deleted_at IS NULL"
+    } else {
+        ""
+    };
+    let sql = format!(
+        "SELECT IFNULL(`slugvi`, '') FROM `{}`{};",
+        slug_tbl, where_deleted
+    );
+    if let Ok(rows) = run_mysql_tsv(db, &sql) {
+        for r in rows {
+            if let Some(s) = r.first() {
+                let t = s.trim().to_lowercase();
+                if !t.is_empty() {
+                    set.insert(t);
                 }
             }
         }
     }
-    cols
+    set
 }
 
-fn build_seed_insert_sql(
-    full_table: &str,
-    cols: &HashSet<String>,
+fn allocate_unique_slug(base_text: &str, existing: &mut HashSet<String>) -> String {
+    let mut base = make_slug(base_text);
+    if base.is_empty() {
+        base = "item".to_string();
+    }
+    if existing.insert(base.clone()) {
+        return base;
+    }
+    for i in 1..=10000 {
+        let cand = format!("{}-{}", base, i);
+        if existing.insert(cand.clone()) {
+            return cand;
+        }
+    }
+    let fallback = format!("{}-{}", base, now_unix());
+    existing.insert(fallback.clone());
+    fallback
+}
+
+fn find_status_fk_col(cols: &[String]) -> Option<String> {
+    cols.iter()
+        .find(|c| c.starts_with("id_") && *c != "id")
+        .cloned()
+}
+
+fn resolve_active_statuses(status_keys: &[String], include_featured: bool) -> Vec<String> {
+    let mut active = Vec::new();
+    if status_keys.iter().any(|k| k == "is_show") {
+        active.push("is_show".to_string());
+    } else if status_keys.iter().any(|k| k == "hienthi") {
+        active.push("hienthi".to_string());
+    } else if let Some(first) = status_keys.first() {
+        active.push(first.clone());
+    } else {
+        active.push("is_show".to_string());
+    }
+    if include_featured {
+        if status_keys.iter().any(|k| k == "is_featured") && !active.iter().any(|k| k == "is_featured") {
+            active.push("is_featured".to_string());
+        } else if status_keys.iter().any(|k| k == "noibat") && !active.iter().any(|k| k == "noibat") {
+            active.push("noibat".to_string());
+        }
+    }
+    active
+}
+
+fn append_status_pivot_sql(
+    sql_out: &mut String,
+    schema: &HashMap<String, Vec<String>>,
+    status_table: &str,
+    entity_id_expr: &str,
+    active_statuses: &[String],
+) {
+    let Some(cols) = schema.get(&status_table.to_lowercase()) else {
+        return;
+    };
+    let Some(fk_col) = find_status_fk_col(cols) else {
+        return;
+    };
+    if !cols.iter().any(|c| c == "status") {
+        return;
+    }
+    for st in active_statuses {
+        sql_out.push_str(&format!(
+            "INSERT IGNORE INTO `{}` (`{}`, `status`) VALUES ({}, '{}');\n",
+            status_table,
+            fk_col,
+            entity_id_expr,
+            sql_escape(st)
+        ));
+    }
+}
+
+fn entity_slug_meta(
+    base_table: &str,
+    cat_level: Option<&str>,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    match (base_table, cat_level) {
+        ("product", None) => Some((
+            "product",
+            r"\NASANICORE\Models\ProductModel",
+            r"\NASANICORE\Controllers\Web\ProductController",
+        )),
+        ("product", Some("list")) => Some((
+            "product-list",
+            r"\NASANICORE\Models\ProductListModel",
+            r"\NASANICORE\Controllers\Web\ProductController",
+        )),
+        ("product", Some("cat")) => Some((
+            "product-cat",
+            r"\NASANICORE\Models\ProductCatModel",
+            r"\NASANICORE\Controllers\Web\ProductController",
+        )),
+        ("product", Some("item")) => Some((
+            "product-item",
+            r"\NASANICORE\Models\ProductItemModel",
+            r"\NASANICORE\Controllers\Web\ProductController",
+        )),
+        ("product", Some("sub")) => Some((
+            "product-sub",
+            r"\NASANICORE\Models\ProductSubModel",
+            r"\NASANICORE\Controllers\Web\ProductController",
+        )),
+        ("news", None) => Some((
+            "news",
+            r"\NASANICORE\Models\NewsModel",
+            r"\NASANICORE\Controllers\Web\NewsController",
+        )),
+        ("news", Some("list")) => Some((
+            "news-list",
+            r"\NASANICORE\Models\NewsListModel",
+            r"\NASANICORE\Controllers\Web\NewsController",
+        )),
+        ("news", Some("cat")) => Some((
+            "news-cat",
+            r"\NASANICORE\Models\NewsCatModel",
+            r"\NASANICORE\Controllers\Web\NewsController",
+        )),
+        ("news", Some("item")) => Some((
+            "news-item",
+            r"\NASANICORE\Models\NewsItemModel",
+            r"\NASANICORE\Controllers\Web\NewsController",
+        )),
+        ("news", Some("sub")) => Some((
+            "news-sub",
+            r"\NASANICORE\Models\NewsSubModel",
+            r"\NASANICORE\Controllers\Web\NewsController",
+        )),
+        ("static", None) => Some((
+            "static",
+            r"\NASANICORE\Models\StaticModel",
+            r"\NASANICORE\Controllers\Web\StaticController",
+        )),
+        _ => None,
+    }
+}
+
+fn append_table_slug_insert_sql(
+    sql_out: &mut String,
+    schema: &HashMap<String, Vec<String>>,
+    col_types: &HashMap<(String, String), String>,
+    prefix: &str,
+    id_parent_expr: &str,
+    base_table: &str,
+    cat_level: Option<&str>,
     sub_type: &str,
     name_vi: &str,
-    photo: &str,
-    numb: usize,
+    slug_vi: &str,
     now: u64,
-    act_val: &str,
-) -> String {
-    let slug_vi = format!("{}-mau-{}-{}", make_slug(name_vi), numb, now % 10000);
-    let esc = |s: &str| s.replace('\\', "\\\\").replace('\'', "''");
+) {
+    let Some((com, model, controller)) = entity_slug_meta(base_table, cat_level) else {
+        return;
+    };
+    let slug_tbl = format!("{}slug", prefix);
+    let slug_lower = slug_tbl.to_lowercase();
+    let Some(cols) = schema.get(&slug_lower) else {
+        return;
+    };
 
-    let mut fields: Vec<&str> = Vec::new();
+    let mut fields: Vec<String> = Vec::new();
     let mut values: Vec<String> = Vec::new();
+    let mut push_col = |name: &str, val_sql: String| {
+        if cols.iter().any(|c| c == name) {
+            fields.push(format!("`{}`", name));
+            values.push(val_sql);
+        }
+    };
 
-    if cols.is_empty() || cols.contains("namevi") {
-        fields.push("`namevi`");
-        values.push(format!("'{}'", esc(name_vi)));
-    }
-    if cols.contains("slugvi") {
-        fields.push("`slugvi`");
-        values.push(format!("'{}'", esc(&slug_vi)));
-    }
-    if cols.contains("descvi") {
-        fields.push("`descvi`");
-        values.push("'Mô tả mẫu tự động'".to_string());
-    }
-    if cols.contains("contentvi") {
-        fields.push("`contentvi`");
-        values.push("'<p>Nội dung mẫu tự động</p>'".to_string());
-    }
-    if cols.is_empty() || cols.contains("photo") {
-        fields.push("`photo`");
-        values.push(format!("'{}'", esc(photo)));
-    }
-    if cols.contains("numb") {
-        fields.push("`numb`");
-        values.push(numb.to_string());
-    }
-    if cols.contains("status") {
-        fields.push("`status`");
-        values.push("'hienthi,noibat'".to_string());
-    }
-    if cols.contains("is_show") {
-        fields.push("`is_show`");
-        values.push("1".to_string());
-    }
-    if cols.is_empty() || cols.contains("type") {
-        fields.push("`type`");
-        values.push(format!("'{}'", esc(sub_type)));
-    }
-    if !act_val.is_empty() && cols.contains("act") {
-        fields.push("`act`");
-        values.push(format!("'{}'", esc(act_val)));
-    }
-    if cols.contains("date_created") {
-        fields.push("`date_created`");
-        values.push(now.to_string());
+    push_col("id_parent", id_parent_expr.to_string());
+    push_col("namevi", format!("'{}'", sql_escape(name_vi)));
+    push_col("slugvi", format!("'{}'", sql_escape(slug_vi)));
+    push_col("com", format!("'{}'", sql_escape(com)));
+    push_col("act", "'save'".to_string());
+    push_col("type", format!("'{}'", sql_escape(sub_type)));
+    push_col("model", format!("'{}'", sql_escape(model)));
+    push_col("controller", format!("'{}'", sql_escape(controller)));
+    for ts_col in ["created_at", "updated_at", "date_publish"] {
+        if cols.iter().any(|c| c == ts_col) {
+            let is_dt = col_types
+                .get(&(slug_lower.clone(), ts_col.to_string()))
+                .map(|t| matches!(t.as_str(), "timestamp" | "datetime" | "date"))
+                .unwrap_or(true);
+            push_col(ts_col, if is_dt { "NOW()".to_string() } else { now.to_string() });
+        }
     }
 
-    if fields.is_empty() {
-        return String::new();
+    if !fields.is_empty() {
+        sql_out.push_str(&format!(
+            "INSERT INTO `{}` ({}) VALUES ({});\n",
+            slug_tbl,
+            fields.join(", "),
+            values.join(", ")
+        ));
     }
-    format!(
-        "INSERT INTO `{}` ({}) VALUES ({});",
-        full_table,
-        fields.join(", "),
-        values.join(", ")
-    )
+}
+
+fn push_dynamic_col(
+    cols: &[String],
+    col_types: &HashMap<(String, String), String>,
+    table_lower: &str,
+    fields: &mut Vec<String>,
+    values: &mut Vec<String>,
+    col_name: &str,
+    val_sql: String,
+) {
+    if cols.iter().any(|c| c == col_name) {
+        let _ = (col_types, table_lower);
+        fields.push(format!("`{}`", col_name));
+        values.push(val_sql);
+    }
+}
+
+fn push_timestamp_col(
+    cols: &[String],
+    col_types: &HashMap<(String, String), String>,
+    table_lower: &str,
+    fields: &mut Vec<String>,
+    values: &mut Vec<String>,
+    col_name: &str,
+    now: u64,
+) {
+    if cols.iter().any(|c| c == col_name) {
+        let is_dt = col_types
+            .get(&(table_lower.to_string(), col_name.to_string()))
+            .map(|t| matches!(t.as_str(), "timestamp" | "datetime" | "date"))
+            .unwrap_or_else(|| matches!(col_name, "created_at" | "updated_at" | "date_publish"));
+        fields.push(format!("`{}`", col_name));
+        values.push(if is_dt { "NOW()".to_string() } else { now.to_string() });
+    }
 }
 
 pub fn handle_auto_update_endpoint(body_obj: &Map<String, Value>) -> Value {
@@ -2815,121 +3700,929 @@ pub fn handle_auto_update_endpoint(body_obj: &Map<String, Value>) -> Value {
     };
 
     let p_root = Path::new(&proj.path);
-    let source_dir = match find_project_source_images_dir(p_root) {
+    let (laravel_base, public_base) = resolve_project_bases(p_root);
+    let source_dir = match find_assets_images_dir(&laravel_base, &public_base) {
         Some(d) => d,
-        None => return json!({ "status": "error", "message": "Không tìm thấy thư mục ảnh nguồn" }),
+        None => return json!({ "status": "error", "message": "Không tìm thấy thư mục ảnh nguồn (assets/images/images)" }),
     };
 
-    let target_subfolder = match main_key {
-        "type-photo" => "upload/photo",
-        "type-products" => "upload/product",
-        _ => "upload/news",
-    };
-    let target_dir = if p_root.join("public").join(target_subfolder).is_dir() {
-        p_root.join("public").join(target_subfolder)
-    } else {
-        p_root.join(target_subfolder)
-    };
-    let _ = fs::create_dir_all(&target_dir);
-
-    let images_arr = body_obj.get("images").and_then(|v| v.as_array());
-    let mut updated_count = 0usize;
-    let mut details_map: serde_json::Map<String, Value> = serde_json::Map::new();
-
+    if let Err(e) = ensure_mysql_running() {
+        return json!({ "status": "error", "message": e });
+    }
     let db = parse_project_db_env(p_root);
+    if db.name.trim().is_empty() {
+        return json!({
+            "status": "error",
+            "message": "Dự án chưa có cấu hình DB_DATABASE trong .env/config.php. Hãy bấm Cấu hình Source Local trước."
+        });
+    }
+
+    let schema = match inspect_db_schema(&db) {
+        Ok(s) => s,
+        Err(e) => {
+            return json!({
+                "status": "error",
+                "message": format!("Không thể kết nối database '{}': {}", db.name, e.trim())
+            });
+        }
+    };
+    let col_types = inspect_db_col_types(&db);
+
     let base_table = match main_key {
         "type-photo" => "photo",
-        "type-products" => "product",
+        "type-products" | "type-product" => "product",
         "type-static" => "static",
+        _ => "news",
+    };
+    let upload_folder = match main_key {
+        "type-photo" => "photo",
+        "type-products" | "type-product" => "product",
         _ => "news",
     };
     let prefix = if db.prefix.trim().is_empty() { "table_" } else { db.prefix.trim() };
     let full_table = format!("{}{}", prefix, base_table);
+    let full_table_lower = full_table.to_lowercase();
+    let table_cols = match schema.get(&full_table_lower) {
+        Some(c) => c.clone(),
+        None => {
+            return json!({
+                "status": "error",
+                "message": format!("Bảng `{}` chưa tồn tại trong DB '{}'", full_table, db.name)
+            });
+        }
+    };
 
-    if let Some(imgs) = images_arr {
+    let subtypes = load_normalized_subtypes(&laravel_base, main_key);
+    let sub_map: HashMap<String, NormalizedSubType> = subtypes
+        .into_iter()
+        .map(|s| (s.sub_type.clone(), s))
+        .collect();
+
+    let mut grouped: Vec<(String, Vec<String>)> = Vec::new();
+    let mut group_idx_map: HashMap<String, usize> = HashMap::new();
+    if let Some(imgs) = body_obj.get("images").and_then(|v| v.as_array()) {
         for item in imgs {
-            let file = item.get("file").and_then(|v| v.as_str()).unwrap_or("");
-            let sub_type = item.get("sub_type").and_then(|v| v.as_str()).unwrap_or("");
-            if !file.is_empty() {
-                let src_file = source_dir.join(file);
-                if src_file.is_file() {
-                    let dest_file = target_dir.join(file);
-                    let copied = if fs::copy(&src_file, &dest_file).is_ok() { 1 } else { 0 };
-                    updated_count += copied;
-
-                    let mut updated_rows = 0usize;
-                    let mut deleted_old = 0usize;
-
-                    if !db.name.is_empty() && !sub_type.is_empty() {
-                        let safe_file = file.replace('\'', "''");
-                        let safe_type = sub_type.replace('\'', "''");
-
-                        // Check old photo file so we can clean it up if replaced
-                        let sel_sql = format!(
-                            "SELECT `photo` FROM `{}` WHERE `type` = '{}' LIMIT 1;",
-                            full_table, safe_type
-                        );
-                        if let Ok(old_out) = run_mysql_query(&db, &sel_sql, true) {
-                            let old_photo = old_out.trim();
-                            if !old_photo.is_empty() && old_photo != file {
-                                let old_path = target_dir.join(old_photo);
-                                if old_path.is_file() && fs::remove_file(&old_path).is_ok() {
-                                    deleted_old += 1;
-                                }
-                            }
-                        }
-
-                        let upd_sql = format!(
-                            "UPDATE `{}` SET `photo` = '{}' WHERE `type` = '{}'; SELECT ROW_COUNT();",
-                            full_table, safe_file, safe_type
-                        );
-                        if let Ok(res_out) = run_mysql_query(&db, &upd_sql, true) {
-                            let affected = res_out.lines().last().and_then(|l| l.trim().parse::<usize>().ok()).unwrap_or(0);
-                            if affected > 0 {
-                                updated_rows = affected;
-                            } else {
-                                // Insert if no row exists yet for this type
-                                let cols = get_table_columns(&db, &full_table);
-                                let now = now_unix();
-                                let ins_sql = build_seed_insert_sql(
-                                    &full_table,
-                                    &cols,
-                                    sub_type,
-                                    sub_type,
-                                    file,
-                                    1,
-                                    now,
-                                    if base_table == "photo" { "photo_static" } else { "" },
-                                );
-                                if !ins_sql.is_empty() && run_mysql_query(&db, &ins_sql, true).is_ok() {
-                                    updated_rows = 1;
-                                }
-                            }
-                        }
-                    }
-
-                    let entry = details_map
-                        .entry(sub_type.to_string())
-                        .or_insert_with(|| json!({ "updated_rows": 0, "deleted_old_files": 0, "copied_new_files": 0 }));
-                    if let Some(obj) = entry.as_object_mut() {
-                        let cur_u = obj.get("updated_rows").and_then(|v| v.as_u64()).unwrap_or(0);
-                        let cur_d = obj.get("deleted_old_files").and_then(|v| v.as_u64()).unwrap_or(0);
-                        let cur_c = obj.get("copied_new_files").and_then(|v| v.as_u64()).unwrap_or(0);
-                        obj.insert("updated_rows".to_string(), json!(cur_u + updated_rows as u64));
-                        obj.insert("deleted_old_files".to_string(), json!(cur_d + deleted_old as u64));
-                        obj.insert("copied_new_files".to_string(), json!(cur_c + copied as u64));
-                    }
-                }
+            let file = item.get("file").and_then(|v| v.as_str()).unwrap_or("").trim();
+            let sub_type = item.get("sub_type").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if file.is_empty() || sub_type.is_empty() {
+                continue;
+            }
+            if let Some(&idx) = group_idx_map.get(sub_type) {
+                grouped[idx].1.push(file.to_string());
+            } else {
+                group_idx_map.insert(sub_type.to_string(), grouped.len());
+                grouped.push((sub_type.to_string(), vec![file.to_string()]));
             }
         }
     }
 
+    if grouped.is_empty() {
+        return json!({ "status": "error", "message": "Không có ảnh hợp lệ để cập nhật" });
+    }
+
+    let mut existing_slugs = fetch_existing_slugs(&db, &schema, prefix);
+    let status_table = format!("{}{}_status", prefix, base_table);
+    let has_deleted_at = table_cols.iter().any(|c| c == "deleted_at");
+    let has_numb = table_cols.iter().any(|c| c == "numb");
+    let now = now_unix();
+
+    let mut total_copied = 0usize;
+    let mut total_affected = 0usize;
+    let mut details_map: Map<String, Value> = Map::new();
+    let mut copy_seq = 0usize;
+
+    for (sub_type, raw_files) in grouped {
+        let sub_cfg = sub_map.get(&sub_type);
+        let ratio_opt = sub_cfg.and_then(|s| s.ratio);
+
+        // Ratio validation <= 5% (fallback keeping all if none match ratio)
+        let mut selected_files: Vec<String> = Vec::new();
+        if let Some(tgt) = ratio_opt {
+            for f in &raw_files {
+                let p = source_dir.join(f);
+                if !p.is_file() {
+                    continue;
+                }
+                let (w, h) = get_image_dimensions_fast(&p);
+                if w == 0 || h == 0 || is_ratio_within_pct(w, h, tgt, 0.05).is_some() {
+                    selected_files.push(f.clone());
+                }
+            }
+        }
+        if selected_files.is_empty() {
+            selected_files = raw_files
+                .into_iter()
+                .filter(|f| source_dir.join(f).is_file())
+                .collect();
+        }
+        if selected_files.is_empty() {
+            continue;
+        }
+
+        // Copy files first into upload/{upload_folder}/YYYY/MM/DD/...
+        let mut copied_rels: Vec<String> = Vec::new();
+        for f in &selected_files {
+            copy_seq += 1;
+            let src_file = source_dir.join(f);
+            if let Ok(rel) = copy_image_to_upload(&src_file, &public_base, upload_folder, copy_seq) {
+                copied_rels.push(rel);
+                total_copied += 1;
+            }
+        }
+        if copied_rels.is_empty() {
+            continue;
+        }
+
+        let order_clause = if has_numb { "ORDER BY `numb` ASC, `id` ASC" } else { "ORDER BY `id` ASC" };
+        let deleted_clause = if has_deleted_at { " AND `deleted_at` IS NULL" } else { "" };
+        let sel_sql = format!(
+            "SELECT `id`, IFNULL(`photo`, '') FROM `{}` WHERE `type` = '{}'{} {};",
+            full_table,
+            sql_escape(&sub_type),
+            deleted_clause,
+            order_clause
+        );
+        let existing_rows: Vec<(u64, String)> = run_mysql_tsv(&db, &sel_sql)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|cols| {
+                let id = cols.first()?.trim().parse::<u64>().ok()?;
+                let old_p = cols.get(1).cloned().unwrap_or_default();
+                Some((id, old_p))
+            })
+            .collect();
+
+        let is_static = base_table == "static"
+            || (base_table == "photo" && sub_cfg.map(|s| s.is_static_photo).unwrap_or(false));
+        let active_statuses = sub_cfg
+            .map(|s| resolve_active_statuses(&s.status_keys, false))
+            .unwrap_or_else(|| vec!["is_show".to_string()]);
+        let title_base = sub_cfg
+            .map(|s| s.title.clone())
+            .unwrap_or_else(|| sub_type.clone());
+
+        let mut sql_batch = String::from("START TRANSACTION;\n");
+        let mut updated_rows = 0usize;
+        let mut inserted_rows = 0usize;
+        let mut deleted_old_files = 0usize;
+
+        if !existing_rows.is_empty() {
+            let max_update = if is_static { 1 } else { existing_rows.len() };
+            for (r_idx, (row_id, old_photo)) in existing_rows.iter().take(max_update).enumerate() {
+                let new_rel = &copied_rels[r_idx % copied_rels.len()];
+                if delete_old_upload_file(old_photo, new_rel, upload_folder, &public_base, &laravel_base) {
+                    deleted_old_files += 1;
+                }
+                let mut sets = vec![format!("`photo` = '{}'", sql_escape(new_rel))];
+                if table_cols.iter().any(|c| c == "updated_at") {
+                    let is_dt = col_types
+                        .get(&(full_table_lower.clone(), "updated_at".to_string()))
+                        .map(|t| matches!(t.as_str(), "timestamp" | "datetime" | "date"))
+                        .unwrap_or(true);
+                    sets.push(format!(
+                        "`updated_at` = {}",
+                        if is_dt { "NOW()".to_string() } else { now.to_string() }
+                    ));
+                }
+                if table_cols.iter().any(|c| c == "date_updated") {
+                    sets.push(format!("`date_updated` = {}", now));
+                }
+                if table_cols.iter().any(|c| c == "is_show") {
+                    sets.push("`is_show` = 1".to_string());
+                }
+                if table_cols.iter().any(|c| c == "status") {
+                    sets.push("`status` = 'hienthi'".to_string());
+                }
+                sql_batch.push_str(&format!(
+                    "UPDATE `{}` SET {} WHERE `id` = {};\n",
+                    full_table,
+                    sets.join(", "),
+                    row_id
+                ));
+                append_status_pivot_sql(
+                    &mut sql_batch,
+                    &schema,
+                    &status_table,
+                    &row_id.to_string(),
+                    &active_statuses,
+                );
+                updated_rows += 1;
+            }
+        }
+
+        // Insert leftover images (or 1 row for is_static when 0 rows exist)
+        let extra_start = if existing_rows.is_empty() {
+            0
+        } else if !is_static && (base_table == "photo" || base_table == "news") && copied_rels.len() > existing_rows.len() {
+            existing_rows.len()
+        } else {
+            copied_rels.len()
+        };
+
+        let insert_limit = if is_static && existing_rows.is_empty() {
+            1.min(copied_rels.len())
+        } else {
+            copied_rels.len()
+        };
+
+        if extra_start < insert_limit {
+            for (offset, new_rel) in copied_rels[extra_start..insert_limit].iter().enumerate() {
+                let numb = existing_rows.len() + offset + 1;
+                let name_vi = if is_static {
+                    title_base.clone()
+                } else {
+                    format!("{} {}", title_base, numb)
+                };
+                let slug_vi = allocate_unique_slug(&name_vi, &mut existing_slugs);
+
+                let mut fields = Vec::new();
+                let mut values = Vec::new();
+                push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "type", format!("'{}'", sql_escape(&sub_type)));
+                push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "namevi", format!("'{}'", sql_escape(&name_vi)));
+                push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "titlevi", format!("'{}'", sql_escape(&name_vi)));
+                if sub_cfg.map(|s| s.has_slug).unwrap_or(base_table != "photo") {
+                    push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "slugvi", format!("'{}'", sql_escape(&slug_vi)));
+                }
+                push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "photo", format!("'{}'", sql_escape(new_rel)));
+                push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "numb", numb.to_string());
+                push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "stt", numb.to_string());
+                push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "is_show", "1".to_string());
+                push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "status", "'hienthi'".to_string());
+                if base_table == "photo" {
+                    let com_val = if is_static { "photo-static" } else { "photo-album" };
+                    push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "com", format!("'{}'", com_val));
+                    let act_val = if is_static { "photo_static" } else { "man_photo" };
+                    push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "act", format!("'{}'", act_val));
+                }
+                push_timestamp_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "date_created", now);
+                push_timestamp_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "created_at", now);
+                push_timestamp_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "updated_at", now);
+
+                sql_batch.push_str(&format!(
+                    "INSERT INTO `{}` ({}) VALUES ({});\n",
+                    full_table,
+                    fields.join(", "),
+                    values.join(", ")
+                ));
+                sql_batch.push_str("SET @rbw_last_id = LAST_INSERT_ID();\n");
+                append_status_pivot_sql(
+                    &mut sql_batch,
+                    &schema,
+                    &status_table,
+                    "@rbw_last_id",
+                    &active_statuses,
+                );
+                if base_table != "photo"
+                    && (base_table != "static" || sub_cfg.map(|s| s.has_slug).unwrap_or(false))
+                {
+                    append_table_slug_insert_sql(
+                        &mut sql_batch,
+                        &schema,
+                        &col_types,
+                        prefix,
+                        "@rbw_last_id",
+                        base_table,
+                        None,
+                        &sub_type,
+                        &name_vi,
+                        &slug_vi,
+                        now,
+                    );
+                }
+                inserted_rows += 1;
+            }
+        }
+
+        sql_batch.push_str("COMMIT;\n");
+        if let Err(e) = run_mysql_stdin(&db, &sql_batch, true) {
+            return json!({
+                "status": "error",
+                "message": format!("Lỗi cập nhật DB cho '{}': {}", sub_type, e.trim())
+            });
+        }
+
+        total_affected += updated_rows + inserted_rows;
+        details_map.insert(
+            sub_type,
+            json!({
+                "updated_rows": updated_rows,
+                "inserted_rows": inserted_rows,
+                "deleted_old_files": deleted_old_files,
+                "copied_new_files": copied_rels.len(),
+            }),
+        );
+    }
+
+    let cleared_caches = clear_project_caches_dir(&laravel_base);
+
     json!({
         "status": "success",
-        "message": format!("Đã tự động cập nhật {} ảnh vào dự án {}!", updated_count, proj.name),
-        "updated": updated_count,
-        "details": Value::Object(details_map)
+        "message": format!(
+            "Đã cập nhật {} bản ghi ({} file ảnh mới) vào DB {} của dự án {}!",
+            total_affected, total_copied, db.name, proj.name
+        ),
+        "updated": total_affected,
+        "copied": total_copied,
+        "cleared_caches": cleared_caches,
+        "details": Value::Object(details_map),
     })
+}
+
+fn resolve_seed_folder(
+    proj_path: Option<&Path>,
+    folder_param: &str,
+    subdir: &str,
+) -> Option<PathBuf> {
+    let settings = get_settings_data();
+    let legacy_cfg = read_legacy_demo_config();
+    let configured_pool =
+        get_setting_str_with_fallback(&settings, "images_pool_path", legacy_cfg.as_ref());
+    let pool_base = if !configured_pool.is_empty() && Path::new(&configured_pool).is_dir() {
+        PathBuf::from(configured_pool)
+    } else {
+        get_www_base_dir().join("images")
+    };
+
+    let mut base: Option<PathBuf> = None;
+    let fp = folder_param.trim();
+    if fp == "custom_pool" {
+        if pool_base.is_dir() {
+            base = Some(pool_base);
+        }
+    } else if fp == "project_images" || fp.is_empty() {
+        if let Some(pp) = proj_path {
+            let (lb, pb) = resolve_project_bases(pp);
+            base = find_assets_images_dir(&lb, &pb);
+        }
+    } else {
+        let direct = PathBuf::from(fp);
+        if direct.is_dir() {
+            base = Some(direct);
+        } else if pool_base.join(fp).is_dir() {
+            base = Some(pool_base.join(fp));
+        } else if let Some(pp) = proj_path {
+            if pp.join(fp).is_dir() {
+                base = Some(pp.join(fp));
+            } else {
+                let (lb, pb) = resolve_project_bases(pp);
+                base = find_assets_images_dir(&lb, &pb);
+            }
+        }
+    }
+
+    let mut resolved = base?;
+    let clean_sub = subdir.trim().trim_matches(['/', '\\']);
+    if !clean_sub.is_empty() && !clean_sub.contains("..") {
+        let joined = resolved.join(clean_sub);
+        if joined.is_dir() {
+            resolved = joined;
+        }
+    }
+    Some(resolved)
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct AiSeedCat {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    desc: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct AiSeedItem {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    desc: String,
+    #[serde(default)]
+    content: String,
+    #[serde(default)]
+    regular_price: i64,
+    #[serde(default)]
+    sale_price: i64,
+    #[serde(default)]
+    code: String,
+    #[serde(default)]
+    link: String,
+    #[serde(default)]
+    phone: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct SeedDataBundle {
+    ai_used: bool,
+    categories: Vec<AiSeedCat>,
+    items: Vec<AiSeedItem>,
+}
+
+fn strip_markdown_json_fence(raw: &str) -> &str {
+    let trimmed = raw.trim();
+    if let Some(after_start) = trimmed.strip_prefix("```json") {
+        if let Some(end) = after_start.rfind("```") {
+            return after_start[..end].trim();
+        }
+        return after_start.trim();
+    }
+    if let Some(after_start) = trimmed.strip_prefix("```") {
+        if let Some(end) = after_start.rfind("```") {
+            return after_start[..end].trim();
+        }
+        return after_start.trim();
+    }
+    if let (Some(s), Some(e)) = (trimmed.find('{'), trimmed.rfind('}')) {
+        if e > s {
+            return &trimmed[s..=e];
+        }
+    }
+    trimmed
+}
+
+fn load_design_image_inline_part(
+    design_image: &str,
+    p_root: &Path,
+) -> Option<(String, String)> {
+    let di = design_image.trim();
+    if di.is_empty() {
+        return None;
+    }
+    if let Some(rest) = di.strip_prefix("data:") {
+        if let Some((meta, b64)) = rest.split_once(",") {
+            let mime = meta.split(';').next().unwrap_or("image/png").trim();
+            if !b64.is_empty() {
+                return Some((mime.to_string(), b64.to_string()));
+            }
+        }
+    }
+    let candidate = if Path::new(di).is_file() {
+        Some(PathBuf::from(di))
+    } else if p_root.join(di).is_file() {
+        Some(p_root.join(di))
+    } else {
+        None
+    }?;
+    let bytes = fs::read(&candidate).ok()?;
+    if bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
+        return None;
+    }
+    let ext = candidate
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("png")
+        .to_lowercase();
+    let mime = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        _ => "image/png",
+    };
+    Some((
+        mime.to_string(),
+        general_purpose::STANDARD.encode(&bytes),
+    ))
+}
+
+fn generate_fallback_seed_bundle(
+    sub: &NormalizedSubType,
+    base_table: &str,
+    cat_count: usize,
+    item_count: usize,
+    seed_seq_offset: usize,
+) -> SeedDataBundle {
+    let mut cats = Vec::with_capacity(cat_count);
+    for i in 1..=cat_count {
+        cats.push(AiSeedCat {
+            name: format!("Danh mục {} {}", sub.title, i),
+            desc: format!("Tổng hợp các {} thuộc nhóm danh mục số {} chất lượng cao.", sub.title.to_lowercase(), i),
+        });
+    }
+
+    let mut items = Vec::with_capacity(item_count);
+    for i in 1..=item_count {
+        let n = seed_seq_offset + i;
+        let name = if base_table == "static" || sub.is_static_photo {
+            sub.title.clone()
+        } else {
+            format!("{} chất lượng cao {}", sub.title, n)
+        };
+        let regular_price = if base_table == "product" || sub.has_price {
+            ((250 + (n as i64 * 75) % 900) * 1000) as i64
+        } else {
+            0
+        };
+        let sale_price = if regular_price > 0 && n % 2 == 1 {
+            ((regular_price as f64) * 0.85 / 1000.0).round() as i64 * 1000
+        } else {
+            0
+        };
+        let desc = format!(
+            "{} được thiết kế và hoàn thiện tỉ mỉ, đáp ứng tiêu chuẩn chất lượng và thẩm mỹ hiện đại.",
+            name
+        );
+        let content = format!(
+            "<p><strong>{}</strong> là lựa chọn tối ưu dành cho khách hàng đang tìm kiếm sự uy tín và hiệu quả bền vững.</p><p>Mỗi chi tiết đều được kiểm định chặt chẽ trước khi bàn giao, đảm bảo đồng bộ trải nghiệm và giá trị sử dụng lâu dài.</p>",
+            name
+        );
+        let code = if base_table == "product" || sub.has_code {
+            format!("{}{:03}", sub.sub_type.chars().take(2).collect::<String>().to_uppercase(), n)
+        } else {
+            String::new()
+        };
+        items.push(AiSeedItem {
+            name,
+            desc,
+            content,
+            regular_price,
+            sale_price,
+            code,
+            link: if sub.has_link { "#".to_string() } else { String::new() },
+            phone: if sub.has_phone { "0900 000 000".to_string() } else { String::new() },
+        });
+    }
+    SeedDataBundle {
+        ai_used: false,
+        categories: cats,
+        items,
+    }
+}
+
+fn call_gemini_seed_content(
+    project_name: &str,
+    sub: &NormalizedSubType,
+    base_table: &str,
+    cat_count: usize,
+    item_count: usize,
+    ai_model: &str,
+    ai_prompt: &str,
+    design_image_part: Option<&(String, String)>,
+    gemini_key: &str,
+) -> Option<SeedDataBundle> {
+    if gemini_key.trim().is_empty() {
+        return None;
+    }
+
+    let prompt_extra = if ai_prompt.trim().is_empty() {
+        String::new()
+    } else {
+        format!("\nNgữ cảnh/Ngành nghề từ người dùng: {}", ai_prompt.trim())
+    };
+    let price_note = if base_table == "product" || sub.has_price {
+        "Có giá VNĐ (regular_price là số nguyên vd 450000, sale_price thấp hơn hoặc 0, code ví dụ 'SP001')."
+    } else {
+        "regular_price: 0, sale_price: 0, code: \"\"."
+    };
+    let prompt_text = format!(
+        "Bạn là chuyên gia nội dung website tiếng Việt cho dự án '{}'. Hãy tạo dữ liệu mẫu thực tế, tự nhiên cho mục '{}' (loại: {}, bảng: {}).{}\nYêu cầu:\n- Tạo {} danh mục trong mảng \"categories\".\n- Tạo {} bài viết/sản phẩm trong mảng \"items\".\n- {}\n- desc ngắn 1-2 câu tiếng Việt; content là HTML <p>...</p> 2-3 đoạn gọn đẹp.\nTrả về DUY NHẤT JSON hợp lệ theo mẫu (không giải thích thêm):\n{{\"categories\":[{{\"name\":\"...\",\"desc\":\"...\"}}],\"items\":[{{\"name\":\"...\",\"desc\":\"...\",\"content\":\"<p>...</p>\",\"regular_price\":450000,\"sale_price\":390000,\"code\":\"SP001\",\"link\":\"#\",\"phone\":\"\"}}]}}",
+        project_name,
+        sub.title,
+        sub.sub_type,
+        base_table,
+        prompt_extra,
+        cat_count.max(1),
+        item_count.max(1),
+        price_note
+    );
+
+    let mut parts = vec![json!({ "text": prompt_text })];
+    if let Some((mime, b64)) = design_image_part {
+        parts.push(json!({
+            "inline_data": {
+                "mime_type": mime,
+                "data": b64
+            }
+        }));
+    }
+
+    let req_body = json!({
+        "contents": [{ "parts": parts }],
+        "generationConfig": {
+            "temperature": 0.7,
+            "responseMimeType": "application/json"
+        }
+    });
+
+    let clean_req = ai_model.trim().trim_start_matches("models/");
+    let mut models: Vec<String> = Vec::new();
+    if !clean_req.is_empty() {
+        models.push(clean_req.to_string());
+    }
+    for m in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"] {
+        if !models.iter().any(|x| x == m) {
+            models.push(m.to_string());
+        }
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(35))
+        .build()
+        .ok()?;
+
+    for model in models {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+            model, gemini_key
+        );
+        let resp = match client.post(&url).json(&req_body).send() {
+            Ok(r) if r.status().is_success() => r,
+            _ => continue,
+        };
+        let Ok(body_val) = resp.json::<Value>() else {
+            continue;
+        };
+        let Some(text) = body_val
+            .get("candidates")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("content"))
+            .and_then(|c| c.get("parts"))
+            .and_then(|p| p.get(0))
+            .and_then(|p| p.get("text"))
+            .and_then(|t| t.as_str())
+        else {
+            continue;
+        };
+        let cleaned = strip_markdown_json_fence(text);
+        if let Ok(parsed) = serde_json::from_str::<Value>(cleaned) {
+            let categories: Vec<AiSeedCat> = parsed
+                .get("categories")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default();
+            let items: Vec<AiSeedItem> = parsed
+                .get("items")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default();
+            if !items.is_empty() {
+                return Some(SeedDataBundle {
+                    ai_used: true,
+                    categories,
+                    items,
+                });
+            }
+        }
+    }
+    None
+}
+
+#[derive(Default)]
+struct SeededCategoryLevelIds {
+    list: Vec<u64>,
+    cat: Vec<u64>,
+    item: Vec<u64>,
+    sub: Vec<u64>,
+}
+
+fn seed_categories_for_subtype(
+    db: &ProjectDbEnv,
+    schema: &HashMap<String, Vec<String>>,
+    col_types: &HashMap<(String, String), String>,
+    prefix: &str,
+    base_table: &str,
+    sub: &NormalizedSubType,
+    seed_cat_count: usize,
+    ai_cats: &[AiSeedCat],
+    pool_images: &[PathBuf],
+    public_base: &Path,
+    upload_folder: &str,
+    existing_slugs: &mut HashSet<String>,
+    now: u64,
+    copy_seq: &mut usize,
+) -> (SeededCategoryLevelIds, usize) {
+    let mut ids = SeededCategoryLevelIds::default();
+    let mut created_total = 0usize;
+    if sub.categories.is_empty() || (base_table != "product" && base_table != "news") {
+        return (ids, 0);
+    }
+
+    for level in ["list", "cat", "item", "sub"] {
+        let Some(cat_cfg) = sub.categories.get(level) else {
+            continue;
+        };
+        let cat_table = format!("{}{}_{}", prefix, base_table, level);
+        let cat_lower = cat_table.to_lowercase();
+        let Some(cols) = schema.get(&cat_lower) else {
+            continue;
+        };
+        let has_deleted_at = cols.iter().any(|c| c == "deleted_at");
+        let del_clause = if has_deleted_at { " AND `deleted_at` IS NULL" } else { "" };
+
+        // Query existing IDs + backfill photos if empty
+        let existing_sql = format!(
+            "SELECT `id`, IFNULL(`photo`, '') FROM `{}` WHERE `type` = '{}'{} ORDER BY `id` ASC;",
+            cat_table,
+            sql_escape(&sub.sub_type),
+            del_clause
+        );
+        let existing_rows = run_mysql_tsv(db, &existing_sql).unwrap_or_default();
+        let mut level_ids: Vec<u64> = Vec::new();
+        for (idx, row) in existing_rows.iter().enumerate() {
+            if let Some(eid) = row.first().and_then(|s| s.trim().parse::<u64>().ok()) {
+                level_ids.push(eid);
+                let old_photo = row.get(1).map(|s| s.trim()).unwrap_or("");
+                if old_photo.is_empty() && cat_cfg.has_images && !pool_images.is_empty() {
+                    *copy_seq += 1;
+                    let src_img = &pool_images[idx % pool_images.len()];
+                    if let Ok(rel) = copy_image_to_upload(src_img, public_base, upload_folder, *copy_seq) {
+                        let upd = format!(
+                            "UPDATE `{}` SET `photo` = '{}' WHERE `id` = {};",
+                            cat_table,
+                            sql_escape(&rel),
+                            eid
+                        );
+                        let _ = run_mysql_query(db, &upd, true);
+                    }
+                }
+            }
+        }
+
+        // Only create new categories up to seed_cat_count (at least when level currently has fewer than seed_cat_count)
+        let target_new = seed_cat_count.saturating_sub(level_ids.len());
+        let active_statuses = resolve_active_statuses(&cat_cfg.status_keys, false);
+        let status_tbl = format!("{}_status", cat_table);
+
+        for i in 0..target_new {
+            let ordinal = level_ids.len() + 1;
+            let ai_cat = if level == "list" && i < ai_cats.len() && !ai_cats[i].name.trim().is_empty() {
+                Some(&ai_cats[i])
+            } else {
+                None
+            };
+            let cat_name = ai_cat
+                .map(|c| c.name.trim().to_string())
+                .unwrap_or_else(|| format!("{} {}", cat_cfg.title, ordinal));
+            let cat_desc = ai_cat
+                .map(|c| c.desc.trim().to_string())
+                .unwrap_or_else(|| format!("Danh mục {} nổi bật", cat_name));
+            let slug_vi = allocate_unique_slug(&cat_name, existing_slugs);
+
+            let mut photo_rel = String::new();
+            if cat_cfg.has_images && !pool_images.is_empty() {
+                *copy_seq += 1;
+                let src_img = &pool_images[(ordinal - 1) % pool_images.len()];
+                if let Ok(rel) = copy_image_to_upload(src_img, public_base, upload_folder, *copy_seq) {
+                    photo_rel = rel;
+                }
+            }
+
+            let mut fields = Vec::new();
+            let mut values = Vec::new();
+            push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "type", format!("'{}'", sql_escape(&sub.sub_type)));
+            push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "namevi", format!("'{}'", sql_escape(&cat_name)));
+            push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "slugvi", format!("'{}'", sql_escape(&slug_vi)));
+            if cat_cfg.has_desc || !cat_desc.is_empty() {
+                push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "descvi", format!("'{}'", sql_escape(&cat_desc)));
+            }
+            push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "photo", format!("'{}'", sql_escape(&photo_rel)));
+            push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "numb", ordinal.to_string());
+            push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "stt", ordinal.to_string());
+            push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "is_show", "1".to_string());
+            push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "is_featured", "1".to_string());
+            push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "status", "'hienthi'".to_string());
+
+            if (level == "cat" || level == "item" || level == "sub") && !ids.list.is_empty() {
+                let id_l = ids.list[i % ids.list.len()];
+                push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "id_list", id_l.to_string());
+            }
+            if (level == "item" || level == "sub") && !ids.cat.is_empty() {
+                let id_c = ids.cat[i % ids.cat.len()];
+                push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "id_cat", id_c.to_string());
+            }
+            if level == "sub" && !ids.item.is_empty() {
+                let id_it = ids.item[i % ids.item.len()];
+                push_dynamic_col(cols, col_types, &cat_lower, &mut fields, &mut values, "id_item", id_it.to_string());
+            }
+
+            push_timestamp_col(cols, col_types, &cat_lower, &mut fields, &mut values, "date_created", now);
+            push_timestamp_col(cols, col_types, &cat_lower, &mut fields, &mut values, "created_at", now);
+            push_timestamp_col(cols, col_types, &cat_lower, &mut fields, &mut values, "updated_at", now);
+            push_timestamp_col(cols, col_types, &cat_lower, &mut fields, &mut values, "date_publish", now);
+
+            let mut sql = format!(
+                "INSERT INTO `{}` ({}) VALUES ({});\nSELECT LAST_INSERT_ID();\n",
+                cat_table,
+                fields.join(", "),
+                values.join(", ")
+            );
+            if let Ok(out) = run_mysql_stdin(db, &sql, true) {
+                if let Some(new_id) = out.lines().last().and_then(|l| l.trim().parse::<u64>().ok()) {
+                    if new_id > 0 {
+                        level_ids.push(new_id);
+                        created_total += 1;
+                        let mut post_sql = String::new();
+                        append_status_pivot_sql(
+                            &mut post_sql,
+                            schema,
+                            &status_tbl,
+                            &new_id.to_string(),
+                            &active_statuses,
+                        );
+                        append_table_slug_insert_sql(
+                            &mut post_sql,
+                            schema,
+                            col_types,
+                            prefix,
+                            &new_id.to_string(),
+                            base_table,
+                            Some(level),
+                            &sub.sub_type,
+                            &cat_name,
+                            &slug_vi,
+                            now,
+                        );
+                        if !post_sql.is_empty() {
+                            let _ = run_mysql_stdin(db, &post_sql, true);
+                        }
+                    }
+                }
+            }
+            let _ = &mut sql;
+        }
+
+        match level {
+            "list" => ids.list = level_ids,
+            "cat" => ids.cat = level_ids,
+            "item" => ids.item = level_ids,
+            "sub" => ids.sub = level_ids,
+            _ => {}
+        }
+    }
+
+    (ids, created_total)
+}
+
+fn collect_selected_image_paths(
+    raw_val: Option<&Value>,
+    source_dir: Option<&Path>,
+    laravel_base: &Path,
+    public_base: &Path,
+) -> (Vec<PathBuf>, Option<usize>) {
+    let mut files = Vec::new();
+    let mut custom_count: Option<usize> = None;
+
+    let mut push_path = |s: &str| {
+        let t = s.trim();
+        if t.is_empty() {
+            return;
+        }
+        let p = PathBuf::from(t);
+        if p.is_file() {
+            files.push(p);
+            return;
+        }
+        if let Some(sd) = source_dir {
+            let j = sd.join(t);
+            if j.is_file() {
+                files.push(j);
+                return;
+            }
+        }
+        if let Some(ad) = find_assets_images_dir(laravel_base, public_base) {
+            let j = ad.join(t);
+            if j.is_file() {
+                files.push(j);
+            }
+        }
+    };
+
+    match raw_val {
+        Some(Value::Array(arr)) => {
+            for item in arr {
+                if let Some(s) = item.as_str() {
+                    push_path(s);
+                } else if let Some(s) = item
+                    .get("path")
+                    .or_else(|| item.get("file"))
+                    .or_else(|| item.get("name"))
+                    .and_then(|v| v.as_str())
+                {
+                    push_path(s);
+                }
+            }
+        }
+        Some(Value::Object(obj)) => {
+            if let Some(c) = obj
+                .get("count")
+                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+            {
+                custom_count = Some(c as usize);
+            }
+            if let Some(arr) = obj.get("images").and_then(|v| v.as_array()) {
+                for item in arr {
+                    if let Some(s) = item.as_str() {
+                        push_path(s);
+                    } else if let Some(s) = item
+                        .get("path")
+                        .or_else(|| item.get("file"))
+                        .or_else(|| item.get("name"))
+                        .and_then(|v| v.as_str())
+                    {
+                        push_path(s);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    (files, custom_count)
 }
 
 pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &Map<String, Value>) -> Value {
@@ -2959,96 +4652,88 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
                 Some(p) => p,
                 None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
             };
+            let p_root = Path::new(&proj.path);
+            let (laravel_base, _) = resolve_project_bases(p_root);
             let main_key = query
                 .get("main_key")
                 .map(|s| s.as_str())
                 .or_else(|| body_obj.get("main_key").and_then(|v| v.as_str()))
                 .unwrap_or("type-photo");
-            let cfg_file = Path::new(&proj.path).join("config").join(format!("{}.php", main_key));
-            let mut sub_types_raw = json!({});
-            if cfg_file.is_file() {
-                if let Some(parsed) = parse_php_array_file(&cfg_file) {
-                    sub_types_raw = parsed;
-                }
-            }
 
-            let mut normalized = serde_json::Map::new();
-            let table_cat = match main_key {
-                "type-products" => "product",
+            let base_table = match main_key {
+                "type-products" | "type-product" => "product",
                 "type-static" => "static",
                 "type-news" => "news",
                 _ => "photo",
             };
-            let db = parse_project_db_env(Path::new(&proj.path));
+
+            let db = parse_project_db_env(p_root);
             let mut count_map: HashMap<String, u64> = HashMap::new();
-            if !db.name.is_empty() {
-                let prefix = if db.prefix.trim().is_empty() { "table_" } else { db.prefix.trim() };
-                let cnt_sql = format!("SELECT `type`, COUNT(*) FROM `{}{}` GROUP BY `type`;", prefix, table_cat);
-                if let Ok(out) = run_mysql_query(&db, &cnt_sql, true) {
-                    for line in out.lines() {
-                        let mut parts = line.split('\t');
-                        if let (Some(t), Some(c)) = (parts.next(), parts.next()) {
-                            if let Ok(n) = c.trim().parse::<u64>() {
-                                count_map.insert(t.trim().to_string(), n);
+            if !db.name.is_empty() && ensure_mysql_running().is_ok() {
+                if let Ok(schema) = inspect_db_schema(&db) {
+                    let prefix = if db.prefix.trim().is_empty() { "table_" } else { db.prefix.trim() };
+                    let full_table = format!("{}{}", prefix, base_table);
+                    if let Some(cols) = schema.get(&full_table.to_lowercase()) {
+                        let del_clause = if cols.iter().any(|c| c == "deleted_at") {
+                            " WHERE `deleted_at` IS NULL"
+                        } else {
+                            ""
+                        };
+                        let cnt_sql = format!(
+                            "SELECT `type`, COUNT(*) FROM `{}`{} GROUP BY `type`;",
+                            full_table, del_clause
+                        );
+                        if let Ok(rows) = run_mysql_tsv(&db, &cnt_sql) {
+                            for cols in rows {
+                                if cols.len() >= 2 {
+                                    if let Ok(n) = cols[1].trim().parse::<u64>() {
+                                        count_map.insert(cols[0].trim().to_string(), n);
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
 
-            if let Some(obj) = sub_types_raw.as_object() {
-                for (sub_key, val) in obj {
-                    let sub_obj = val.as_object();
-                    let title_main = sub_obj
-                        .and_then(|o| o.get("title_main"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(sub_key);
-                    let kind = sub_obj
-                        .and_then(|o| o.get("kind"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("static");
-                    let number = sub_obj
-                        .and_then(|o| o.get("number"))
-                        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())));
-                    let has_images = sub_obj
-                        .and_then(|o| o.get("images"))
-                        .map(|v| {
-                            if v.is_object() {
-                                true
-                            } else {
-                                v.as_bool().unwrap_or(v.as_i64().unwrap_or(0) == 1)
-                            }
-                        })
-                        .unwrap_or(true);
-                    let (w, h) = sub_obj.map(extract_sub_dimensions).unwrap_or((0, 0));
-
-                    let ratio_obj = if w > 0 && h > 0 {
-                        json!({ "width": w, "height": h })
-                    } else {
-                        Value::Null
-                    };
-                    let rec_cnt = count_map.get(sub_key).copied().unwrap_or(0);
-
-                    normalized.insert(
-                        sub_key.clone(),
-                        json!({
-                            "key": sub_key,
-                            "title": title_main,
-                            "title_main": title_main,
-                            "kind": kind,
-                            "number": number,
-                            "has_images": has_images,
-                            "has_title": true,
-                            "ratio": ratio_obj,
-                            "width": w,
-                            "height": h,
-                            "table": table_cat,
-                            "type_column": "type",
-                            "type_value": sub_key,
-                            "record_count": rec_cnt
-                        }),
-                    );
-                }
+            let subtypes = load_normalized_subtypes(&laravel_base, main_key);
+            let mut normalized = Map::new();
+            for sub in subtypes {
+                let (w, h) = sub.ratio.unwrap_or((0, 0));
+                let ratio_obj = if w > 0 && h > 0 {
+                    json!({ "width": w, "height": h })
+                } else {
+                    Value::Null
+                };
+                let rec_cnt = count_map.get(&sub.sub_type).copied().unwrap_or(0);
+                normalized.insert(
+                    sub.sub_type.clone(),
+                    json!({
+                        "key": sub.sub_type,
+                        "title": sub.title,
+                        "title_main": sub.title,
+                        "kind": sub.kind,
+                        "is_static_photo": sub.is_static_photo,
+                        "number": sub.number,
+                        "has_images": sub.has_images,
+                        "has_title": sub.has_title,
+                        "has_name": sub.has_name,
+                        "has_desc": sub.has_desc,
+                        "has_content": sub.has_content,
+                        "has_link": sub.has_link,
+                        "has_price": sub.has_price,
+                        "has_code": sub.has_code,
+                        "has_categories": !sub.categories.is_empty(),
+                        "categories": sub.categories,
+                        "ratio": ratio_obj,
+                        "width": w,
+                        "height": h,
+                        "table": base_table,
+                        "type_column": "type",
+                        "type_value": sub.sub_type,
+                        "record_count": rec_cnt,
+                    }),
+                );
             }
 
             let res_subtypes = Value::Object(normalized);
@@ -3056,7 +4741,7 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
                 "status": "success",
                 "main_key": main_key,
                 "types": res_subtypes.clone(),
-                "sub_types": res_subtypes
+                "sub_types": res_subtypes,
             })
         }
         "scan_folder" => {
@@ -3066,53 +4751,55 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
                 .or_else(|| body_obj.get("folder").and_then(|v| v.as_str()))
                 .or_else(|| body_obj.get("folder_path").and_then(|v| v.as_str()))
                 .unwrap_or("");
-            let subdir = query.get("subdir").map(|s| s.trim_matches(['/', '\\'])).unwrap_or("");
+            let subdir = query
+                .get("subdir")
+                .map(|s| s.as_str())
+                .or_else(|| body_obj.get("subdir").and_then(|v| v.as_str()))
+                .unwrap_or("");
 
-            let mut folder = PathBuf::from(folder_param);
-            if folder_param == "custom_pool" {
-                let pool = get_settings_data()
-                    .get("images_pool_path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                if !pool.is_empty() {
-                    folder = PathBuf::from(pool);
-                }
-            } else if folder_param == "project_images" || folder_param.is_empty() || !folder.is_dir() {
-                if let Some(proj) = find_project(project_name, cat_opt) {
-                    if let Some(cand) = find_project_source_images_dir(Path::new(&proj.path)) {
-                        folder = cand;
-                    }
-                }
-            }
-            if !subdir.is_empty() && folder.join(subdir).is_dir() {
-                folder = folder.join(subdir);
-            }
-            if !folder.is_dir() {
-                return json!({ "status": "error", "message": "Thư mục không tồn tại" });
-            }
+            let proj_opt = find_project(project_name, cat_opt);
+            let proj_path = proj_opt.as_ref().map(|p| PathBuf::from(&p.path));
+            let Some(folder) = resolve_seed_folder(proj_path.as_deref(), folder_param, subdir) else {
+                return json!({
+                    "status": "error",
+                    "message": "Không tìm thấy thư mục ảnh nguồn"
+                });
+            };
+
             let mut subfolders = Vec::new();
             let mut files = Vec::new();
             if let Ok(entries) = fs::read_dir(&folder) {
                 for entry in entries.flatten() {
                     let p = entry.path();
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let nl = name.to_lowercase();
                     if p.is_dir() {
-                        let dname = entry.file_name().to_string_lossy().to_string();
-                        if !dname.starts_with('.') {
-                            subfolders.push(dname);
+                        if !nl.starts_with('.') && !nl.starts_with('_') {
+                            subfolders.push(name);
                         }
                     } else if p.is_file() {
-                        let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
-                        if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif") {
+                        if nl.starts_with("thumb_") || nl.starts_with('.') {
+                            continue;
+                        }
+                        let ext = p
+                            .extension()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
+                            .to_lowercase();
+                        if matches!(
+                            ext.as_str(),
+                            "jpg" | "jpeg" | "png" | "webp" | "gif" | "svg" | "ico"
+                        ) {
                             let (w, h) = get_image_dimensions_fast(&p);
                             let size = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
-                            let fname = entry.file_name().to_string_lossy().to_string();
                             let abs_path = p.to_string_lossy().to_string();
-                            let preview_url = format!("seed_images.php?action=serve_image&path={}", urlencoding_encode(&abs_path));
+                            let preview_url = format!(
+                                "seed_images.php?action=serve_image&path={}",
+                                urlencoding_encode(&abs_path)
+                            );
                             files.push(json!({
-                                "name": fname,
-                                "file": fname,
+                                "name": name,
+                                "file": name,
                                 "path": abs_path,
                                 "preview": preview_url,
                                 "preview_url": preview_url,
@@ -3126,7 +4813,13 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
                 }
             }
             subfolders.sort();
-            json!({ "status": "success", "images": files, "subfolders": subfolders, "total": files.len() })
+            json!({
+                "status": "success",
+                "images": files,
+                "subfolders": subfolders,
+                "total": files.len(),
+                "folder_path": folder.to_string_lossy(),
+            })
         }
         "seed" => {
             let proj = match find_project(project_name, cat_opt) {
@@ -3134,25 +4827,53 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
                 None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
             };
             let p_root = Path::new(&proj.path);
-            let db = parse_project_db_env(p_root);
-            if db.name.is_empty() {
-                return json!({ "status": "error", "message": "Dự án chưa cấu hình DB_NAME trong .env" });
+            let (laravel_base, public_base) = resolve_project_bases(p_root);
+
+            if let Err(e) = ensure_mysql_running() {
+                return json!({ "status": "error", "message": e });
             }
-            let main_key = body_obj.get("main_key").and_then(|v| v.as_str()).unwrap_or("type-photo");
-            let table_cat = match main_key {
-                "type-products" => "product",
+            let db = parse_project_db_env(p_root);
+            if db.name.trim().is_empty() {
+                return json!({
+                    "status": "error",
+                    "message": "Dự án chưa cấu hình DB_DATABASE trong .env/config.php. Hãy bấm Cấu hình Source Local trước."
+                });
+            }
+            let schema = match inspect_db_schema(&db) {
+                Ok(s) => s,
+                Err(e) => {
+                    return json!({
+                        "status": "error",
+                        "message": format!("Không thể kết nối database '{}': {}", db.name, e.trim())
+                    });
+                }
+            };
+            let col_types = inspect_db_col_types(&db);
+
+            let main_key = body_obj
+                .get("main_key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("type-photo");
+            let base_table = match main_key {
+                "type-products" | "type-product" => "product",
                 "type-static" => "static",
                 "type-news" => "news",
                 _ => "photo",
             };
-            let upload_sub = match main_key {
-                "type-products" => "product",
+            let upload_folder = match main_key {
+                "type-products" | "type-product" => "product",
                 "type-photo" => "photo",
                 _ => "news",
             };
             let prefix = if db.prefix.trim().is_empty() { "table_" } else { db.prefix.trim() };
-            let full_table = format!("{}{}", prefix, table_cat);
-            let cols = get_table_columns(&db, &full_table);
+            let full_table = format!("{}{}", prefix, base_table);
+            let full_table_lower = full_table.to_lowercase();
+            let Some(table_cols) = schema.get(&full_table_lower).cloned() else {
+                return json!({
+                    "status": "error",
+                    "message": format!("Bảng `{}` chưa tồn tại trong DB '{}'", full_table, db.name)
+                });
+            };
 
             let seed_count = body_obj
                 .get("seed_count")
@@ -3160,110 +4881,539 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
                 .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
                 .unwrap_or(5)
                 .clamp(1, 50) as usize;
+            let seed_cat_count = body_obj
+                .get("seed_cat_count")
+                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                .unwrap_or(3)
+                .clamp(0, 20) as usize;
 
-            let folder_param = body_obj.get("folder").and_then(|v| v.as_str()).unwrap_or("project_images");
-            let source_dir = if folder_param == "custom_pool" {
-                let pool = get_settings_data()
-                    .get("images_pool_path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                PathBuf::from(pool)
-            } else if folder_param == "project_images" || folder_param.is_empty() {
-                find_project_source_images_dir(p_root).unwrap_or_else(|| p_root.join("assets/images"))
+            let folder_param = body_obj
+                .get("folder")
+                .and_then(|v| v.as_str())
+                .unwrap_or("project_images");
+            let subdir = body_obj
+                .get("subdir")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let source_dir = resolve_seed_folder(Some(p_root), folder_param, subdir);
+
+            let use_ai = body_obj
+                .get("use_ai")
+                .map(|v| {
+                    v.as_bool().unwrap_or_else(|| {
+                        v.as_u64().map(|n| n == 1).unwrap_or_else(|| {
+                            v.as_str().map(|s| s == "1" || s.eq_ignore_ascii_case("true")).unwrap_or(false)
+                        })
+                    })
+                })
+                .unwrap_or(false);
+            let ai_model = body_obj
+                .get("ai_model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("gemini-2.5-flash");
+            let ai_prompt = body_obj
+                .get("ai_prompt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let design_image = body_obj
+                .get("design_image")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            let settings = get_settings_data();
+            let legacy_cfg = read_legacy_demo_config();
+            let gemini_key = get_setting_str_with_fallback(&settings, "gemini_key", legacy_cfg.as_ref());
+            let design_part = if use_ai {
+                load_design_image_inline_part(design_image, p_root)
             } else {
-                PathBuf::from(folder_param)
+                None
             };
 
-            let upload_dir = if p_root.join("public").join("upload").join(upload_sub).is_dir() {
-                p_root.join("public").join("upload").join(upload_sub)
-            } else {
-                p_root.join("upload").join(upload_sub)
-            };
-            let _ = fs::create_dir_all(&upload_dir);
+            let subtypes = load_normalized_subtypes(&laravel_base, main_key);
+            let sub_map: HashMap<String, NormalizedSubType> = subtypes
+                .into_iter()
+                .map(|s| (s.sub_type.clone(), s))
+                .collect();
 
-            let mut sub_entries: Vec<(String, Vec<String>)> = Vec::new();
-            if let Some(sub_map) = body_obj.get("sub_types").and_then(|v| v.as_object()) {
-                for (sub_key, arr_val) in sub_map {
-                    let mut imgs = Vec::new();
-                    if let Some(arr) = arr_val.as_array() {
-                        for item in arr {
-                            if let Some(s) = item.as_str() {
-                                imgs.push(s.to_string());
-                            } else if let Some(s) = item.get("file").or_else(|| item.get("name")).and_then(|v| v.as_str()) {
-                                imgs.push(s.to_string());
-                            }
-                        }
+            let mut sub_requests: Vec<(String, Vec<PathBuf>, Option<usize>)> = Vec::new();
+            if let Some(st_obj) = body_obj.get("sub_types").and_then(|v| v.as_object()) {
+                for (sub_key, val) in st_obj {
+                    let (files, custom_cnt) = collect_selected_image_paths(
+                        Some(val),
+                        source_dir.as_deref(),
+                        &laravel_base,
+                        &public_base,
+                    );
+                    sub_requests.push((sub_key.clone(), files, custom_cnt));
+                }
+            } else if let Some(st_arr) = body_obj.get("sub_types").and_then(|v| v.as_array()) {
+                for item in st_arr {
+                    if let Some(sub_key) = item.as_str() {
+                        sub_requests.push((sub_key.to_string(), Vec::new(), None));
                     }
-                    sub_entries.push((sub_key.clone(), imgs));
                 }
             } else if let Some(t) = body_obj.get("type").and_then(|v| v.as_str()) {
-                sub_entries.push((t.to_string(), Vec::new()));
+                sub_requests.push((t.to_string(), Vec::new(), None));
             }
 
-            if sub_entries.is_empty() {
+            if sub_requests.is_empty() {
                 return json!({ "status": "error", "message": "Chưa chọn sub-type nào để tạo dữ liệu mẫu" });
             }
 
+            let mut existing_slugs = fetch_existing_slugs(&db, &schema, prefix);
+            let status_table = format!("{}{}_status", prefix, base_table);
+            let pivot_table = format!("{}product_category_pivot", prefix);
+            let has_deleted_at = table_cols.iter().any(|c| c == "deleted_at");
             let now = now_unix();
-            let mut details = serde_json::Map::new();
+
+            let mut details = Map::new();
             let mut errors: Vec<String> = Vec::new();
             let mut total_seeded = 0usize;
+            let mut copy_seq = 0usize;
 
-            for (sub_type, selected_files) in &sub_entries {
-                let mut sql_statements = Vec::new();
-                let count_for_sub = if selected_files.is_empty() {
+            for (sub_type, selected_images, custom_cnt) in sub_requests {
+                let fallback_sub = NormalizedSubType {
+                    sub_type: sub_type.clone(),
+                    title: sub_type.clone(),
+                    kind: if base_table == "static" { "static".to_string() } else { "man".to_string() },
+                    is_static_photo: false,
+                    has_images: true,
+                    ratio: None,
+                    number: true,
+                    has_title: true,
+                    has_name: true,
+                    has_desc: true,
+                    has_desc_cke: false,
+                    has_content: base_table != "photo",
+                    has_content_cke: false,
+                    has_slug: base_table == "product" || base_table == "news",
+                    has_link: base_table == "photo",
+                    has_phone: false,
+                    has_price: base_table == "product",
+                    has_code: base_table == "product",
+                    status_keys: vec!["is_show".to_string()],
+                    images_keys: vec!["photo".to_string()],
+                    options2_fields: Vec::new(),
+                    categories: HashMap::new(),
+                    record_count: 0,
+                };
+                let sub_cfg = sub_map.get(&sub_type).unwrap_or(&fallback_sub);
+                let is_static_target = base_table == "static" || sub_cfg.is_static_photo;
+                let count_for_sub = if is_static_target {
                     1
                 } else {
-                    seed_count.max(selected_files.len()).min(50)
+                    custom_cnt.unwrap_or(seed_count).clamp(1, 50)
                 };
 
-                for i in 1..=count_for_sub {
-                    let mut photo_name = String::new();
-                    if !selected_files.is_empty() {
-                        let fname = &selected_files[(i - 1) % selected_files.len()];
-                        let candidate = if Path::new(fname).is_file() {
-                            Some(PathBuf::from(fname))
-                        } else if source_dir.join(fname).is_file() {
-                            Some(source_dir.join(fname))
-                        } else {
-                            find_project_source_images_dir(p_root)
-                                .map(|d| d.join(fname))
-                                .filter(|p| p.is_file())
-                        };
-                        if let Some(src) = candidate {
-                            let ext = src.extension().and_then(|s| s.to_str()).unwrap_or("jpg");
-                            photo_name = format!("seed-{}-{}-{}.{}", sub_type, now, i, ext);
-                            let _ = fs::copy(&src, upload_dir.join(&photo_name));
+                let del_clause = if has_deleted_at { " AND `deleted_at` IS NULL" } else { "" };
+                let cnt_existing_sql = format!(
+                    "SELECT COUNT(*) FROM `{}` WHERE `type` = '{}'{} ;",
+                    full_table,
+                    sql_escape(&sub_type),
+                    del_clause
+                );
+                let existing_count = run_mysql_tsv(&db, &cnt_existing_sql)
+                    .ok()
+                    .and_then(|r| r.first()?.first()?.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+
+                // Generate content via Gemini AI (with clean fallback)
+                let bundle = if use_ai {
+                    call_gemini_seed_content(
+                        &proj.name,
+                        sub_cfg,
+                        base_table,
+                        seed_cat_count,
+                        count_for_sub,
+                        ai_model,
+                        ai_prompt,
+                        design_part.as_ref(),
+                        &gemini_key,
+                    )
+                    .unwrap_or_else(|| {
+                        generate_fallback_seed_bundle(
+                            sub_cfg,
+                            base_table,
+                            seed_cat_count,
+                            count_for_sub,
+                            existing_count,
+                        )
+                    })
+                } else {
+                    generate_fallback_seed_bundle(
+                        sub_cfg,
+                        base_table,
+                        seed_cat_count,
+                        count_for_sub,
+                        existing_count,
+                    )
+                };
+
+                // Seed category levels when configured
+                let (cat_ids, cats_created) = if seed_cat_count > 0 && !is_static_target {
+                    seed_categories_for_subtype(
+                        &db,
+                        &schema,
+                        &col_types,
+                        prefix,
+                        base_table,
+                        sub_cfg,
+                        seed_cat_count,
+                        &bundle.categories,
+                        &selected_images,
+                        &public_base,
+                        upload_folder,
+                        &mut existing_slugs,
+                        now,
+                        &mut copy_seq,
+                    )
+                } else {
+                    (SeededCategoryLevelIds::default(), 0)
+                };
+
+                // Handle existing static row update-or-insert
+                if is_static_target {
+                    let find_sql = format!(
+                        "SELECT `id`, IFNULL(`photo`, '') FROM `{}` WHERE `type` = '{}'{} ORDER BY `id` ASC LIMIT 1;",
+                        full_table,
+                        sql_escape(&sub_type),
+                        del_clause
+                    );
+                    let existing_row = run_mysql_tsv(&db, &find_sql)
+                        .ok()
+                        .and_then(|rows| rows.into_iter().next())
+                        .and_then(|cols| {
+                            let id = cols.first()?.trim().parse::<u64>().ok()?;
+                            let old_p = cols.get(1).cloned().unwrap_or_default();
+                            Some((id, old_p))
+                        });
+
+                    let item = bundle.items.first().cloned().unwrap_or_default();
+                    let mut new_rel = String::new();
+                    if sub_cfg.has_images && !selected_images.is_empty() {
+                        copy_seq += 1;
+                        if let Ok(rel) = copy_image_to_upload(&selected_images[0], &public_base, upload_folder, copy_seq) {
+                            new_rel = rel;
                         }
                     }
-                    let name_vi = format!("{} mẫu {}", sub_type.replace('-', " "), i);
-                    let act_val = if table_cat == "photo" { "man_photo" } else { "" };
-                    let stmt = build_seed_insert_sql(
-                        &full_table,
-                        &cols,
-                        sub_type,
-                        &name_vi,
-                        &photo_name,
-                        i,
-                        now,
-                        act_val,
-                    );
-                    if !stmt.is_empty() {
-                        sql_statements.push(stmt);
-                    }
-                }
 
-                if sql_statements.is_empty() {
-                    errors.push(format!("Không tạo được câu SQL cho '{}'", sub_type));
+                    let active_statuses = resolve_active_statuses(&sub_cfg.status_keys, false);
+                    let mut sql_static = String::from("START TRANSACTION;\n");
+                    let mode: &str;
+
+                    if let Some((row_id, old_photo)) = existing_row {
+                        mode = "static_update";
+                        let mut sets = Vec::new();
+                        if !new_rel.is_empty() {
+                            delete_old_upload_file(&old_photo, &new_rel, upload_folder, &public_base, &laravel_base);
+                            sets.push(format!("`photo` = '{}'", sql_escape(&new_rel)));
+                        }
+                        if bundle.ai_used || !item.name.is_empty() {
+                            if table_cols.iter().any(|c| c == "namevi") && bundle.ai_used {
+                                sets.push(format!("`namevi` = '{}'", sql_escape(&item.name)));
+                            }
+                            if table_cols.iter().any(|c| c == "descvi") && sub_cfg.has_desc && bundle.ai_used {
+                                sets.push(format!("`descvi` = '{}'", sql_escape(&item.desc)));
+                            }
+                            if table_cols.iter().any(|c| c == "contentvi") && sub_cfg.has_content && bundle.ai_used {
+                                sets.push(format!("`contentvi` = '{}'", sql_escape(&item.content)));
+                            }
+                        }
+                        if table_cols.iter().any(|c| c == "is_show") {
+                            sets.push("`is_show` = 1".to_string());
+                        }
+                        if table_cols.iter().any(|c| c == "status") {
+                            sets.push("`status` = 'hienthi'".to_string());
+                        }
+                        if table_cols.iter().any(|c| c == "updated_at") {
+                            let is_dt = col_types
+                                .get(&(full_table_lower.clone(), "updated_at".to_string()))
+                                .map(|t| matches!(t.as_str(), "timestamp" | "datetime" | "date"))
+                                .unwrap_or(true);
+                            sets.push(format!(
+                                "`updated_at` = {}",
+                                if is_dt { "NOW()".to_string() } else { now.to_string() }
+                            ));
+                        }
+                        if !sets.is_empty() {
+                            sql_static.push_str(&format!(
+                                "UPDATE `{}` SET {} WHERE `id` = {};\n",
+                                full_table,
+                                sets.join(", "),
+                                row_id
+                            ));
+                        }
+                        append_status_pivot_sql(
+                            &mut sql_static,
+                            &schema,
+                            &status_table,
+                            &row_id.to_string(),
+                            &active_statuses,
+                        );
+                    } else {
+                        mode = "static_insert";
+                        let slug_vi = allocate_unique_slug(&item.name, &mut existing_slugs);
+                        let mut fields = Vec::new();
+                        let mut values = Vec::new();
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "type", format!("'{}'", sql_escape(&sub_type)));
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "namevi", format!("'{}'", sql_escape(&item.name)));
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "titlevi", format!("'{}'", sql_escape(&item.name)));
+                        if sub_cfg.has_slug {
+                            push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "slugvi", format!("'{}'", sql_escape(&slug_vi)));
+                        }
+                        if sub_cfg.has_desc || sub_cfg.has_desc_cke {
+                            push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "descvi", format!("'{}'", sql_escape(&item.desc)));
+                        }
+                        if sub_cfg.has_content || sub_cfg.has_content_cke {
+                            push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "contentvi", format!("'{}'", sql_escape(&item.content)));
+                        }
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "photo", format!("'{}'", sql_escape(&new_rel)));
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "is_show", "1".to_string());
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "status", "'hienthi'".to_string());
+                        if base_table == "photo" {
+                            push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "com", "'photo-static'".to_string());
+                            push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "act", "'photo_static'".to_string());
+                        }
+                        push_timestamp_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "date_created", now);
+                        push_timestamp_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "created_at", now);
+                        push_timestamp_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "updated_at", now);
+
+                        sql_static.push_str(&format!(
+                            "INSERT INTO `{}` ({}) VALUES ({});\n",
+                            full_table,
+                            fields.join(", "),
+                            values.join(", ")
+                        ));
+                        sql_static.push_str("SET @rbw_id = LAST_INSERT_ID();\n");
+                        append_status_pivot_sql(&mut sql_static, &schema, &status_table, "@rbw_id", &active_statuses);
+                        if base_table == "static" && sub_cfg.has_slug {
+                            append_table_slug_insert_sql(
+                                &mut sql_static,
+                                &schema,
+                                &col_types,
+                                prefix,
+                                "@rbw_id",
+                                "static",
+                                None,
+                                &sub_type,
+                                &item.name,
+                                &slug_vi,
+                                now,
+                            );
+                        }
+                    }
+                    sql_static.push_str("COMMIT;\n");
+
+                    match run_mysql_stdin(&db, &sql_static, true) {
+                        Ok(_) => {
+                            total_seeded += 1;
+                            details.insert(
+                                sub_type,
+                                json!({
+                                    "seeded": 1,
+                                    "categories_created": cats_created,
+                                    "ai_used": bundle.ai_used,
+                                    "mode": mode,
+                                }),
+                            );
+                        }
+                        Err(e) => errors.push(format!("Lỗi SQL '{}': {}", sub_type, e.trim())),
+                    }
                     continue;
                 }
 
-                match run_mysql_query(&db, &sql_statements.join("\n"), true) {
+                // Multi-record seeding (product, news, photo album)
+                let active_statuses = resolve_active_statuses(&sub_cfg.status_keys, base_table == "product");
+                let mut sql_batch = String::from("START TRANSACTION;\n");
+                let mut inserted_for_sub = 0usize;
+
+                for idx in 0..count_for_sub {
+                    let fallback_item = generate_fallback_seed_bundle(
+                        sub_cfg,
+                        base_table,
+                        0,
+                        1,
+                        existing_count + idx,
+                    )
+                    .items
+                    .into_iter()
+                    .next()
+                    .unwrap_or_default();
+
+                    let item = bundle.items.get(idx).cloned().unwrap_or(fallback_item.clone());
+                    let item_name = if item.name.trim().is_empty() {
+                        fallback_item.name
+                    } else {
+                        item.name.trim().to_string()
+                    };
+                    let item_desc = if item.desc.trim().is_empty() {
+                        fallback_item.desc
+                    } else {
+                        item.desc.trim().to_string()
+                    };
+                    let item_content = if item.content.trim().is_empty() {
+                        fallback_item.content
+                    } else {
+                        item.content.trim().to_string()
+                    };
+                    let reg_price = if item.regular_price > 0 { item.regular_price } else { fallback_item.regular_price };
+                    let sale_price = if item.sale_price > 0 && item.sale_price < reg_price {
+                        item.sale_price
+                    } else {
+                        fallback_item.sale_price
+                    };
+                    let discount = if reg_price > 0 && sale_price > 0 && sale_price < reg_price {
+                        (((reg_price - sale_price) as f64 / reg_price as f64) * 100.0).round() as i64
+                    } else {
+                        0
+                    };
+                    let sku_code = if item.code.trim().is_empty() {
+                        fallback_item.code
+                    } else {
+                        item.code.trim().to_string()
+                    };
+
+                    let mut photo_rel = String::new();
+                    if sub_cfg.has_images && !selected_images.is_empty() {
+                        copy_seq += 1;
+                        let src_img = &selected_images[idx % selected_images.len()];
+                        if let Ok(rel) = copy_image_to_upload(src_img, &public_base, upload_folder, copy_seq) {
+                            photo_rel = rel;
+                        }
+                    }
+
+                    let numb = existing_count + idx + 1;
+                    let slug_vi = allocate_unique_slug(&item_name, &mut existing_slugs);
+
+                    let assigned_list = if !cat_ids.list.is_empty() { Some(cat_ids.list[idx % cat_ids.list.len()]) } else { None };
+                    let assigned_cat = if !cat_ids.cat.is_empty() { Some(cat_ids.cat[idx % cat_ids.cat.len()]) } else { None };
+                    let assigned_item = if !cat_ids.item.is_empty() { Some(cat_ids.item[idx % cat_ids.item.len()]) } else { None };
+                    let assigned_sub = if !cat_ids.sub.is_empty() { Some(cat_ids.sub[idx % cat_ids.sub.len()]) } else { None };
+
+                    let mut fields = Vec::new();
+                    let mut values = Vec::new();
+                    push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "type", format!("'{}'", sql_escape(&sub_type)));
+                    push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "namevi", format!("'{}'", sql_escape(&item_name)));
+                    push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "titlevi", format!("'{}'", sql_escape(&item_name)));
+                    if sub_cfg.has_slug || base_table == "product" || base_table == "news" {
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "slugvi", format!("'{}'", sql_escape(&slug_vi)));
+                    }
+                    if sub_cfg.has_desc || sub_cfg.has_desc_cke || !item_desc.is_empty() {
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "descvi", format!("'{}'", sql_escape(&item_desc)));
+                    }
+                    if sub_cfg.has_content || sub_cfg.has_content_cke {
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "contentvi", format!("'{}'", sql_escape(&item_content)));
+                    }
+                    if base_table == "product" || sub_cfg.has_price {
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "regular_price", reg_price.to_string());
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "sale_price", sale_price.to_string());
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "discount", discount.to_string());
+                    }
+                    if !sku_code.is_empty() {
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "code", format!("'{}'", sql_escape(&sku_code)));
+                    }
+                    if sub_cfg.has_link {
+                        let lk = if item.link.trim().is_empty() { "#" } else { item.link.trim() };
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "link", format!("'{}'", sql_escape(lk)));
+                    }
+                    if sub_cfg.has_phone {
+                        let ph = if item.phone.trim().is_empty() { "0900 000 000" } else { item.phone.trim() };
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "phone", format!("'{}'", sql_escape(ph)));
+                    }
+                    if !sub_cfg.options2_fields.is_empty() {
+                        let mut o2 = Map::new();
+                        for fk in &sub_cfg.options2_fields {
+                            o2.insert(fk.clone(), json!("Thông tin mẫu"));
+                        }
+                        let o2_str = Value::Object(o2).to_string();
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "options2", format!("'{}'", sql_escape(&o2_str)));
+                    }
+
+                    push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "photo", format!("'{}'", sql_escape(&photo_rel)));
+                    push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "numb", numb.to_string());
+                    push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "stt", numb.to_string());
+                    push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "number", "0".to_string());
+                    push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "is_show", "1".to_string());
+                    push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "status", "'hienthi'".to_string());
+                    if base_table == "photo" {
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "com", "'photo-album'".to_string());
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "act", "'man_photo'".to_string());
+                    }
+
+                    if let Some(id_l) = assigned_list {
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "id_list", id_l.to_string());
+                    }
+                    if let Some(id_c) = assigned_cat {
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "id_cat", id_c.to_string());
+                    }
+                    if let Some(id_it) = assigned_item {
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "id_item", id_it.to_string());
+                    }
+                    if let Some(id_sb) = assigned_sub {
+                        push_dynamic_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "id_sub", id_sb.to_string());
+                    }
+
+                    push_timestamp_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "date_created", now);
+                    push_timestamp_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "created_at", now);
+                    push_timestamp_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "updated_at", now);
+                    push_timestamp_col(&table_cols, &col_types, &full_table_lower, &mut fields, &mut values, "date_publish", now);
+
+                    sql_batch.push_str(&format!(
+                        "INSERT INTO `{}` ({}) VALUES ({});\n",
+                        full_table,
+                        fields.join(", "),
+                        values.join(", ")
+                    ));
+                    sql_batch.push_str("SET @rbw_id = LAST_INSERT_ID();\n");
+                    append_status_pivot_sql(&mut sql_batch, &schema, &status_table, "@rbw_id", &active_statuses);
+
+                    if base_table == "product" && schema.contains_key(&pivot_table.to_lowercase()) {
+                        for (lvl, cid_opt) in [
+                            ("list", assigned_list),
+                            ("cat", assigned_cat),
+                            ("item", assigned_item),
+                            ("sub", assigned_sub),
+                        ] {
+                            if let Some(cid) = cid_opt {
+                                sql_batch.push_str(&format!(
+                                    "INSERT IGNORE INTO `{}` (`id_product`, `id_category`, `level`, `is_primary`) VALUES (@rbw_id, {}, '{}', 1);\n",
+                                    pivot_table, cid, lvl
+                                ));
+                            }
+                        }
+                    }
+
+                    if base_table != "photo" {
+                        append_table_slug_insert_sql(
+                            &mut sql_batch,
+                            &schema,
+                            &col_types,
+                            prefix,
+                            "@rbw_id",
+                            base_table,
+                            None,
+                            &sub_type,
+                            &item_name,
+                            &slug_vi,
+                            now,
+                        );
+                    }
+                    inserted_for_sub += 1;
+                }
+
+                sql_batch.push_str("COMMIT;\n");
+                match run_mysql_stdin(&db, &sql_batch, true) {
                     Ok(_) => {
-                        total_seeded += count_for_sub;
-                        details.insert(sub_type.clone(), json!({ "seeded": count_for_sub }));
+                        total_seeded += inserted_for_sub;
+                        details.insert(
+                            sub_type,
+                            json!({
+                                "seeded": inserted_for_sub,
+                                "categories_created": cats_created,
+                                "ai_used": bundle.ai_used,
+                                "mode": "insert",
+                            }),
+                        );
                     }
                     Err(e) => {
                         errors.push(format!("Lỗi SQL '{}': {}", sub_type, e.trim()));
@@ -3271,15 +5421,23 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
                 }
             }
 
+            let cleared_caches = clear_project_caches_dir(&laravel_base);
             if total_seeded == 0 && !errors.is_empty() {
-                return json!({ "status": "error", "message": errors.join(" | "), "errors": errors });
+                return json!({
+                    "status": "error",
+                    "message": errors.join(" | "),
+                    "errors": errors,
+                    "cleared_caches": cleared_caches,
+                });
             }
 
             json!({
                 "status": "success",
                 "details": Value::Object(details),
                 "errors": errors,
-                "message": format!("Đã tạo thành công {} bản ghi dữ liệu mẫu!", total_seeded)
+                "total_seeded": total_seeded,
+                "cleared_caches": cleared_caches,
+                "message": format!("Đã tạo thành công {} bản ghi dữ liệu mẫu vào DB {}!", total_seeded, db.name),
             })
         }
         _ => json!({ "status": "error", "message": "Action không hợp lệ" }),
@@ -3615,20 +5773,91 @@ pub fn handle_change_database_type(project_name: &str, category: &str, db_type: 
     }
 }
 
+fn read_legacy_demo_config() -> Option<Value> {
+    let candidates = [
+        get_www_base_dir()
+            .join("RBWManager")
+            .join("data")
+            .join("demo_config.json"),
+        config::get_base_dir()
+            .join("www")
+            .join("RBWManager")
+            .join("data")
+            .join("demo_config.json"),
+    ];
+    for p in candidates {
+        if p.is_file() {
+            if let Ok(raw) = fs::read_to_string(&p) {
+                if let Ok(val) = serde_json::from_str::<Value>(&raw) {
+                    return Some(val);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn get_setting_str_with_fallback(
+    settings: &Value,
+    key: &str,
+    legacy: Option<&Value>,
+) -> String {
+    for src in [Some(settings), legacy] {
+        if let Some(obj) = src {
+            if let Some(s) = obj.get(key).and_then(|v| v.as_str()) {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    return trimmed.to_string();
+                }
+            }
+        }
+    }
+    String::new()
+}
+
 fn find_all_sql_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
+    find_all_sql_files_recursive_inner(dir, files, 0);
+}
+
+fn find_all_sql_files_recursive_inner(dir: &Path, files: &mut Vec<PathBuf>, depth: usize) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let p = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
+            let lower = name.to_lowercase();
             if p.is_dir() {
-                let lower = name.to_lowercase();
-                if lower == "vendor" || lower == "node_modules" || lower == "backups" || lower == ".git" {
+                if matches!(
+                    lower.as_str(),
+                    "vendor"
+                        | "node_modules"
+                        | "backups"
+                        | ".git"
+                        | "assets"
+                        | "admin"
+                        | "storage"
+                        | "caches"
+                        | "thumbs"
+                        | "watermark"
+                ) {
                     continue;
                 }
-                find_all_sql_files_recursive(&p, files);
+                find_all_sql_files_recursive_inner(&p, files, depth + 1);
             } else if p.is_file() {
                 if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
                     if ext.eq_ignore_ascii_case("sql") {
+                        if matches!(
+                            lower.as_str(),
+                            "table_extensions.sql" | "table_order_history.sql" | "mysqlstorage.sql"
+                        ) {
+                            continue;
+                        }
+                        if depth > 0 {
+                            if let Ok(meta) = p.metadata() {
+                                if meta.len() < 10_240 {
+                                    continue;
+                                }
+                            }
+                        }
                         files.push(p);
                     }
                 }
@@ -3783,6 +6012,18 @@ pub fn handle_setup_local_source(
     };
 
     if should_import {
+        if db_exists && force_overwrite == Some(true) {
+            if let Err(e) = run_mysql_query(
+                &db_for_server,
+                &format!("DROP DATABASE IF EXISTS `{}`;", db_name),
+                false,
+            ) {
+                return json!({
+                    "status": "error",
+                    "message": format!("Không thể xóa Database cũ '{}': {}", db_name, e.trim())
+                });
+            }
+        }
         if let Err(e) = run_mysql_query(
             &db_for_server,
             &format!("CREATE DATABASE IF NOT EXISTS `{}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;", db_name),
@@ -3805,6 +6046,56 @@ pub fn handle_setup_local_source(
                 });
             }
             sql_imported = true;
+        } else {
+            let settings = get_settings_data();
+            let legacy_cfg = read_legacy_demo_config();
+            let configured_src = get_setting_str_with_fallback(&settings, "source_db_name", legacy_cfg.as_ref());
+            let mut candidates: Vec<String> = Vec::new();
+            if !configured_src.is_empty() {
+                candidates.push(configured_src);
+            }
+            for fallback in ["source_nasani_29102026", "source_nasani_2026"] {
+                if !candidates.iter().any(|c| c == fallback) {
+                    candidates.push(fallback.to_string());
+                }
+            }
+            let mut chosen_source: Option<String> = None;
+            for cand in &candidates {
+                let q = format!(
+                    "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '{}';",
+                    sql_escape(cand)
+                );
+                if let Ok(out) = run_mysql_query(&db_for_server, &q, false) {
+                    if out.lines().any(|l| l.trim() == cand) {
+                        chosen_source = Some(cand.clone());
+                        break;
+                    }
+                }
+            }
+            if let Some(src_db) = chosen_source {
+                let tmp_sql = get_manager_data_root()
+                    .join("temp_conv")
+                    .join(format!("setup_src_{}_{}.sql", db_name, now_unix()));
+                if let Err(e) = export_local_mysql_db(&src_db, &tmp_sql) {
+                    return json!({
+                        "status": "error",
+                        "message": format!("Đã tạo Database '{}' nhưng lỗi export database mẫu '{}': {}", db_name, src_db, e.trim())
+                    });
+                }
+                let db_with_name = ProjectDbEnv {
+                    name: db_name.clone(),
+                    ..db_for_server.clone()
+                };
+                let import_res = run_mysql_import_file(&db_with_name, &tmp_sql);
+                let _ = fs::remove_file(&tmp_sql);
+                if let Err(e) = import_res {
+                    return json!({
+                        "status": "error",
+                        "message": format!("Đã tạo Database '{}' nhưng lỗi import từ database mẫu '{}': {}", db_name, src_db, e.trim())
+                    });
+                }
+                sql_imported = true;
+            }
         }
     }
 
@@ -3922,17 +6213,17 @@ pub fn handle_setup_local_source(
         let _ = fs::write(&env_file, env_lines.join("\n") + "\n");
     }
 
-    // 5b. Clean .htaccess for local HTTP (remove forced HTTPS redirects & lock.php)
+    // 5b. Clean .htaccess for local HTTP (only remove SSL block and lock.php if present)
     let htaccess_file = p_root.join(".htaccess");
     if htaccess_file.is_file() {
         if let Ok(ht) = fs::read_to_string(&htaccess_file) {
             let re_ssl_block = Regex::new(r"(?is)# BEGIN RamboWoon SSL.*?# END RamboWoon SSL\s*").unwrap();
-            let re_https_redirect = Regex::new(r"(?im)^\s*RewriteCond\s+%\{HTTPS\}\s+(?:on|off)\s*\r?\n\s*RewriteRule\s+.*?(?:https?|http)://%\{HTTP_HOST\}.*?\r?\n?").unwrap();
             let re_lock = Regex::new(r"(?i)\block\.php\s*").unwrap();
             let cleaned = re_ssl_block.replace_all(&ht, "");
-            let cleaned = re_https_redirect.replace_all(&cleaned, "");
             let cleaned = re_lock.replace_all(&cleaned, "");
-            let _ = fs::write(&htaccess_file, cleaned.trim().to_string() + "\n");
+            if cleaned != ht {
+                let _ = fs::write(&htaccess_file, cleaned.trim().to_string() + "\n");
+            }
         }
     }
 
@@ -8829,5 +11120,274 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
             "status": "success",
             "message": format!("Action '{}' processed by Rust backend", action)
         }),
+    }
+}
+
+#[cfg(test)]
+mod media_pipeline_tests {
+    use super::*;
+
+    fn test_project_root() -> PathBuf {
+        PathBuf::from(r"D:\RBWStudio\www\2026_11\lythong_123456w")
+    }
+
+    #[test]
+    fn test_sql_discovery_skips_asset_fragments() {
+        let proj = test_project_root();
+        if !proj.is_dir() {
+            return;
+        }
+        let mut files = Vec::new();
+        find_all_sql_files_recursive(&proj, &mut files);
+        for f in &files {
+            let fname = f.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+            assert_ne!(fname, "table_extensions.sql", "Should skip assets fragment SQL: {}", f.display());
+            assert_ne!(fname, "table_order_history.sql", "Should skip fragment SQL: {}", f.display());
+        }
+    }
+
+    #[test]
+    fn test_normalized_subtypes_on_lythong() {
+        let proj = test_project_root();
+        if !proj.is_dir() {
+            return;
+        }
+        let (laravel_base, _) = resolve_project_bases(&proj);
+
+        let st = load_normalized_subtypes(&laravel_base, "type-static");
+        assert!(!st.is_empty(), "type-static should not be empty");
+        let find_st = |k: &str| st.iter().find(|s| s.sub_type == k);
+        let gt = find_st("about-us").expect("about-us must exist in type-static");
+        assert!(gt.has_images, "about-us must have images");
+        for no_img_key in ["footer", "copyright", "slogan"] {
+            if let Some(s) = find_st(no_img_key) {
+                assert!(!s.has_images, "{} should have has_images=false", no_img_key);
+            }
+        }
+
+        let news = load_normalized_subtypes(&laravel_base, "type-news");
+        assert!(
+            !news.iter().any(|s| s.sub_type == "hinh-thuc-thanh-toan"),
+            "Empty conditional type-news entry should be filtered out"
+        );
+        assert!(news.iter().any(|s| s.sub_type == "blog"));
+
+        let photos = load_normalized_subtypes(&laravel_base, "type-photo");
+        assert!(photos.iter().any(|s| s.sub_type == "logo" && s.is_static_photo));
+        assert!(photos.iter().any(|s| s.sub_type == "social" && s.kind == "album"));
+
+        let products = load_normalized_subtypes(&laravel_base, "type-products");
+        assert!(products.iter().any(|s| s.sub_type == "service"));
+    }
+
+    #[test]
+    fn test_scan_and_load_types_lythong() {
+        let proj = test_project_root();
+        if !proj.is_dir() {
+            return;
+        }
+
+        let scan_photo = handle_scan_images_endpoint("lythong_123456w", "2026_11", "type-photo");
+        assert_eq!(scan_photo["status"], "success", "scan photo failed: {}", scan_photo);
+        assert!(scan_photo["image_count"].as_u64().unwrap_or(0) > 0);
+        let fav = scan_photo["groups"]["favicon"].as_array().cloned().unwrap_or_default();
+        assert!(!fav.is_empty(), "favicon should be matched (direct or fallback logo.png)");
+
+        let scan_static = handle_scan_images_endpoint("lythong_123456w", "2026_11", "type-static");
+        assert_eq!(scan_static["status"], "success");
+        assert!(scan_static["groups"].get("footer").is_none(), "footer has_images=false should not be in groups");
+        assert!(scan_static["groups"].get("about-us").is_some(), "about-us should be in groups");
+
+        let mut q = HashMap::new();
+        q.insert("action".to_string(), "load_types".to_string());
+        q.insert("project_name".to_string(), "lythong_123456w".to_string());
+        q.insert("category".to_string(), "2026_11".to_string());
+        q.insert("main_key".to_string(), "type-products".to_string());
+        let lt = handle_seed_images_endpoint(&q, &Map::new());
+        assert_eq!(lt["status"], "success", "load_types failed: {}", lt);
+        assert!(lt["types"].get("service").is_some());
+    }
+
+    #[test]
+    #[ignore]
+    fn verify_end_to_end_lythong_media_db() {
+        let proj = test_project_root();
+        let db = parse_project_db_env(&proj);
+        assert_eq!(db.name, "2026_11_lythong_123456w");
+
+        // Snapshot DB so we can cleanly restore afterwards
+        let snap = get_manager_data_root().join("temp_conv").join("test_snap_lythong.sql");
+        export_local_mysql_db(&db.name, &snap).expect("snapshot db");
+
+        // 1. Auto update type-photo (logo, favicon, social)
+        let mut auto_imgs = Vec::new();
+        for (file, st) in [("logo.webp", "logo"), ("logo.png", "favicon"), ("mxh.webp", "social"), ("mxh2.webp", "social")] {
+            if proj.join("assets/images/images").join(file).is_file() {
+                auto_imgs.push(json!({ "file": file, "sub_type": st }));
+            }
+        }
+        let body_photo = serde_json::from_value::<Map<String, Value>>(json!({
+            "project_name": "lythong_123456w",
+            "category": "2026_11",
+            "main_key": "type-photo",
+            "images": auto_imgs,
+        })).unwrap();
+        let res_photo = handle_auto_update_endpoint(&body_photo);
+        assert_eq!(res_photo["status"], "success", "auto_update photo failed: {}", res_photo);
+        assert!(res_photo["updated"].as_u64().unwrap_or(0) >= 3);
+
+        // Verify DB table_photo + copied file path + table_photo_status
+        let photo_rows = run_mysql_tsv(&db, "SELECT id, type, photo FROM table_photo WHERE type='logo' ORDER BY id DESC LIMIT 1;").unwrap();
+        assert!(!photo_rows.is_empty());
+        let logo_rel = &photo_rows[0][2];
+        assert!(logo_rel.starts_with("photo/20"), "Expected date subfolder path, got {}", logo_rel);
+        let uploaded_logo_path = proj.join("upload").join(logo_rel);
+        assert!(uploaded_logo_path.is_file(), "Copied file missing: {}", uploaded_logo_path.display());
+
+        let photo_st_cnt = run_mysql_tsv(&db, &format!("SELECT COUNT(*) FROM table_photo_status WHERE id_photo = {};", photo_rows[0][0])).unwrap();
+        assert!(photo_st_cnt[0][0].trim().parse::<u64>().unwrap_or(0) > 0, "table_photo_status missing");
+
+        // 2. Auto update type-static (about-us)
+        if proj.join("assets/images/images/aboutus.webp").is_file() {
+            let body_st = serde_json::from_value::<Map<String, Value>>(json!({
+                "project_name": "lythong_123456w",
+                "category": "2026_11",
+                "main_key": "type-static",
+                "images": [{ "file": "aboutus.webp", "sub_type": "about-us" }],
+            })).unwrap();
+            let res_st = handle_auto_update_endpoint(&body_st);
+            assert_eq!(res_st["status"], "success", "auto_update static failed: {}", res_st);
+        }
+
+        // 3. Seed products (service) + verify table_product, table_product_status, table_slug
+        let seed_body = serde_json::from_value::<Map<String, Value>>(json!({
+            "project_name": "lythong_123456w",
+            "category": "2026_11",
+            "main_key": "type-products",
+            "folder": "project_images",
+            "seed_count": 3,
+            "seed_cat_count": 2,
+            "use_ai": false,
+            "sub_types": {
+                "service": ["album.webp", "album2.webp"]
+            }
+        })).unwrap();
+        let mut q_seed = HashMap::new();
+        q_seed.insert("action".to_string(), "seed".to_string());
+        let res_seed = handle_seed_images_endpoint(&q_seed, &seed_body);
+        assert_eq!(res_seed["status"], "success", "seed service failed: {}", res_seed);
+        assert_eq!(res_seed["total_seeded"].as_u64(), Some(3));
+
+        let prod_cnt = run_mysql_tsv(&db, "SELECT COUNT(*) FROM table_product WHERE type='service';").unwrap();
+        let cnt_num: u64 = prod_cnt[0][0].trim().parse().unwrap_or(0);
+        assert!(cnt_num >= 3, "Expected >=3 seeded service products, got {}", cnt_num);
+
+        let prod_status_cnt = run_mysql_tsv(&db, "SELECT COUNT(*) FROM table_product_status ps INNER JOIN table_product p ON ps.id_product = p.id WHERE p.type='service';").unwrap();
+        assert!(prod_status_cnt[0][0].trim().parse::<u64>().unwrap_or(0) >= 3, "table_product_status missing");
+
+        let slug_cnt = run_mysql_tsv(&db, "SELECT COUNT(*) FROM table_slug WHERE com='product' AND type='service';").unwrap();
+        let s_num: u64 = slug_cnt[0][0].trim().parse().unwrap_or(0);
+        assert!(s_num >= 3, "Expected table_slug rows for seeded service, got {}", s_num);
+
+        // 4. Verify multi-level category seeding + pivot insert on synthetic categorized subtype
+        let schema = inspect_db_schema(&db).unwrap();
+        let col_types = inspect_db_col_types(&db);
+        let mut cats = HashMap::new();
+        cats.insert("list".to_string(), CategoryLevelCfg {
+            level: "list".to_string(),
+            title: "Danh mục cấp 1".to_string(),
+            has_images: true,
+            has_name: true,
+            has_desc: true,
+            has_content: false,
+            has_slug: true,
+            status_keys: vec!["is_show".to_string()],
+            ratio: Some((400, 400)),
+        });
+        cats.insert("cat".to_string(), CategoryLevelCfg {
+            level: "cat".to_string(),
+            title: "Danh mục cấp 2".to_string(),
+            has_images: false,
+            has_name: true,
+            has_desc: true,
+            has_content: false,
+            has_slug: true,
+            status_keys: vec!["is_show".to_string()],
+            ratio: None,
+        });
+        let cat_sub = NormalizedSubType {
+            sub_type: "service".to_string(),
+            title: "Dịch vụ".to_string(),
+            kind: "man".to_string(),
+            is_static_photo: false,
+            has_images: true,
+            ratio: Some((600, 600)),
+            number: true,
+            has_title: true,
+            has_name: true,
+            has_desc: true,
+            has_desc_cke: false,
+            has_content: true,
+            has_content_cke: false,
+            has_slug: true,
+            has_link: false,
+            has_phone: false,
+            has_price: true,
+            has_code: false,
+            status_keys: vec!["is_show".to_string()],
+            images_keys: vec!["photo".to_string()],
+            options2_fields: Vec::new(),
+            categories: cats,
+            record_count: 0,
+        };
+        let mut existing_slugs = fetch_existing_slugs(&db, &schema, "table_");
+        let mut copy_seq = 500;
+        let pool_imgs = vec![proj.join("assets/images/images/album.webp")];
+        let (cat_ids, cats_created) = seed_categories_for_subtype(
+            &db, &schema, &col_types, "table_", "product", &cat_sub, 2, &[], &pool_imgs,
+            &proj, "product", &mut existing_slugs, now_unix(), &mut copy_seq,
+        );
+        assert!(cats_created >= 4, "Expected list(2)+cat(2) created, got {}", cats_created);
+        assert!(!cat_ids.list.is_empty() && !cat_ids.cat.is_empty());
+
+        // 5. Seed news (blog)
+        let seed_news_body = serde_json::from_value::<Map<String, Value>>(json!({
+            "project_name": "lythong_123456w",
+            "category": "2026_11",
+            "main_key": "type-news",
+            "folder": "project_images",
+            "seed_count": 2,
+            "seed_cat_count": 0,
+            "use_ai": false,
+            "sub_types": {
+                "blog": ["blog.webp"]
+            }
+        })).unwrap();
+        let res_news = handle_seed_images_endpoint(&q_seed, &seed_news_body);
+        assert_eq!(res_news["status"], "success", "seed blog failed: {}", res_news);
+
+        // Clean up copied test image files from today's upload/ folders and restore DB snapshot
+        let today = Local::now().format("%Y/%m/%d").to_string();
+        for sub_dir in ["photo", "product", "news"] {
+            let day_dir = proj.join("upload").join(sub_dir).join(&today);
+            if day_dir.is_dir() {
+                let _ = fs::remove_dir_all(&day_dir);
+            }
+        }
+        let server_db = ProjectDbEnv {
+            name: String::new(),
+            ..db.clone()
+        };
+        run_mysql_query(
+            &server_db,
+            &format!(
+                "DROP DATABASE IF EXISTS `{}`; CREATE DATABASE `{}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;",
+                db.name, db.name
+            ),
+            false,
+        )
+        .expect("recreate clean db");
+        run_mysql_import_file(&db, &snap).expect("restore snapshot");
+        let _ = fs::remove_file(&snap);
     }
 }

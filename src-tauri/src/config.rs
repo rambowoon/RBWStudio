@@ -79,9 +79,14 @@ fn default_da_port() -> String {
 pub fn get_base_dir() -> PathBuf {
     if let Ok(exe_path) = env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
-            // Check if running from src-tauri/target/debug or release
-            if exe_dir.ends_with("debug") || exe_dir.ends_with("release") {
-                if let Some(target_dir) = exe_dir.parent() {
+            // Check if running from src-tauri/target/debug(/deps) or release(/deps)
+            let check_dir = if exe_dir.ends_with("deps") {
+                exe_dir.parent().unwrap_or(exe_dir)
+            } else {
+                exe_dir
+            };
+            if check_dir.ends_with("debug") || check_dir.ends_with("release") {
+                if let Some(target_dir) = check_dir.parent() {
                     if let Some(src_tauri_dir) = target_dir.parent() {
                         if let Some(root_dir) = src_tauri_dir.parent() {
                             return root_dir.to_path_buf();
