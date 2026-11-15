@@ -6,16 +6,23 @@ const SeedManager = {
 	selectedImages: {},  // { subKey: [file, ...] }
 	allImages: [],       // danh sách ảnh đã scan
 	currentFolder: 'project_images',
+	currentSubdir: '',
 	designImage: null,   // { data: base64, mime: 'image/png', name: '...' }
+	_typesCache: {},
+	_folderCache: {},
+	_renderedFolderKey: '',
 
 	async init(projectName) {
 		const proj = projectName || (typeof App !== 'undefined' ? App.currentProject : '') || document.getElementById('d_current-project')?.value || document.getElementById('detail-project-name')?.innerText?.trim() || '';
 		if (!proj) return;
+		if (this.currentProject !== proj) {
+			this.selectedImages = {};
+			this.subTypes = {};
+			this.allImages = [];
+			this.designImage = null;
+			this._renderedFolderKey = '';
+		}
 		this.currentProject = proj;
-		this.selectedImages = {};
-		this.subTypes = {};
-		this.allImages = [];
-		this.designImage = null;
 		this.bindEvents();
 		await this.loadTypes(this.currentMainKey);
 	},
@@ -139,51 +146,90 @@ const SeedManager = {
 	},
 
 	// ─── Load types config ───
-	async loadTypes(mainKey) {
+	async loadTypes(mainKey, force = false) {
 		if (!this.mainKeys.includes(mainKey)) return;
 		this.currentMainKey = mainKey;
-		this.selectedImages = {};
+		if (force) {
+			this.selectedImages = {};
+		}
 
 		document.querySelectorAll('#seed-main-tabs [data-main-key]').forEach((b) =>
 			b.classList.toggle('active', b.dataset.mainKey === mainKey)
 		);
 
-		this._renderSubTypesLoading();
-
-		try {
-			const cat = (typeof App !== 'undefined' && App.currentCategory) ? App.currentCategory : '';
-			const res = await fetch(`seed_images.php?action=load_types&project_name=${encodeURIComponent(this.currentProject)}&category=${encodeURIComponent(cat)}&main_key=${encodeURIComponent(mainKey)}`).then((r) => r.json());
-			if (res.status !== 'success') throw new Error(res.message);
-			this.subTypes = res.sub_types || res.types || {};
-			this._renderSubTypes();
-			// Auto-load ảnh mặc định
-			await this.scanFolder();
-		} catch (e) {
-			document.getElementById('seed-sub-types').innerHTML = `<div class="seed-state error">${e.message}</div>`;
+		const cat = (typeof App !== 'undefined' && App.currentCategory) ? App.currentCategory : '';
+		const typesKey = `${this.currentProject}::${cat}::${mainKey}`;
+		const cachedTypes = !force ? this._typesCache[typesKey] : null;
+		if (!cachedTypes) {
+			this._renderSubTypesLoading();
 		}
+
+		const typesPromise = (cachedTypes
+			? Promise.resolve(cachedTypes)
+			: fetch(`seed_images.php?action=load_types&project_name=${encodeURIComponent(this.currentProject)}&category=${encodeURIComponent(cat)}&main_key=${encodeURIComponent(mainKey)}`)
+				.then((r) => r.json())
+				.then((res) => {
+					if (res.status !== 'success') throw new Error(res.message);
+					const data = res.sub_types || res.types || {};
+					this._typesCache[typesKey] = data;
+					return data;
+				}))
+			.then((subTypesData) => {
+				this.subTypes = subTypesData;
+				this._renderSubTypes();
+			})
+			.catch((e) => {
+				const el = document.getElementById('seed-sub-types');
+				if (el) el.innerHTML = `<div class="seed-state error">${e.message}</div>`;
+			});
+
+		// Render grid ảnh ngay lập tức khi scan xong, không bị block bởi mysql load_types
+		const scanPromise = this.scanFolder(this.currentSubdir || '', false);
+		await Promise.all([typesPromise, scanPromise]);
 	},
 
 	// ─── Scan folder ảnh ───
-	async scanFolder(subdir = '') {
-		const box = document.getElementById('seed-images-grid');
-		if (box) box.innerHTML = `<div class="seed-skeleton-row"></div><div class="seed-skeleton-row" style="opacity:.6"></div>`;
-
+	async scanFolder(subdir = '', force = false) {
+		this.currentSubdir = subdir || '';
+		const cat = (typeof App !== 'undefined' && App.currentCategory) ? App.currentCategory : '';
+		const folderKey = `${this.currentProject}::${cat}::${this.currentFolder}::${this.currentSubdir}`;
 		const totalEl = document.getElementById('seed-img-total');
+		const box = document.getElementById('seed-images-grid');
+
+		const cached = !force ? this._folderCache[folderKey] : null;
+		if (cached) {
+			this.allImages = cached.images || [];
+			if (totalEl) totalEl.textContent = this.allImages.length;
+			this._renderSubfolderNav(cached.subfolders || []);
+			this._renderImageGrid();
+			return;
+		}
+
+		if (box && this._renderedFolderKey !== folderKey) {
+			box.innerHTML = `<div class="seed-skeleton-row"></div><div class="seed-skeleton-row" style="opacity:.6"></div>`;
+			this._renderedFolderKey = '';
+		}
 		if (totalEl) totalEl.textContent = '...';
 
 		try {
-			const cat = (typeof App !== 'undefined' && App.currentCategory) ? App.currentCategory : '';
-			const url = `seed_images.php?action=scan_folder&project_name=${encodeURIComponent(this.currentProject)}&category=${encodeURIComponent(cat)}&folder=${encodeURIComponent(this.currentFolder)}&subdir=${encodeURIComponent(subdir)}`;
+			const url = `seed_images.php?action=scan_folder&project_name=${encodeURIComponent(this.currentProject)}&category=${encodeURIComponent(cat)}&folder=${encodeURIComponent(this.currentFolder)}&subdir=${encodeURIComponent(this.currentSubdir)}`;
 			const res = await fetch(url).then((r) => r.json());
 			if (res.status !== 'success') throw new Error(res.message);
 
-			this.allImages = res.images || [];
+			const entry = {
+				images: res.images || [],
+				subfolders: res.subfolders || [],
+			};
+			this._folderCache[folderKey] = entry;
+			this.allImages = entry.images;
 			if (totalEl) totalEl.textContent = this.allImages.length;
 
 			// Render subfolder nav nếu custom_pool
-			this._renderSubfolderNav(res.subfolders || []);
+			this._renderSubfolderNav(entry.subfolders);
+			if (force) this._renderedFolderKey = '';
 			this._renderImageGrid();
 		} catch (e) {
+			this._renderedFolderKey = '';
 			if (box) box.innerHTML = `<div class="seed-state error">${e.message}</div>`;
 		}
 	},
@@ -257,16 +303,38 @@ const SeedManager = {
 		const subKey = activeSubKey || (activeCard ? activeCard.dataset.subKey : null);
 		const st = this.subTypes[subKey];
 
+		const cat = (typeof App !== 'undefined' && App.currentCategory) ? App.currentCategory : '';
+		const folderKey = `${this.currentProject}::${cat}::${this.currentFolder}::${this.currentSubdir || ''}`;
+		const existingItems = grid.querySelectorAll('.seed-img-item');
+
 		if (st && !st.has_images) {
-			grid.innerHTML = `
-				<div class="seed-img-empty">
-					<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m3 15 2 2 4-4"/></svg>
-					<p>Loại dữ liệu này không sử dụng hình ảnh. Bạn có thể bấm <b>Tạo dữ liệu mẫu</b> để tự động tạo dữ liệu văn bản.</p>
-				</div>`;
+			if (existingItems.length > 0) {
+				existingItems.forEach((el) => { el.style.display = 'none'; });
+				if (!document.getElementById('seed-no-images-empty')) {
+					const notice = document.createElement('div');
+					notice.id = 'seed-no-images-empty';
+					notice.className = 'seed-img-empty';
+					notice.innerHTML = `
+						<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m3 15 2 2 4-4"/></svg>
+						<p>Loại dữ liệu này không sử dụng hình ảnh. Bạn có thể bấm <b>Tạo dữ liệu mẫu</b> để tự động tạo dữ liệu văn bản.</p>`;
+					grid.prepend(notice);
+				}
+			} else {
+				this._renderedFolderKey = '';
+				grid.innerHTML = `
+					<div id="seed-no-images-empty" class="seed-img-empty">
+						<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m3 15 2 2 4-4"/></svg>
+						<p>Loại dữ liệu này không sử dụng hình ảnh. Bạn có thể bấm <b>Tạo dữ liệu mẫu</b> để tự động tạo dữ liệu văn bản.</p>
+					</div>`;
+			}
 			return;
 		}
 
+		const noImgNotice = document.getElementById('seed-no-images-empty');
+		if (noImgNotice) noImgNotice.remove();
+
 		if (this.allImages.length === 0) {
+			this._renderedFolderKey = '';
 			grid.innerHTML = `
 				<div class="seed-img-empty">
 					<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -276,6 +344,21 @@ const SeedManager = {
 		}
 
 		const selected = this.selectedImages[subKey] || [];
+
+		// Nếu DOM lưới ảnh của folder hiện tại đã render, chỉ cập nhật trạng thái checkbox thay vì hủy tạo lại toàn bộ thẻ <img>
+		if (this._renderedFolderKey === folderKey && existingItems.length === this.allImages.length) {
+			existingItems.forEach((label) => {
+				label.style.display = '';
+				label.dataset.sub = subKey;
+				const isChecked = selected.includes(label.dataset.file);
+				label.classList.toggle('checked', isChecked);
+				const chk = label.querySelector('.seed-img-check');
+				if (chk) chk.checked = isChecked;
+			});
+			return;
+		}
+
+		this._renderedFolderKey = folderKey;
 		grid.innerHTML = this.allImages.map((img) => {
 			const fileName = img.file || img.name || '';
 			const isChecked = selected.includes(fileName);
@@ -432,7 +515,8 @@ const SeedManager = {
 			}
 
 			// Reload type counts
-			await this.loadTypes(this.currentMainKey);
+			this._typesCache = {};
+			await this.loadTypes(this.currentMainKey, true);
 		} catch (e) {
 			UI.notify('Lỗi: ' + e.message, 'error');
 		} finally {

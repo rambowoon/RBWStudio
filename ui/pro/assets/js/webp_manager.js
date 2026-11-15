@@ -2,21 +2,14 @@ console.log('WebpManager loaded');
 
 const WebpManager = {
 	images: [],
+	_cache: {},
 
-	async loadImages() {
+	async loadImages(force = false) {
 		const projectName = document.getElementById('d_current-project').value;
 		const category = App.currentCategory || '';
 		
 		const listContainer = document.getElementById('project-webp-images-list');
 		if (!listContainer) return;
-
-		listContainer.innerHTML = `
-			<tr>
-				<td colspan="6" style="text-align:center; padding:30px; color:var(--muted);">
-					<span style="display:inline-block; animation: spin 1s linear infinite; margin-right: 8px;">⏳</span> Đang quét thư mục hình ảnh...
-				</td>
-			</tr>
-		`;
 
 		const statusBox = document.getElementById('project-webp-status');
 		if (statusBox) statusBox.style.display = 'none';
@@ -34,12 +27,28 @@ const WebpManager = {
 			return;
 		}
 
+		const cacheKey = `${projectName}::${category}`;
+		if (!force && this._cache[cacheKey]) {
+			this.images = this._cache[cacheKey];
+			this.render();
+			return;
+		}
+
+		listContainer.innerHTML = `
+			<tr>
+				<td colspan="6" style="text-align:center; padding:30px; color:var(--muted);">
+					<span style="display:inline-block; animation: spin 1s linear infinite; margin-right: 8px;">⏳</span> Đang quét thư mục hình ảnh...
+				</td>
+			</tr>
+		`;
+
 		try {
 			const res = await fetch(`api.php?action=listProjectImages&name=${encodeURIComponent(projectName)}&category=${encodeURIComponent(category)}`);
 			const result = await res.json();
 
 			if (result.status === 'success') {
 				this.images = result.data || [];
+				this._cache[cacheKey] = this.images;
 				this.render();
 			} else {
 				listContainer.innerHTML = `
@@ -56,6 +65,13 @@ const WebpManager = {
 				</tr>
 			`;
 		}
+	},
+
+	_invalidateSiblingImageCaches() {
+		this._cache = {};
+		if (typeof ImageTrimManager !== 'undefined') ImageTrimManager._cache = {};
+		if (typeof AutoMediaManager !== 'undefined') AutoMediaManager._cache = {};
+		if (typeof SeedManager !== 'undefined') SeedManager._folderCache = {};
 	},
 
 	formatTimeLeft(seconds) {
@@ -201,7 +217,8 @@ const WebpManager = {
 
 			if (result.status === 'success') {
 				UI.notify(result.message, 'success');
-				this.loadImages();
+				this._invalidateSiblingImageCaches();
+				this.loadImages(true);
 			} else {
 				UI.notify(result.message || 'Lỗi khi chuyển đổi hình ảnh', 'error');
 				if (btnElement) {
@@ -249,7 +266,8 @@ const WebpManager = {
 
 			if (result.status === 'success') {
 				UI.notify(result.message, 'success');
-				this.loadImages();
+				this._invalidateSiblingImageCaches();
+				this.loadImages(true);
 			} else {
 				UI.notify(result.message || 'Lỗi khi hoàn tác hình ảnh', 'error');
 				if (btnElement) {
@@ -301,6 +319,7 @@ const WebpManager = {
 
 			if (result.status === 'success') {
 				UI.notify(result.message, 'success');
+				this._invalidateSiblingImageCaches();
 			} else {
 				UI.notify(result.message || 'Lỗi khi hoàn tác hình ảnh', 'error');
 			}
@@ -312,7 +331,7 @@ const WebpManager = {
 				btn.disabled = false;
 				btn.innerHTML = originalBtnHtml;
 			}
-			this.loadImages();
+			this.loadImages(true);
 		}
 	},
 
@@ -357,6 +376,7 @@ const WebpManager = {
 
 			if (result.status === 'success') {
 				UI.notify(result.message, 'success');
+				this._invalidateSiblingImageCaches();
 				
 				if (statusBox) {
 					statusBox.style.background = 'rgba(16, 185, 129, 0.1)';
@@ -391,7 +411,7 @@ const WebpManager = {
 				btn.disabled = false;
 				btn.innerHTML = `🚀 Bắt đầu Convert`;
 			}
-			this.loadImages();
+			this.loadImages(true);
 		}
 	}
 };

@@ -1,0 +1,391 @@
+{
+    "products": {
+        "san_pham": {
+            "name": "Mẫu Sản phẩm",
+            "config": {
+                "title_main": "sanpham",
+                "website": {
+                    "type": {
+                        "index": "object",
+                        "detail": "article"
+                    },
+                    "title": "sanpham",
+                    "bre": "product"
+                },
+                "copy": true,
+                "tags": false,
+                "slug": true,
+                "status": {
+                    "noibat": "noibat",
+                    "hienthi": "hienthi"
+                },
+                "images": {
+                    "photo": {
+                        "title": "anhdaidien",
+                        "width": 800,
+                        "height": 800,
+                        "thumb": "400x400x1"
+                    }
+                },
+                "show_images": true,
+                "gallery": {
+                    "san-pham": {
+                        "title_main_photo": "hinhanhsanpham",
+                        "title_sub_photo": "hinhanh",
+                        "status_photo": {
+                            "hienthi": "hienthi"
+                        },
+                        "number_photo": 3,
+                        "images_photo": true,
+                        "avatar_photo": true,
+                        "name_photo": true,
+                        "photo_width": 800,
+                        "photo_height": 800,
+                        "photo_thumb": "800x800x1"
+                    }
+                },
+                "view": true,
+                "comment": false,
+                "properties": false,
+                "code": true,
+                "regular_price": true,
+                "sale_price": true,
+                "discount": true,
+                "datePublish": true,
+                "name": true,
+                "desc": true,
+                "desc_cke": true,
+                "content": true,
+                "content_cke": true,
+                "schema": true,
+                "seo": true,
+                "group": false,
+                "categories": {
+                    "list": {
+                        "title_main_categories": "danhmuccap1",
+                        "images": {
+                            "photo": {
+                                "title": "anhdaidien",
+                                "width": "500",
+                                "height": "500",
+                                "thumb": "500x500x1"
+                            }
+                        },
+                        "copy_categories": true,
+                        "show_images_categories": true,
+                        "slug_categories": true,
+                        "status_categories": {
+                            "noibat": "noibat",
+                            "hienthi": "hienthi"
+                        },
+                        "name_categories": true,
+                        "desc_categories": false,
+                        "desc_categories_cke": false,
+                        "content_categories": true,
+                        "content_categories_cke": true,
+                        "seo_categories": true
+                    },
+                    "cat": {
+                        "title_main_categories": "danhmuccap2",
+                        "images": {
+                            "photo": {
+                                "title": "anhdaidien",
+                                "width": "500",
+                                "height": "500",
+                                "thumb": "500x500x1"
+                            }
+                        },
+                        "copy_categories": true,
+                        "show_images_categories": true,
+                        "slug_categories": true,
+                        "status_categories": {
+                            "hienthi": "hienthi"
+                        },
+                        "gallery_categories": {},
+                        "name_categories": true,
+                        "desc_categories": false,
+                        "desc_categories_cke": false,
+                        "content_categories": true,
+                        "content_categories_cke": true,
+                        "seo_categories": true
+                    }
+                }
+            }
+        },
+        "thuc_don": {
+            "name": "Mẫu Thực đơn",
+            "config": {
+                "title_main": "thucdon",
+                "website": {
+                    "type": {
+                        "index": "object",
+                        "detail": "article"
+                    },
+                    "title": "thucdon",
+                    "bre": "product"
+                },
+                "copy": true,
+                "tags": false,
+                "slug": true,
+                "status": {
+                    "noibat": "noibat",
+                    "hienthi": "hienthi"
+                },
+                "images": {
+                    "photo": {
+                        "title": "anhdaidien",
+                        "width": 800,
+                        "height": 800,
+                        "thumb": "400x400x1"
+                    }
+                },
+                "show_images": true,
+                "gallery": {
+                    "san-pham": {
+                        "title_main_photo": "hinhanhthucdon",
+                        "title_sub_photo": "hinhanh",
+                        "status_photo": {
+                            "hienthi": "hienthi"
+                        },
+                        "number_photo": 3,
+                        "images_photo": true,
+                        "avatar_photo": true,
+                        "name_photo": true,
+                        "photo_width": 800,
+                        "photo_height": 800,
+                        "photo_thumb": "800x800x1"
+                    }
+                },
+                "view": true,
+                "comment": false,
+                "properties": false,
+                "code": false,
+                "regular_price": true,
+                "sale_price": true,
+                "discount": true,
+                "datePublish": true,
+                "name": true,
+                "desc": true,
+                "desc_cke": true,
+                "content": true,
+                "content_cke": true,
+                "schema": true,
+                "seo": true,
+                "group": false,
+                "categories": {
+                    "list": {
+                        "title_main_categories": "danhmuccap1",
+                        "images": {
+                            "photo": {
+                                "title": "anhdaidien",
+                                "width": "500",
+                                "height": "500",
+                                "thumb": "500x500x1"
+                            }
+                        },
+                        "copy_categories": true,
+                        "show_images_categories": true,
+                        "slug_categories": true,
+                        "status_categories": {
+                            "hienthi": "hienthi"
+                        },
+                        "name_categories": true,
+                        "desc_categories": false,
+                        "desc_categories_cke": false,
+                        "content_categories": true,
+                        "content_categories_cke": true,
+                        "seo_categories": true
+                    },
+                    "cat": {
+                        "title_main_categories": "danhmuccap2",
+                        "images": {
+                            "photo": {
+                                "title": "anhdaidien",
+                                "width": "500",
+                                "height": "500",
+                                "thumb": "500x500x1"
+                            }
+                        },
+                        "copy_categories": true,
+                        "show_images_categories": true,
+                        "slug_categories": true,
+                        "status_categories": {
+                            "hienthi": "hienthi"
+                        },
+                        "gallery_categories": {},
+                        "name_categories": true,
+                        "desc_categories": false,
+                        "desc_categories_cke": false,
+                        "content_categories": true,
+                        "content_categories_cke": true,
+                        "seo_categories": true
+                    }
+                }
+            }
+        }
+    },
+    "news": {
+        "tin_tuc_full": {
+            "name": "tintuc",
+            "data": {
+                "title_main": "tintuc",
+                "website": {
+                    "type": {
+                        "index": "object",
+                        "detail": "article"
+                    },
+                    "title": "tintuc"
+                },
+                "status": {
+                    "hienthi": "hienthi"
+                },
+                "slug": true,
+                "seo": true,
+                "schema": true,
+                "view": true,
+                "copy": true,
+                "datePublish": true,
+                "name": true,
+                "desc": true,
+                "content": true,
+                "content_cke": true,
+                "show_images": true,
+                "images": {
+                    "photo": {
+                        "title": "anhdaidien",
+                        "width": 400,
+                        "height": 270,
+                        "thumb": "400x270x1"
+                    }
+                }
+            }
+        },
+        "thu_vien_anh": {
+            "name": "thuvienanh",
+            "data": {
+                "title_main": "thuvienanh",
+                "website": {
+                    "type": {
+                        "index": "object",
+                        "detail": "article"
+                    },
+                    "title": "thuvienanh",
+                    "view_page": "news.album"
+                },
+                "status": {
+                    "hienthi": "hienthi"
+                },
+                "slug": false,
+                "show_images": true,
+                "images": {
+                    "photo": {
+                        "title": "anhdaidien",
+                        "width": 500,
+                        "height": 371,
+                        "thumb": "500x371x1"
+                    }
+                },
+                "gallery": {
+                    "album": {
+                        "title_main_photo": "hinhanh",
+                        "title_sub_photo": "hinhanh",
+                        "status_photo": {
+                            "hienthi": "hienthi"
+                        },
+                        "number_photo": 3,
+                        "images_photo": true,
+                        "avatar_photo": true,
+                        "name_photo": true,
+                        "width_photo": 500,
+                        "height_photo": 371,
+                        "thumb_photo": "500x371x1"
+                    }
+                }
+            }
+        },
+        "tieu_chi": {
+            "name": "tieuchi",
+            "data": {
+                "title_main": "tieuchi",
+                "status": {
+                    "hienthi": "hienthi"
+                },
+                "show_images": true,
+                "images": {
+                    "photo": {
+                        "title": "anhdaidien",
+                        "width": 50,
+                        "height": 50,
+                        "thumb": "50x50x2"
+                    }
+                },
+                "name": true,
+                "desc": true
+            }
+        }
+    },
+    "static": {
+        "gioi_thieu": {
+            "name": "gioithieu",
+            "config": {
+                "title_main": "gioithieu",
+                "website": {
+                    "type": "object",
+                    "title": "gioithieu"
+                },
+                "images": {
+                    "photo": {
+                        "title": "hinhanh",
+                        "width": 533,
+                        "height": 378,
+                        "thumb": "533x378x1"
+                    }
+                },
+                "show_images": true,
+                "status": { "hienthi": "hienthi" },
+                "name": true,
+                "desc": true,
+                "desc_cke": false,
+                "content": true,
+                "content_cke": true,
+                "seo": true
+            }
+        },
+        "slogan": {
+            "name": "slogan",
+            "config": {
+                "title_main": "slogan",
+                "name": true
+            }
+        },
+        "footer": {
+            "name": "footer",
+            "config": {
+                "title_main": "footer",
+                "name": false,
+                "desc": false,
+                "desc_cke": false,
+                "content": true,
+                "content_cke": true
+            }
+        }
+    },
+    "newsletters": {
+        "lien_he": {
+            "name": "lienhe",
+            "config": {
+                "title_main": "lienhe",
+                "file": true,
+                "send_email": true,
+                "email": true,
+                "fullname": true,
+                "phone": true,
+                "address": true,
+                "subject": true,
+                "show_subject": true,
+                "show_fullname": true,
+                "show_phone": false
+            }
+        }
+    }
+}

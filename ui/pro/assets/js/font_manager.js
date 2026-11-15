@@ -212,6 +212,178 @@ const FontManager = {
         checkboxes.forEach(cb => cb.checked = !allChecked);
     },
 
+    _normalizeVariantToken(v) {
+        const s = String(v).trim().toLowerCase();
+        if (s === 'regular' || s === 'normal') return '400';
+        if (s === 'italic') return '400i';
+        const w = s.replace(/[^0-9]/g, '') || '400';
+        const isItalic = s.endsWith('i') || s.includes('italic');
+        return isItalic ? `${w}i` : w;
+    },
+
+    _sortVariantTokens(tokens) {
+        return [...new Set(tokens)].sort((a, b) => {
+            const wa = parseInt(a, 10) || 400;
+            const wb = parseInt(b, 10) || 400;
+            if (wa !== wb) return wa - wb;
+            return a.endsWith('i') === b.endsWith('i') ? 0 : (a.endsWith('i') ? 1 : -1);
+        });
+    },
+
+    _buildGoogleCssV1Url(family, variants) {
+        const famPlus = family.trim().replace(/\s+/g, '+');
+        if (!variants || variants.length === 0) {
+            return `https://fonts.googleapis.com/css?family=${famPlus}&display=swap`;
+        }
+        const tokens = this._sortVariantTokens(variants.map(v => this._normalizeVariantToken(v)));
+        return `https://fonts.googleapis.com/css?family=${famPlus}:${tokens.join(',')}&display=swap`;
+    },
+
+    _normalizeGoogleImportInput(rawInput, fallbackFamily) {
+        const urlMatch = rawInput.match(/https?:\/\/fonts\.googleapis\.com\/css2\?[^\s'"\);<>]+/i);
+        if (!urlMatch) return rawInput;
+        try {
+            const u = new URL(urlMatch[0]);
+            const famSpecs = u.searchParams.getAll('family');
+            if (famSpecs.length !== 1) return rawInput;
+            const [famRaw, axisPart] = famSpecs[0].split(':');
+            const famName = decodeURIComponent((famRaw || fallbackFamily || '').replace(/\+/g, ' ')).trim();
+            if (!famName) return rawInput;
+            if (!axisPart || !axisPart.includes('@')) {
+                return `@import url('${this._buildGoogleCssV1Url(famName, [])}');`;
+            }
+            const [axesStr, valsStr] = axisPart.split('@');
+            const axes = axesStr.split(',');
+            const tokens = [];
+            valsStr.split(';').forEach(entry => {
+                const parts = entry.split(',');
+                if (axes.includes('ital') && axes.includes('wght') && parts.length >= 2) {
+                    const isItal = parts[axes.indexOf('ital')] === '1';
+                    const w = parts[axes.indexOf('wght')] || '400';
+                    tokens.push(isItal ? `${w}i` : w);
+                } else if (axes.includes('wght')) {
+                    const w = parts[axes.indexOf('wght')] || '400';
+                    tokens.push(w);
+                }
+            });
+            if (tokens.length === 0) return rawInput;
+            return `@import url('${this._buildGoogleCssV1Url(famName, tokens)}');`;
+        } catch (_) {
+            return rawInput;
+        }
+    },
+
+    _arrayBufferToBase64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        const chunk = 0x8000;
+        let binary = '';
+        for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+        }
+        return btoa(binary);
+    },
+
+    async _fetchGoogleFontVariantFiles(family, tokens) {
+        const slug = family.trim().toLowerCase().replace(/\s+/g, '-');
+        const slugBase = `${slug.replace(/[^a-z0-9-]/g, '')}`;
+        const grouped = new Map(); // key `${weight}|${style}` -> [{ fileName, data, weight, style, ext }]
+
+        // 1. Ưu tiên Google Webfonts Helper (trả về file woff2 đầy đủ subsets)
+        try {
+            const metaResp = await fetch(`https://gwfh.mranftl.com/api/fonts/${encodeURIComponent(slug)}?subsets=latin,vietnamese`);
+            if (metaResp.ok) {
+                const meta = await metaResp.json();
+                const variants = Array.isArray(meta.variants) ? meta.variants : [];
+                for (const tok of tokens) {
+                    const isItalic = tok.endsWith('i');
+                    const weight = tok.replace('i', '') || '400';
+                    const style = isItalic ? 'italic' : 'normal';
+                    const matchVar = variants.find(v => {
+                        const vId = String(v.id || '').toLowerCase();
+                        const vWeight = String(v.fontWeight || '');
+                        const vStyle = String(v.fontStyle || 'normal').toLowerCase();
+                        if (vWeight === weight && vStyle === style) return true;
+                        if (tok === '400' && vId === 'regular') return true;
+                        if (tok === '400i' && vId === 'italic') return true;
+                        return vId === tok;
+                    });
+                    if (matchVar && matchVar.woff2) {
+                        const fResp = await fetch(matchVar.woff2);
+                        if (fResp.ok) {
+                            const buf = await fResp.arrayBuffer();
+                            const suffix = isItalic ? `${weight}italic` : weight;
+                            const key = `${weight}|${style}`;
+                            grouped.set(key, [{
+                                fileName: `${slugBase}-${suffix}.woff2`,
+                                data: this._arrayBufferToBase64(buf),
+                                weight,
+                                style,
+                                ext: 'woff2'
+                            }]);
+                        }
+                    }
+                }
+            }
+        } catch (_) {
+            // Fallback sang Google Fonts CSS bên dưới
+        }
+
+        // 2. Fallback: tải qua CSS2 của Google Fonts cho các biến thể còn thiếu
+        const missing = tokens.filter(tok => {
+            const weight = tok.replace('i', '') || '400';
+            const style = tok.endsWith('i') ? 'italic' : 'normal';
+            return !grouped.has(`${weight}|${style}`);
+        });
+
+        if (missing.length > 0) {
+            const normals = missing.filter(t => !t.endsWith('i')).map(t => t);
+            const italics = missing.filter(t => t.endsWith('i')).map(t => t.replace('i', ''));
+            const famPlus = family.trim().replace(/\s+/g, '+');
+            let cssUrl;
+            if (italics.length > 0) {
+                const pairs = [];
+                normals.forEach(w => pairs.push(`0,${w}`));
+                italics.forEach(w => pairs.push(`1,${w}`));
+                cssUrl = `https://fonts.googleapis.com/css2?family=${famPlus}:ital,wght@${pairs.join(';')}&display=swap`;
+            } else {
+                cssUrl = `https://fonts.googleapis.com/css2?family=${famPlus}:wght@${normals.join(';')}&display=swap`;
+            }
+
+            const cssResp = await fetch(cssUrl);
+            if (cssResp.ok) {
+                const cssText = await cssResp.text();
+                const blocks = cssText.match(/(\/\*[\s\S]*?\*\/\s*)?@font-face\s*\{[\s\S]*?\}/g) || [];
+                let idx = 0;
+                for (const blk of blocks) {
+                    const styleMatch = blk.match(/font-style\s*:\s*([^;}\s]+)/i);
+                    const weightMatch = blk.match(/font-weight\s*:\s*([^;}\s]+)/i);
+                    const urlMatch = blk.match(/url\((['"]?)(https?:\/\/[^'")\s]+)\1\)/i);
+                    if (!urlMatch) continue;
+                    const style = (styleMatch ? styleMatch[1] : 'normal').toLowerCase();
+                    const weight = (weightMatch ? weightMatch[1] : '400').toLowerCase();
+                    const key = `${weight}|${style}`;
+                    const fileResp = await fetch(urlMatch[2]);
+                    if (!fileResp.ok) continue;
+                    const buf = await fileResp.arrayBuffer();
+                    const subsetTagMatch = blk.match(/\/\*\s*([^*]+?)\s*\*\//);
+                    const subsetTag = subsetTagMatch ? subsetTagMatch[1].trim().replace(/[^a-z0-9_-]/gi, '') : `s${idx++}`;
+                    const suffix = style === 'italic' ? `${weight}italic` : weight;
+                    const list = grouped.get(key) || [];
+                    list.push({
+                        fileName: `${slugBase}-${suffix}-${subsetTag}.woff2`,
+                        data: this._arrayBufferToBase64(buf),
+                        weight,
+                        style,
+                        ext: 'woff2'
+                    });
+                    grouped.set(key, list);
+                }
+            }
+        }
+
+        return grouped;
+    },
+
     async downloadGoogle(family) {
         const projectName = document.getElementById('d_current-project')?.value || document.getElementById('current-project')?.value;
         if (!projectName) return UI.notify('Vui lòng mở một dự án trước khi tải font!', 'error');
@@ -222,40 +394,61 @@ const FontManager = {
             return UI.notify(`Vui lòng chọn ít nhất một biến thể cho font "${family}" để tải về!`, 'warning');
         }
 
-        const selectedVariants = Array.from(checkedBoxes).map(cb => cb.dataset.variant);
+        const selectedTokens = this._sortVariantTokens(
+            Array.from(checkedBoxes).map(cb => this._normalizeVariantToken(cb.dataset.variant))
+        );
 
-        if (!await UI.confirm(`Bạn có chắc muốn tải ${selectedVariants.length} biến thể của Google Font "${family}" về lưu trữ trực tiếp trên website (Local self-hosted) của dự án "${projectName}" không?\n\n(Hệ thống sẽ tải tệp woff2 về assets/fonts/ và tạo @font-face tối ưu trong fonts.css)`)) {
+        if (!await UI.confirm(`Bạn có chắc muốn tải ${selectedTokens.length} biến thể của Google Font "${family}" về lưu trữ trực tiếp trên website (Local self-hosted) của dự án "${projectName}" không?\n\n(Hệ thống sẽ tải tệp woff2 về assets/fonts/ và tạo @font-face tối ưu trong fonts.css)`)) {
             return;
         }
 
         UI.showModal('deploy-modal');
-        UI.updateDeployStatus('Đang tải...', 20, `Đang kết nối Google Fonts và tải các biến thể woff2 cho "${family}"...`);
+        UI.updateDeployStatus('Đang tải...', 15, `Đang tải ${selectedTokens.length} biến thể woff2 cho "${family}" từ Google Fonts...`);
 
         try {
-            const res = await (await fetch(`api.php?action=downloadGoogleFont`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: projectName,
-                    category: App.currentCategory,
-                    family: family,
-                    variants: selectedVariants
-                })
-            })).json();
-
-            if (res.status === 'success') {
-                UI.updateDeployStatus('Hoàn tất!', 100, res.message);
-                UI.notify(res.message || `Đã tải font ${family} về website thành công!`, 'success');
-                if (typeof confetti === 'function') confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
-                this.loadCssPreview();
-            } else {
-                UI.updateDeployStatus('Lỗi!', 50, `<span style="color:var(--danger)">${res.message}</span>`);
-                UI.notify(res.message || 'Không thể tải font về website!', 'error');
+            const grouped = await this._fetchGoogleFontVariantFiles(family, selectedTokens);
+            if (grouped.size === 0) {
+                UI.updateDeployStatus('Lỗi!', 50, `<span style="color:var(--danger)">Không tải được file woff2 nào cho font "${family}"!</span>`);
+                UI.notify(`Không thể tải font ${family} từ Google Fonts!`, 'error');
+                const deployFooter = document.getElementById('deploy-footer');
+                if (deployFooter) deployFooter.style.display = 'flex';
+                return;
             }
+
+            let doneCount = 0;
+            const totalGroups = grouped.size;
+            for (const [key, files] of grouped.entries()) {
+                const [weight, style] = key.split('|');
+                const pct = Math.min(95, Math.round(35 + (doneCount / totalGroups) * 60));
+                UI.updateDeployStatus('Đang cài đặt...', pct, `Đang lưu biến thể ${weight} (${style}) của "${family}"...`);
+                const res = await (await fetch(`api.php?action=installConvertedFonts`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: projectName,
+                        category: App.currentCategory,
+                        fontFamily: family,
+                        fontWeight: weight,
+                        fontStyle: style,
+                        files
+                    })
+                })).json();
+                if (res.status !== 'success') {
+                    throw new Error(res.message || `Không thể cài biến thể ${weight} ${style}`);
+                }
+                doneCount++;
+            }
+
+            const msg = `Đã tải và cài đặt ${doneCount} biến thể font '${family}' về assets/fonts/ thành công!`;
+            UI.updateDeployStatus('Hoàn tất!', 100, msg);
+            UI.notify(msg, 'success');
+            if (typeof confetti === 'function') confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+            this.loadCssPreview();
             const deployFooter = document.getElementById('deploy-footer');
             if (deployFooter) deployFooter.style.display = 'flex';
         } catch (err) {
-            UI.updateDeployStatus('Lỗi kết nối!', 0, 'Không thể kết nối tới máy chủ API.');
+            UI.updateDeployStatus('Lỗi!', 0, `<span style="color:var(--danger)">${err.message || 'Không thể tải hoặc cài đặt font.'}</span>`);
+            UI.notify(err.message || 'Không thể tải font về website!', 'error');
             const deployFooter = document.getElementById('deploy-footer');
             if (deployFooter) deployFooter.style.display = 'flex';
         }
@@ -273,53 +466,66 @@ const FontManager = {
 
         const countText = selected.length > 0 ? `${selected.length} biến thể` : 'tất cả biến thể';
         if (!await UI.confirm(`Bạn có chắc chắn muốn thêm Google Font "${family}" (${countText}) qua @import vào dự án không?`)) return;
-        
-        let urlParams = "";
-        if (selected && selected.length > 0) {
-            const normalWeights = [];
-            const italicWeights = [];
-            
-            selected.forEach(v => {
-                const variantStr = String(v).toLowerCase();
-                const isItalic = (variantStr.endsWith('i') || variantStr.includes('italic'));
-                const w = variantStr.replace(/[^0-9]/g, '') || '400';
-                if (isItalic) {
-                    italicWeights.push(w);
-                } else {
-                    normalWeights.push(w);
-                }
-            });
 
-            const uniqueNormals = [...new Set(normalWeights)].sort((a, b) => parseInt(a) - parseInt(b));
-            const uniqueItalics = [...new Set(italicWeights)].sort((a, b) => parseInt(a) - parseInt(b));
+        // Dùng cú pháp Google Fonts CSS không chứa dấu ';' để tránh bị cắt cụt URL ở backend cũ
+        const cleanUrl = this._buildGoogleCssV1Url(family, selected);
+        const importUrl = `@import url('${cleanUrl}');`;
+        this.executeAddGoogle(family, importUrl);
+    },
 
-            if (uniqueItalics.length > 0 && uniqueNormals.length > 0) {
-                const pairs = [];
-                uniqueNormals.forEach(w => pairs.push(`0,${w}`));
-                uniqueItalics.forEach(w => pairs.push(`1,${w}`));
-                urlParams = `:ital,wght@${pairs.join(';')}`;
-            } else if (uniqueItalics.length > 0) {
-                const pairs = [];
-                uniqueItalics.forEach(w => pairs.push(`1,${w}`));
-                urlParams = `:ital,wght@${pairs.join(';')}`;
-            } else if (uniqueNormals.length > 0) {
-                urlParams = `:wght@${uniqueNormals.join(';')}`;
+    async _removeExactFontFromProject(projectName, category, fontName) {
+        const cleanName = String(fontName || '').trim();
+        if (!cleanName) {
+            return { status: 'error', message: 'Thiếu tên font cần gỡ' };
+        }
+        const famPlus = cleanName.replace(/\s+/g, '+');
+        // Dùng delimiter để bản backend đang chạy khớp chính xác tên font, không xóa nhầm font có cùng tiền tố (vd Roboto vs Roboto Flex)
+        const exactTokens = [
+            `'${cleanName}'`,
+            `"${cleanName}"`,
+            `family=${famPlus}:`,
+            `family=${famPlus}&`,
+            `family=${famPlus}'`,
+            `family=${famPlus}"`,
+            `family=${famPlus})`
+        ];
+        let lastRes = { status: 'success' };
+        for (const token of exactTokens) {
+            lastRes = await (await fetch(`api.php?action=removeFont`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: projectName, category, fontName: token })
+            })).json();
+            if (lastRes.status !== 'success') {
+                return lastRes;
             }
         }
-
-        const importUrl = `@import url('https://fonts.googleapis.com/css2?family=${family.replace(/ /g, '+')}${urlParams}&display=swap');`;
-        this.executeAddGoogle(family, importUrl);
+        return lastRes;
     },
 
     async executeAddGoogle(family, importUrl) {
         const projectName = document.getElementById('d_current-project')?.value || document.getElementById('current-project')?.value;
         if (!projectName) return UI.notify('Vui lòng mở một dự án trước!', 'error');
 
+        const normalizedImportUrl = this._normalizeGoogleImportInput(importUrl, family);
+
         try {
+            // Nếu đang tồn tại @import cũ của font này trong fonts.css (vd bản bị cắt cụt ?family=...:ital,wght@0,100), gỡ trước để thay thế
+            const previewEl = document.getElementById('fonts-css-preview');
+            const currentCss = previewEl ? previewEl.innerText : '';
+            const famPlusEscaped = family.trim().replace(/\s+/g, '\\+').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const famEscaped = family.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const hasExistingImport = family && family !== 'Custom Font' && new RegExp(`@import[^;]*family=${famPlusEscaped}(?:[:&'")\\s]|$)`, 'i').test(currentCss);
+            const hasExistingLocal = family && family !== 'Custom Font' && new RegExp(`@font-face[^}]*font-family\\s*:\\s*(['"])${famEscaped}\\1`, 'i').test(currentCss);
+
+            if (hasExistingImport && !hasExistingLocal) {
+                await this._removeExactFontFromProject(projectName, App.currentCategory, family);
+            }
+
             const res = await (await fetch(`api.php?action=addGoogleFont`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: projectName, category: App.currentCategory, importUrl })
+                body: JSON.stringify({ name: projectName, category: App.currentCategory, family, importUrl: normalizedImportUrl })
             })).json();
 
             if (res.status === 'success') {
@@ -446,7 +652,7 @@ const FontManager = {
         }
 
         // Match @import Google Fonts
-        const importRegex = /family=([^&:]+)/g;
+        const importRegex = /family=([^&:'");\s]+)/g;
         while ((match = importRegex.exec(cssContent)) !== null) {
             const family = decodeURIComponent(match[1]).replace(/\+/g, ' ');
             if (!fonts.includes(family)) fonts.push(family);
@@ -493,11 +699,7 @@ const FontManager = {
         if (!await UI.confirm(`Bạn có chắc chắn muốn gỡ bỏ font "${fontName}" ra khỏi dự án "${projectName}" không?`)) return;
 
         try {
-            const res = await (await fetch(`api.php?action=removeFont`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: projectName, category: App.currentCategory, fontName })
-            })).json();
+            const res = await this._removeExactFontFromProject(projectName, App.currentCategory, fontName);
 
             if (res.status === 'success') {
                 UI.notify(`Đã gỡ bỏ font ${fontName} thành công!`, 'success');
@@ -590,35 +792,50 @@ const FontManager = {
                 }
                 const base64Woff = btoa(binaryWoff);
 
-                const weight = variant.replace('i', '');
-                const style = variant.endsWith('i') ? 'italic' : 'normal';
+                const weight = (variant.replace(/i$/i, '') || '400');
+                const style = variant.toLowerCase().endsWith('i') ? 'italic' : 'normal';
 
-                // Add WOFF2 (recommended order)
                 filesToUpload.push({
-                    fileName: `${filename}.woff2`,
-                    data: base64Woff2,
-                    weight: weight,
-                    style: style,
-                    ext: 'woff2'
-                });
-
-                // Add WOFF
-                filesToUpload.push({
-                    fileName: `${filename}.woff`,
-                    data: base64Woff,
-                    weight: weight,
-                    style: style,
-                    ext: 'woff'
+                    weight,
+                    style,
+                    files: [
+                        {
+                            fileName: `${filename}.woff2`,
+                            data: base64Woff2,
+                            weight: weight,
+                            style: style,
+                            ext: 'woff2'
+                        },
+                        {
+                            fileName: `${filename}.woff`,
+                            data: base64Woff,
+                            weight: weight,
+                            style: style,
+                            ext: 'woff'
+                        }
+                    ]
                 });
             }
 
             UI.updateDeployStatus('Đang cài đặt...', 90, `Đang gửi các tệp tin đã convert lên server...`);
-            
-            const res = await (await fetch(`api.php?action=installConvertedFonts`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: projectName, category: App.currentCategory, fontFamily, files: filesToUpload })
-            })).json();
+
+            let lastRes = { status: 'error', message: 'Không có biến thể nào được chọn' };
+            for (const item of filesToUpload) {
+                lastRes = await (await fetch(`api.php?action=installConvertedFonts`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: projectName,
+                        category: App.currentCategory,
+                        fontFamily,
+                        fontWeight: item.weight,
+                        fontStyle: item.style,
+                        files: item.files
+                    })
+                })).json();
+                if (lastRes.status !== 'success') break;
+            }
+            const res = lastRes;
 
             if (res.status === 'success') {
                 UI.updateDeployStatus('Thành công!', 100, `Đã convert và cài đặt font ${fontFamily} vào thư mục assets/fonts/ của dự án.`);

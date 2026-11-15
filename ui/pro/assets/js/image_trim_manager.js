@@ -4,10 +4,11 @@ const ImageTrimManager = {
 	images: [],
 	selected: new Set(),
 	bound: false,
+	_cache: {},
 
-	init() {
+	init(force = false) {
 		this.bindEvents();
-		this.loadImages();
+		this.loadImages(force);
 	},
 
 	bindEvents() {
@@ -22,7 +23,15 @@ const ImageTrimManager = {
 					if (selecting) this.selected.add(img.name);
 					else this.selected.delete(img.name);
 				});
-				this.render();
+				const grid = document.getElementById('project-trim-images-grid');
+				if (grid) {
+					grid.querySelectorAll('.trim-check').forEach((checkbox) => {
+						const isChecked = this.selected.has(checkbox.dataset.file);
+						checkbox.checked = isChecked;
+						checkbox.closest('.trim-card')?.classList.toggle('checked', isChecked);
+					});
+				}
+				this.updateCounts();
 			});
 		}
 
@@ -40,7 +49,7 @@ const ImageTrimManager = {
 		}
 	},
 
-	async loadImages() {
+	async loadImages(force = false) {
 		const projectName = document.getElementById('d_current-project')?.value || '';
 		const category = App.currentCategory || '';
 		const grid = document.getElementById('project-trim-images-grid');
@@ -49,12 +58,20 @@ const ImageTrimManager = {
 		this.selected.clear();
 		this.setStatus('');
 		this.updateCounts();
-		grid.innerHTML = '<div class="trim-empty">Đang quét thư mục hình ảnh...</div>';
 
 		if (!projectName) {
 			grid.innerHTML = '<div class="trim-empty error">Vui lòng chọn một dự án trước.</div>';
 			return;
 		}
+
+		const cacheKey = `${projectName}::${category}`;
+		if (!force && this._cache[cacheKey]) {
+			this.images = this._cache[cacheKey];
+			this.render();
+			return;
+		}
+
+		grid.innerHTML = '<div class="trim-empty">Đang quét thư mục hình ảnh...</div>';
 
 		try {
 			const res = await fetch(`api.php?action=listProjectTrimImages&name=${encodeURIComponent(projectName)}&category=${encodeURIComponent(category)}`);
@@ -65,6 +82,7 @@ const ImageTrimManager = {
 			}
 
 			this.images = result.data || [];
+			this._cache[cacheKey] = this.images;
 			this.render();
 		} catch (e) {
 			console.error(e);
@@ -186,13 +204,16 @@ const ImageTrimManager = {
 
 			if (result.status === 'success') {
 				UI.notify(result.message, 'success');
+				if (typeof WebpManager !== 'undefined') WebpManager._cache = {};
+				if (typeof AutoMediaManager !== 'undefined') AutoMediaManager._cache = {};
+				if (typeof SeedManager !== 'undefined') SeedManager._folderCache = {};
 				const detailText = (result.details || []).slice(0, 8).map((item) =>
 					`${this.escapeHtml(item.file)}: ${item.oldWidth}x${item.oldHeight} -> ${item.newWidth}x${item.newHeight}`
 				).join('<br>');
 				const errors = result.errors && result.errors.length
 					? `<div class="trim-status-errors">${result.errors.map((msg) => this.escapeHtml(msg)).join('<br>')}</div>`
 					: '';
-				await this.loadImages();
+				await this.loadImages(true);
 				this.setStatus(`<strong>Hoàn tất.</strong><br>${detailText || this.escapeHtml(result.message)}${errors}`, 'success');
 			} else {
 				UI.notify(result.message || 'Lỗi khi trim ảnh', 'error');
@@ -233,7 +254,7 @@ const ImageTrimManager = {
 			const result = await res.json();
 			if (result.status === 'success') {
 				UI.notify(result.message, 'success');
-				await this.loadImages();
+				await this.loadImages(true);
 			} else {
 				UI.notify(result.message || 'Lỗi khi hoàn tác trim', 'error');
 			}
@@ -270,7 +291,7 @@ const ImageTrimManager = {
 			const result = await res.json();
 			if (result.status === 'success') {
 				UI.notify(result.message, 'success');
-				await this.loadImages();
+				await this.loadImages(true);
 			} else {
 				UI.notify(result.message || 'Lỗi khi hoàn tác trim', 'error');
 			}

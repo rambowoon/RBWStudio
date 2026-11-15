@@ -1954,24 +1954,68 @@ pub fn handle_save_module_schema(project_name: &str, category: &str, file_name: 
 }
 
 pub fn handle_get_schema_presets() -> Value {
-    let data = crate::db::get_json_setting("schema_presets.json").unwrap_or_else(|| json!([]));
-    let arr = if data.is_array() { data } else { json!([]) };
-    json!({ "status": "success", "data": arr })
+    let mut data = crate::db::get_json_setting("schema_presets.json").unwrap_or(Value::Null);
+    let is_valid_obj = data.as_object().map(|m| !m.is_empty()).unwrap_or(false);
+    if !is_valid_obj {
+        let fallback_paths = [
+            get_www_base_dir()
+                .join("RBWManager")
+                .join("data")
+                .join("schema_presets.json"),
+            Path::new("F:\\RBWStudio\\ui\\pro\\assets\\data\\schema_presets.json").to_path_buf(),
+        ];
+        for p in fallback_paths {
+            if let Ok(raw) = fs::read_to_string(&p) {
+                if let Ok(parsed) = serde_json::from_str::<Value>(&raw) {
+                    if parsed.as_object().map(|m| !m.is_empty()).unwrap_or(false) {
+                        data = parsed;
+                        let _ = crate::db::set_json_setting("schema_presets.json", &data);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if data.is_null() {
+        data = json!({});
+    }
+    json!({ "status": "success", "data": data })
 }
 
 pub fn handle_save_schema_preset(name: &str, module_type: &str, config_json: &str) -> Value {
-    let mut arr = crate::db::get_json_setting("schema_presets.json")
-        .and_then(|v| v.as_array().cloned())
+    if let Ok(parsed) = serde_json::from_str::<Value>(config_json) {
+        if parsed.is_object() && name.is_empty() && module_type.is_empty() {
+            let _ = crate::db::set_json_setting("schema_presets.json", &parsed);
+            return json!({ "status": "success", "message": "Đã lưu Preset mẫu!" });
+        }
+    }
+    let mut root = crate::db::get_json_setting("schema_presets.json")
+        .and_then(|v| v.as_object().cloned())
         .unwrap_or_default();
     let cfg: Value = serde_json::from_str(config_json).unwrap_or_else(|_| json!({}));
-    arr.push(json!({
-        "id": format!("preset_{}", now_unix()),
-        "name": name,
-        "module_type": module_type,
-        "config": cfg,
-        "created_at": Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
-    }));
-    let _ = crate::db::set_json_setting("schema_presets.json", &Value::Array(arr));
+    let group_key = if module_type.is_empty() { "custom" } else { module_type };
+    let item_key = if name.is_empty() {
+        format!("preset_{}", now_unix())
+    } else {
+        name.to_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect::<String>()
+    };
+    let group_entry = root
+        .entry(group_key.to_string())
+        .or_insert_with(|| json!({}));
+    if let Some(grp_map) = group_entry.as_object_mut() {
+        grp_map.insert(
+            item_key,
+            json!({
+                "name": name,
+                "config": cfg,
+                "created_at": Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+            }),
+        );
+    }
+    let _ = crate::db::set_json_setting("schema_presets.json", &Value::Object(root));
     json!({ "status": "success", "message": "Đã lưu Preset mẫu!" })
 }
 
@@ -1980,6 +2024,39 @@ pub fn handle_get_type_image_size(project_name: &str, category: &str, type_key: 
         Some(p) => p,
         None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
     };
+    let normalize_type_key = |s: &str| -> String {
+        s.to_lowercase()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect()
+    };
+    let target_key = normalize_type_key(type_key);
+    let images_dir = Path::new(&proj.path)
+        .join("assets")
+        .join("images")
+        .join("images");
+    if !target_key.is_empty() && images_dir.is_dir() {
+        if let Ok(entries) = fs::read_dir(&images_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if !p.is_file() {
+                    continue;
+                }
+                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                if normalize_type_key(stem) != target_key {
+                    continue;
+                }
+                let (w, h) = get_image_dimensions_fast(&p);
+                if w > 0 && h > 0 {
+                    let fname = entry.file_name().to_string_lossy().to_string();
+                    return json!({
+                        "status": "success",
+                        "data": { "file": fname, "width": w, "height": h, "found": true }
+                    });
+                }
+            }
+        }
+    }
     let photo_file = Path::new(&proj.path).join("config").join("type-photo.php");
     let parsed = parse_php_array_file(&photo_file).unwrap_or_else(|| json!({}));
     let mut w = 0;
@@ -2003,10 +2080,17 @@ pub fn handle_get_type_image_size(project_name: &str, category: &str, type_key: 
             }
         }
     }
-    json!({
-        "status": "success",
-        "data": { "width": w, "height": h, "found": w > 0 || h > 0 }
-    })
+    if w > 0 || h > 0 {
+        json!({
+            "status": "success",
+            "data": { "file": "type-photo.php", "width": w, "height": h, "found": true }
+        })
+    } else {
+        json!({
+            "status": "error",
+            "message": format!("Không tìm thấy ảnh cho type '{}'", type_key)
+        })
+    }
 }
 
 // ============================================================================
@@ -2232,7 +2316,7 @@ pub fn handle_get_fonts_css(project_name: &str, category: &str) -> Value {
             }));
         }
     }
-    let re_gf = Regex::new(r#"(?i)@import\s+url\(['"]?(https://fonts\.googleapis\.com/css2\?family=([^&'")]+)[^)'"]*)['"]?\)\s*;"#).unwrap();
+    let re_gf = Regex::new(r#"(?i)@import\s+url\(['"]?(https://fonts\.googleapis\.com/css2?\?family=([^&'")]+)[^)'"]*)['"]?\)\s*;"#).unwrap();
     for cap in re_gf.captures_iter(&css_content) {
         let full_url = cap.get(1).map(|m| m.as_str()).unwrap_or("");
         let raw_fam = cap.get(2).map(|m| m.as_str()).unwrap_or("");
@@ -2373,10 +2457,30 @@ pub fn handle_install_converted_fonts(project_name: &str, category: &str, body_o
 }
 
 pub fn handle_remove_font(project_name: &str, category: &str, font_family: &str, font_file: &str) -> Value {
+    let raw_family = font_family.trim();
+    let font_file = font_file.trim();
+    if raw_family.is_empty() && font_file.is_empty() {
+        return json!({ "status": "error", "message": "Thiếu tên font cần gỡ" });
+    }
     let proj = match find_project(project_name, Some(category)) {
         Some(p) => p,
         None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
     };
+
+    // Hỗ trợ cả tên font thuần lẫn chuỗi khóa có delimiter (vd "'Roboto'" hoặc "family=Roboto:")
+    let is_import_token = raw_family.to_ascii_lowercase().starts_with("family=");
+    let is_quoted_token = (raw_family.starts_with('\'') && raw_family.ends_with('\'') && raw_family.len() >= 2)
+        || (raw_family.starts_with('"') && raw_family.ends_with('"') && raw_family.len() >= 2);
+    let clean_family = if is_import_token {
+        raw_family[7..]
+            .trim_end_matches(|c: char| matches!(c, ':' | '&' | '\'' | '"' | ')' | ';'))
+            .replace('+', " ")
+    } else if is_quoted_token {
+        raw_family[1..raw_family.len() - 1].trim().to_string()
+    } else {
+        raw_family.to_string()
+    };
+
     let p_root = Path::new(&proj.path);
     if !font_file.is_empty() && !font_file.starts_with("http") {
         let fpath = p_root.join("assets/fonts").join(font_file);
@@ -2384,18 +2488,37 @@ pub fn handle_remove_font(project_name: &str, category: &str, font_family: &str,
             let _ = fs::remove_file(fpath);
         }
     }
+    let re_url = Regex::new(r#"url\(\s*['"]?(?:\.\./)?fonts/([^'")?\s]+)['"]?\s*\)"#).ok();
+    let re_ff_fam = Regex::new(r#"(?i)font-family\s*:\s*['"]?([^;'"]+)['"]?"#).unwrap();
+    let re_imp_fam = Regex::new(r#"(?i)family=([^&:'");\s]+)"#).unwrap();
+    let mut candidate_files: Vec<String> = Vec::new();
+    let mut remaining_css = String::new();
+    let fam_lower = clean_family.trim().to_ascii_lowercase();
+
     for cname in &["assets/css/font.css", "assets/css/fonts.css"] {
         let cpath = p_root.join(cname);
         if cpath.is_file() {
             if let Ok(content) = fs::read_to_string(&cpath) {
-                let fam_plus = font_family.replace(' ', "+");
                 let re_ff = Regex::new(r#"(?is)@font-face\s*\{[^}]+\}\s*"#).unwrap();
                 let mut updated = re_ff
                     .replace_all(&content, |caps: &regex::Captures| -> String {
                         let blk = &caps[0];
-                        if (!font_family.is_empty() && blk.to_ascii_lowercase().contains(&font_family.to_ascii_lowercase()))
-                            || (!font_file.is_empty() && blk.contains(font_file))
-                        {
+                        let ff_exact_match = !is_import_token
+                            && !fam_lower.is_empty()
+                            && re_ff_fam
+                                .captures(blk)
+                                .and_then(|c| c.get(1))
+                                .map(|m| m.as_str().trim().to_ascii_lowercase() == fam_lower)
+                                .unwrap_or(false);
+                        let file_match = !font_file.is_empty() && blk.contains(font_file);
+                        if ff_exact_match || file_match {
+                            if let Some(ref rx) = re_url {
+                                for c in rx.captures_iter(blk) {
+                                    if let Some(m) = c.get(1) {
+                                        candidate_files.push(m.as_str().to_string());
+                                    }
+                                }
+                            }
                             String::new()
                         } else {
                             blk.to_string()
@@ -2406,22 +2529,39 @@ pub fn handle_remove_font(project_name: &str, category: &str, font_family: &str,
                 updated = re_imp
                     .replace_all(&updated, |caps: &regex::Captures| -> String {
                         let line = &caps[0];
-                        let lower = line.to_ascii_lowercase();
-                        if !font_family.is_empty()
-                            && (lower.contains(&font_family.to_ascii_lowercase())
-                                || lower.contains(&fam_plus.to_ascii_lowercase()))
-                        {
+                        let imp_exact_match = !is_quoted_token
+                            && !fam_lower.is_empty()
+                            && re_imp_fam.captures_iter(line).any(|c| {
+                                c.get(1)
+                                    .map(|m| m.as_str().replace('+', " ").trim().to_ascii_lowercase() == fam_lower)
+                                    .unwrap_or(false)
+                            });
+                        if imp_exact_match {
                             String::new()
                         } else {
                             line.to_string()
                         }
                     })
                     .to_string();
-                let _ = fs::write(&cpath, updated);
+                let trimmed = updated.trim().to_string();
+                let final_css = if trimmed.is_empty() { String::new() } else { format!("{}\n", trimmed) };
+                remaining_css.push_str(&final_css);
+                let _ = fs::write(&cpath, final_css);
             }
         }
     }
-    json!({ "status": "success", "message": format!("Đã gỡ cài đặt font '{}'!", font_family) })
+
+    for rel in candidate_files {
+        if !rel.is_empty() && !remaining_css.contains(&rel) {
+            let fpath = p_root.join("assets/fonts").join(&rel);
+            if fpath.is_file() {
+                let _ = fs::remove_file(&fpath);
+            }
+        }
+    }
+
+    let label = if !clean_family.is_empty() { clean_family } else { font_file.to_string() };
+    json!({ "status": "success", "message": format!("Đã gỡ cài đặt font '{}'!", label) })
 }
 
 pub fn handle_add_google_font(project_name: &str, category: &str, import_url: &str, font_family: &str) -> Value {
@@ -2434,7 +2574,7 @@ pub fn handle_add_google_font(project_name: &str, category: &str, import_url: &s
         return json!({ "status": "error", "message": "Thiếu URL hoặc đoạn @import Google Font!" });
     }
 
-    let re_http = Regex::new(r#"(?i)https?://[^\s'"\);<>]+"#).unwrap();
+    let re_http = Regex::new(r#"(?i)https?://[^\s'"\)<>]+"#).unwrap();
     let (dedup_key, rule) = if let Some(m) = re_http.find(trimmed) {
         let clean_url = m.as_str().trim();
         (clean_url.to_string(), format!("@import url('{}');\n", clean_url))
@@ -3091,13 +3231,25 @@ fn is_size_compatible_for_keyword(w: u32, h: u32, target: Option<(u32, u32)>) ->
     if tw == 0 || th == 0 || w == 0 || h == 0 {
         return true;
     }
-    if tw.max(th) <= 50 && w.max(h) > 150 {
+    let min_w = (tw as f64 * 0.4) as u32;
+    let mut max_w = (tw as f64 * 5.0) as u32;
+    if tw <= 50 {
+        max_w = 150;
+    }
+    if w < min_w || w > max_w {
         return false;
     }
-    let img_r = w as f64 / h as f64;
-    let tgt_r = tw as f64 / th as f64;
-    let factor = (img_r / tgt_r).max(tgt_r / img_r);
-    factor <= 5.0
+    let is_target_square = (tw as i64 - th as i64).abs() <= 5;
+    let is_img_square = (w as i64 - h as i64).abs() <= (10.max((w as f64 * 0.2) as i64));
+    if tw > 50 || th > 50 {
+        let exact = w == tw && h == th;
+        let ratio_match = is_ratio_within_pct(w, h, (tw, th), 0.12).is_some();
+        exact || ratio_match
+    } else if is_target_square && !is_img_square {
+        false
+    } else {
+        true
+    }
 }
 
 pub fn handle_scan_images_endpoint(project_name: &str, category: &str, main_key: &str) -> Value {
@@ -3246,26 +3398,27 @@ pub fn handle_scan_images_endpoint(project_name: &str, category: &str, main_key:
             }
         }
 
-        // 2. Ratio match fallback (<= 5%)
-        if best_idx.is_none() && sf.w > 0 && sf.h > 0 {
-            let mut best_diff = 0.051_f64;
+        let mut matched_indices: Vec<(usize, &'static str)> = Vec::new();
+        if let Some(idx) = best_idx {
+            matched_indices.push((idx, "name"));
+        } else if sf.w > 0 && sf.h > 0 {
+            // 2. Ratio match fallback across ALL compatible subtypes (50% - 500% size, 12% ratio tolerance)
             for (idx, sub) in subtypes.iter().enumerate() {
                 if let Some((tw, th)) = sub.ratio {
-                    if tw.max(th) <= 50 && sf.w.max(sf.h) > 150 {
-                        continue;
-                    }
-                    if let Some(diff) = is_ratio_within_pct(sf.w, sf.h, (tw, th), 0.05) {
-                        if diff < best_diff {
-                            best_diff = diff;
-                            best_idx = Some(idx);
-                            match_source = "ratio";
+                    let min_w = (tw as f64 * 0.5) as u32;
+                    let max_w = (tw as f64 * 5.0) as u32;
+                    if sf.w >= min_w && sf.w <= max_w {
+                        let exact = sf.w == tw && sf.h == th;
+                        let ratio_match = is_ratio_within_pct(sf.w, sf.h, (tw, th), 0.12).is_some();
+                        if exact || ratio_match {
+                            matched_indices.push((idx, "ratio"));
                         }
                     }
                 }
             }
         }
 
-        if let Some(idx) = best_idx {
+        for (idx, match_source) in matched_indices {
             let sub_key = &subtypes[idx].sub_type;
             let preview_url = format!(
                 "seed_images.php?action=serve_image&path={}",
@@ -3286,27 +3439,28 @@ pub fn handle_scan_images_endpoint(project_name: &str, category: &str, main_key:
         }
     }
 
-    // 3. Special rule for favicon: fallback to logo.png / logo.ico if favicon group is empty
+    // 3. Special rule for favicon in type-photo: scans any png/ico image named 'logo'
     if let Some(fav_arr) = groups.get_mut("favicon").and_then(|v| v.as_array_mut()) {
-        if fav_arr.is_empty() {
-            let logo_fallback = scanned_files
-                .iter()
-                .find(|sf| matches!(sf.fname.to_lowercase().as_str(), "logo.ico" | "logo.png" | "favicon.ico" | "favicon.png"))
-                .or_else(|| scanned_files.iter().find(|sf| sf.fname.to_lowercase().starts_with("logo.")));
-            if let Some(sf) = logo_fallback {
-                let preview_url = format!(
-                    "seed_images.php?action=serve_image&path={}",
-                    urlencoding_encode(&sf.abs_path)
-                );
-                fav_arr.push(json!({
-                    "file": sf.fname,
-                    "width": sf.w,
-                    "height": sf.h,
-                    "size": sf.size,
-                    "ratio": sf.ratio,
-                    "preview_url": preview_url,
-                    "match_source": "fallback_logo",
-                }));
+        for sf in &scanned_files {
+            let fl = sf.fname.to_lowercase();
+            let ext = Path::new(&sf.fname).extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+            let stem = Path::new(&sf.fname).file_stem().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+            if matches!(ext.as_str(), "png" | "ico") && stem == "logo" {
+                if !fav_arr.iter().any(|v| v.get("file").and_then(|f| f.as_str()) == Some(&sf.fname)) {
+                    let preview_url = format!(
+                        "seed_images.php?action=serve_image&path={}",
+                        urlencoding_encode(&sf.abs_path)
+                    );
+                    fav_arr.push(json!({
+                        "file": sf.fname,
+                        "width": sf.w,
+                        "height": sf.h,
+                        "size": sf.size,
+                        "ratio": sf.ratio,
+                        "preview_url": preview_url,
+                        "match_source": "name",
+                    }));
+                }
             }
         }
     }
@@ -4670,27 +4824,23 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
             let db = parse_project_db_env(p_root);
             let mut count_map: HashMap<String, u64> = HashMap::new();
             if !db.name.is_empty() && ensure_mysql_running().is_ok() {
-                if let Ok(schema) = inspect_db_schema(&db) {
-                    let prefix = if db.prefix.trim().is_empty() { "table_" } else { db.prefix.trim() };
-                    let full_table = format!("{}{}", prefix, base_table);
-                    if let Some(cols) = schema.get(&full_table.to_lowercase()) {
-                        let del_clause = if cols.iter().any(|c| c == "deleted_at") {
-                            " WHERE `deleted_at` IS NULL"
-                        } else {
-                            ""
-                        };
-                        let cnt_sql = format!(
-                            "SELECT `type`, COUNT(*) FROM `{}`{} GROUP BY `type`;",
-                            full_table, del_clause
-                        );
-                        if let Ok(rows) = run_mysql_tsv(&db, &cnt_sql) {
-                            for cols in rows {
-                                if cols.len() >= 2 {
-                                    if let Ok(n) = cols[1].trim().parse::<u64>() {
-                                        count_map.insert(cols[0].trim().to_string(), n);
-                                    }
-                                }
-                            }
+                let prefix = if db.prefix.trim().is_empty() { "table_" } else { db.prefix.trim() };
+                let full_table = format!("{}{}", prefix, base_table);
+                let cnt_sql = format!(
+                    "SELECT `type`, COUNT(*) FROM `{}` WHERE `deleted_at` IS NULL GROUP BY `type`;",
+                    full_table
+                );
+                let rows = match run_mysql_tsv(&db, &cnt_sql) {
+                    Ok(r) => r,
+                    Err(_) => {
+                        let fallback_sql = format!("SELECT `type`, COUNT(*) FROM `{}` GROUP BY `type`;", full_table);
+                        run_mysql_tsv(&db, &fallback_sql).unwrap_or_default()
+                    }
+                };
+                for cols in rows {
+                    if cols.len() >= 2 {
+                        if let Ok(n) = cols[1].trim().parse::<u64>() {
+                            count_map.insert(cols[0].trim().to_string(), n);
                         }
                     }
                 }
@@ -10289,8 +10439,8 @@ fn file_to_data_url(p: &Path) -> Result<String, String> {
     let meta_len = fs::metadata(p).map(|m| m.len()).unwrap_or(0);
     let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("png").to_lowercase();
 
-    // If raster image is larger than 100KB, create a small preview thumbnail to prevent IPC buffer overflow
-    if meta_len > 100_000 && matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp") {
+    // If raster image is larger than 300KB, create a small preview thumbnail to prevent IPC buffer overflow
+    if meta_len > 300_000 && matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp") {
         if let Ok(img) = image::open(p) {
             let thumb = img.thumbnail(280, 280);
             let mut buf = std::io::Cursor::new(Vec::new());
@@ -10299,7 +10449,7 @@ fn file_to_data_url(p: &Path) -> Result<String, String> {
                 return Ok(format!("data:image/jpeg;base64,{}", encoded));
             }
         }
-        // Hard safety: never transfer large raw files (>100KB) through IPC to avoid STATUS_STACK_BUFFER_OVERRUN
+        // Hard safety: never transfer large raw files (>300KB) through IPC to avoid STATUS_STACK_BUFFER_OVERRUN
         return Err("Image exceeds IPC safety limit".to_string());
     }
 
@@ -10745,7 +10895,13 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
             if font_family.is_empty() {
                 font_family = get_param("fontFamily");
             }
-            let font_file = get_param("font_file");
+            if font_family.is_empty() {
+                font_family = get_param("fontName");
+            }
+            let mut font_file = get_param("font_file");
+            if font_file.is_empty() {
+                font_file = get_param("fontFile");
+            }
             handle_remove_font(&project, &category, &font_family, &font_file)
         }
         "addGoogleFont" | "downloadGoogleFont" => {

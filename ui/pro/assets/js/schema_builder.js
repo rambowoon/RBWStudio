@@ -1,3 +1,401 @@
+const DEFAULT_SCHEMA_PRESETS = {
+	products: {
+		san_pham: {
+			name: "Mẫu Sản phẩm",
+			config: {
+				title_main: "sanpham",
+				website: {
+					type: { index: "object", detail: "article" },
+					title: "sanpham",
+					bre: "product",
+				},
+				copy: true,
+				tags: false,
+				slug: true,
+				status: { noibat: "noibat", hienthi: "hienthi" },
+				images: {
+					photo: { title: "anhdaidien", width: 800, height: 800, thumb: "400x400x1" },
+				},
+				show_images: true,
+				gallery: {
+					"san-pham": {
+						title_main_photo: "hinhanhsanpham",
+						title_sub_photo: "hinhanh",
+						status_photo: { hienthi: "hienthi" },
+						number_photo: 3,
+						images_photo: true,
+						avatar_photo: true,
+						name_photo: true,
+						photo_width: 800,
+						photo_height: 800,
+						photo_thumb: "800x800x1",
+					},
+				},
+				view: true,
+				comment: false,
+				properties: false,
+				code: true,
+				regular_price: true,
+				sale_price: true,
+				discount: true,
+				datePublish: true,
+				name: true,
+				desc: true,
+				desc_cke: true,
+				content: true,
+				content_cke: true,
+				schema: true,
+				seo: true,
+				group: false,
+				categories: {
+					list: {
+						title_main_categories: "danhmuccap1",
+						images: {
+							photo: { title: "anhdaidien", width: "500", height: "500", thumb: "500x500x1" },
+						},
+						copy_categories: true,
+						show_images_categories: true,
+						slug_categories: true,
+						status_categories: { noibat: "noibat", hienthi: "hienthi" },
+						name_categories: true,
+						desc_categories: false,
+						desc_categories_cke: false,
+						content_categories: true,
+						content_categories_cke: true,
+						seo_categories: true,
+					},
+					cat: {
+						title_main_categories: "danhmuccap2",
+						images: {
+							photo: { title: "anhdaidien", width: "500", height: "500", thumb: "500x500x1" },
+						},
+						copy_categories: true,
+						show_images_categories: true,
+						slug_categories: true,
+						status_categories: { hienthi: "hienthi" },
+						gallery_categories: {},
+						name_categories: true,
+						desc_categories: false,
+						desc_categories_cke: false,
+						content_categories: true,
+						content_categories_cke: true,
+						seo_categories: true,
+					},
+				},
+			},
+		},
+		thuc_don: {
+			name: "Mẫu Thực đơn",
+			config: {
+				title_main: "thucdon",
+				website: {
+					type: { index: "object", detail: "article" },
+					title: "thucdon",
+					bre: "product",
+				},
+				copy: true,
+				tags: false,
+				slug: true,
+				status: { noibat: "noibat", hienthi: "hienthi" },
+				images: {
+					photo: { title: "anhdaidien", width: 800, height: 800, thumb: "400x400x1" },
+				},
+				show_images: true,
+				gallery: {
+					"san-pham": {
+						title_main_photo: "hinhanhthucdon",
+						title_sub_photo: "hinhanh",
+						status_photo: { hienthi: "hienthi" },
+						number_photo: 3,
+						images_photo: true,
+						avatar_photo: true,
+						name_photo: true,
+						photo_width: 800,
+						photo_height: 800,
+						photo_thumb: "800x800x1",
+					},
+				},
+				view: true,
+				comment: false,
+				properties: false,
+				code: false,
+				regular_price: true,
+				sale_price: true,
+				discount: true,
+				datePublish: true,
+				name: true,
+				desc: true,
+				desc_cke: true,
+				content: true,
+				content_cke: true,
+				schema: true,
+				seo: true,
+				group: false,
+				categories: {
+					list: {
+						title_main_categories: "danhmuccap1",
+						images: {
+							photo: { title: "anhdaidien", width: "500", height: "500", thumb: "500x500x1" },
+						},
+						copy_categories: true,
+						show_images_categories: true,
+						slug_categories: true,
+						status_categories: { hienthi: "hienthi" },
+						name_categories: true,
+						desc_categories: false,
+						desc_categories_cke: false,
+						content_categories: true,
+						content_categories_cke: true,
+						seo_categories: true,
+					},
+					cat: {
+						title_main_categories: "danhmuccap2",
+						images: {
+							photo: { title: "anhdaidien", width: "500", height: "500", thumb: "500x500x1" },
+						},
+						copy_categories: true,
+						show_images_categories: true,
+						slug_categories: true,
+						status_categories: { hienthi: "hienthi" },
+						gallery_categories: {},
+						name_categories: true,
+						desc_categories: false,
+						desc_categories_cke: false,
+						content_categories: true,
+						content_categories_cke: true,
+						seo_categories: true,
+					},
+				},
+			},
+		},
+	},
+	news: {
+		tin_tuc_full: {
+			name: "tintuc",
+			data: {
+				title_main: "tintuc",
+				website: {
+					type: { index: "object", detail: "article" },
+					title: "tintuc",
+				},
+				status: { hienthi: "hienthi" },
+				slug: true,
+				seo: true,
+				schema: true,
+				view: true,
+				copy: true,
+				datePublish: true,
+				name: true,
+				desc: true,
+				content: true,
+				content_cke: true,
+				show_images: true,
+				images: {
+					photo: { title: "anhdaidien", width: 400, height: 270, thumb: "400x270x1" },
+				},
+			},
+		},
+		thu_vien_anh: {
+			name: "thuvienanh",
+			data: {
+				title_main: "thuvienanh",
+				website: {
+					type: { index: "object", detail: "article" },
+					title: "thuvienanh",
+					view_page: "news.album",
+				},
+				status: { hienthi: "hienthi" },
+				slug: false,
+				show_images: true,
+				images: {
+					photo: { title: "anhdaidien", width: 500, height: 371, thumb: "500x371x1" },
+				},
+				gallery: {
+					album: {
+						title_main_photo: "hinhanh",
+						title_sub_photo: "hinhanh",
+						status_photo: { hienthi: "hienthi" },
+						number_photo: 3,
+						images_photo: true,
+						avatar_photo: true,
+						name_photo: true,
+						width_photo: 500,
+						height_photo: 371,
+						thumb_photo: "500x371x1",
+					},
+				},
+			},
+		},
+		tieu_chi: {
+			name: "tieuchi",
+			data: {
+				title_main: "tieuchi",
+				status: { hienthi: "hienthi" },
+				show_images: true,
+				images: {
+					photo: { title: "anhdaidien", width: 50, height: 50, thumb: "50x50x2" },
+				},
+				name: true,
+				desc: true,
+			},
+		},
+	},
+	static: {
+		gioi_thieu: {
+			name: "gioithieu",
+			config: {
+				title_main: "gioithieu",
+				website: { type: "object", title: "gioithieu" },
+				images: {
+					photo: { title: "hinhanh", width: 533, height: 378, thumb: "533x378x1" },
+				},
+				show_images: true,
+				status: { hienthi: "hienthi" },
+				name: true,
+				desc: true,
+				desc_cke: false,
+				content: true,
+				content_cke: true,
+				seo: true,
+			},
+		},
+		slogan: {
+			name: "slogan",
+			config: {
+				title_main: "slogan",
+				name: true,
+			},
+		},
+		footer: {
+			name: "footer",
+			config: {
+				title_main: "footer",
+				name: false,
+				desc: false,
+				desc_cke: false,
+				content: true,
+				content_cke: true,
+			},
+		},
+	},
+	newsletters: {
+		lien_he: {
+			name: "lienhe",
+			config: {
+				title_main: "lienhe",
+				file: true,
+				send_email: true,
+				email: true,
+				fullname: true,
+				phone: true,
+				address: true,
+				subject: true,
+				show_subject: true,
+				show_fullname: true,
+				show_phone: false,
+			},
+		},
+		dat_lich: {
+			name: "datlich",
+			config: {
+				title_main: "datlich",
+				file: true,
+				send_email: true,
+				email: true,
+				fullname: true,
+				phone: true,
+				address: true,
+				subject: true,
+				show_subject: true,
+				show_fullname: true,
+				show_phone: false,
+			},
+		},
+	},
+	photos: {
+		logo: {
+			name: "Logo website",
+			config: {
+				title_main: "logo",
+				kind: "static",
+				title: true,
+				desc: false,
+				desc_cke: false,
+				link: false,
+				images: true,
+				width: 195,
+				height: 90,
+				thumb: "195x90x2",
+			},
+		},
+		favicon: {
+			name: "Favicon",
+			config: {
+				title_main: "favicon",
+				kind: "static",
+				images: true,
+				width: 48,
+				height: 48,
+				thumb: "48x48x1",
+			},
+		},
+		slideshow: {
+			name: "Slideshow / Banner",
+			config: {
+				title_main: "slideshow",
+				kind: "album",
+				status: { hienthi: "hienthi" },
+				number: 5,
+				images: true,
+				show_images: true,
+				gallery: true,
+				link: true,
+				name: true,
+				desc: false,
+				desc_cke: false,
+				width: 1920,
+				height: 800,
+				thumb: "1920x800x1",
+			},
+		},
+		doi_tac: {
+			name: "Đối tác",
+			config: {
+				title_main: "doitac",
+				kind: "album",
+				status: { hienthi: "hienthi" },
+				number: 5,
+				images: true,
+				show_images: true,
+				gallery: true,
+				link: true,
+				name: true,
+				width: 250,
+				height: 160,
+				thumb: "250x160x2",
+			},
+		},
+		social: {
+			name: "Mạng xã hội",
+			config: {
+				title_main: "mangxahoi",
+				kind: "album",
+				status: { hienthi: "hienthi" },
+				number: 4,
+				show_images: true,
+				images: true,
+				avatar: true,
+				link: true,
+				name: true,
+				desc: false,
+				width: 50,
+				height: 50,
+				thumb: "50x50x2",
+			},
+		},
+	},
+};
+
 const SchemaBuilder = {
 	...SchemaComponents,
 	currentProject: null,
@@ -6,44 +404,77 @@ const SchemaBuilder = {
 	presets: null,
 
 	async init(projectName) {
-		this.currentProject = projectName;
+		const resolvedProj =
+			projectName ||
+			(typeof App !== "undefined" && (App.currentProjectName || App.currentProject)) ||
+			document.getElementById("d_current-project")?.value ||
+			document.getElementById("detail-project-name")?.innerText?.trim() ||
+			"";
+		this.currentProject = resolvedProj;
 		const nameEl = document.getElementById("sb-project-name");
-		if (nameEl) nameEl.innerText = `Dự án: ${projectName}`;
+		if (nameEl) nameEl.innerText = `Dự án: ${resolvedProj}`;
 
 		if (!this.presets) {
 			await this.loadPresets();
 		}
 
 		// Load file list
-		const res = await Api.getProjectSchemaList(projectName);
-		if (res.status === "success") {
-			const select = document.getElementById("sb-file-select");
-			select.innerHTML = res.data
-				.map((f) => `<option value="${f}">${f}</option>`)
+		const res = await Api.getProjectSchemaList(resolvedProj);
+		const standardFiles = [
+			"type-products.php",
+			"type-news.php",
+			"type-static.php",
+			"type-photo.php",
+			"type-newsletters.php",
+			"type-tags.php",
+		];
+		const rawFiles = res.status === "success" && Array.isArray(res.data) ? res.data : [];
+		const mergedFiles = [...rawFiles];
+		standardFiles.forEach((sf) => {
+			if (!mergedFiles.includes(sf)) mergedFiles.push(sf);
+		});
+
+		const select = document.getElementById("sb-file-select");
+		if (select) {
+			select.innerHTML = mergedFiles
+				.map((f) => {
+					const existsTag = rawFiles.includes(f) ? "" : " (mẫu)";
+					return `<option value="${f}">${f}${existsTag}</option>`;
+				})
 				.join("");
-			if (res.data.length > 0) {
+			if (mergedFiles.length > 0) {
 				const defaultFile =
-					res.data.find((f) => f === "type-products.php") ||
-					res.data[0];
+					mergedFiles.find((f) => f === "type-products.php") ||
+					mergedFiles[0];
 				select.value = defaultFile;
 				this.loadSelectedFile();
 			}
-		} else {
-			UI.notify(res.message, "error");
+		}
+		if (res.status !== "success" && rawFiles.length === 0) {
+			UI.notify(res.message || "Không tìm thấy danh sách file Schema", "warning");
 		}
 	},
 
 	async loadPresets() {
+		const basePresets = JSON.parse(JSON.stringify(DEFAULT_SCHEMA_PRESETS));
 		try {
 			const res = await (
 				await fetch("api.php?action=getSchemaPresets")
 			).json();
-			if (res.status === "success") {
-				this.presets = res.data;
+			if (
+				res &&
+				res.status === "success" &&
+				res.data &&
+				!Array.isArray(res.data) &&
+				typeof res.data === "object" &&
+				Object.keys(res.data).length > 0
+			) {
+				this.deepMerge(basePresets, res.data);
 			}
 		} catch (e) {
-			console.error("Failed to load presets", e);
+			console.error("Failed to load presets from api, using built-in presets", e);
 		}
+		this.presets = basePresets;
 	},
 
 	async loadSelectedFile() {
@@ -157,7 +588,6 @@ const SchemaBuilder = {
                     <button type="button" class="sb-type-tab ${isActive ? "active" : ""}" data-type-key="${k}" title="${subTitle ? `${subTitle} (${k})` : k}">
                         <span class="sb-type-tab-icon">📦</span>
                         <span class="sb-type-tab-key">${k}</span>
-                        ${subTitle && subTitle.toLowerCase() !== k.toLowerCase() ? `<span class="sb-type-tab-name">${subTitle}</span>` : ""}
                     </button>`;
 				})
 				.join("");
@@ -345,12 +775,16 @@ const SchemaBuilder = {
 			let blankHtml =
 				"<h2>👆</h2><p>File cấu hình đang trống. Vui lòng <b>Thêm mới</b> một type để bắt đầu.</p>";
 
-			if (this.currentFile.includes("news")) {
+			if (this.currentFile.includes("newsletters")) {
+				blankHtml += `<button class="btn btn-outline-warning btn-sm" onclick="SchemaBuilder.initNewslettersSkeleton()">✨ Khởi tạo bộ khung Newsletters chuẩn</button>`;
+			} else if (this.currentFile.includes("news")) {
 				blankHtml += `<button class="btn btn-outline-primary btn-sm" onclick="SchemaBuilder.initNewsSkeleton()">✨ Khởi tạo bộ khung Tin tức chuẩn</button>`;
 			} else if (this.currentFile.includes("static")) {
 				blankHtml += `<button class="btn btn-outline-info btn-sm" onclick="SchemaBuilder.initStaticSkeleton()">✨ Khởi tạo bộ khung Trang tĩnh chuẩn</button>`;
-			} else if (this.currentFile.includes("newsletters")) {
-				blankHtml += `<button class="btn btn-outline-warning btn-sm" onclick="SchemaBuilder.initNewslettersSkeleton()">✨ Khởi tạo bộ khung Newsletters chuẩn</button>`;
+			} else if (this.currentFile.includes("product")) {
+				blankHtml += `<button class="btn btn-outline-primary btn-sm" onclick="SchemaBuilder.initProductsSkeleton()">✨ Khởi tạo bộ khung Sản phẩm chuẩn</button>`;
+			} else if (this.currentFile.includes("photo")) {
+				blankHtml += `<button class="btn btn-outline-info btn-sm" onclick="SchemaBuilder.initPhotosSkeleton()">✨ Khởi tạo bộ khung Hình ảnh chuẩn</button>`;
 			}
 
 			blankState.innerHTML = blankHtml;
@@ -803,7 +1237,7 @@ const SchemaBuilder = {
 		const pre = document.getElementById("sb-live-preview");
 		if (pre && this.currentData) {
 			// First reorder, then deep clean
-			let cleanData = SchemaBuilder.reorderKeys(this.currentData);
+			let cleanData = SchemaBuilder.reorderKeys(this.currentData, "root");
 
 			const deepClean = (obj) => {
 				if (!obj || typeof obj !== "object" || Array.isArray(obj))
@@ -1172,8 +1606,11 @@ const SchemaBuilder = {
 
 		// Guess category from file name
 		let category = "news";
-		if (this.currentFile.includes("product")) category = "products";
-		if (this.currentFile.includes("photo")) category = "photos";
+		const cf = (this.currentFile || "").toLowerCase();
+		if (cf.includes("product")) category = "products";
+		else if (cf.includes("photo")) category = "photos";
+		else if (cf.includes("static")) category = "static";
+		else if (cf.includes("newsletter")) category = "newsletters";
 
 		let html =
 			'<div style="padding:8px 12px; font-size:0.7rem; color:var(--muted); border-bottom:1px solid var(--border);">CHỌN CẤU HÌNH MẪU</div>';
@@ -1181,20 +1618,42 @@ const SchemaBuilder = {
 		const categoryPresets = this.presets
 			? this.presets[category] || {}
 			: {};
-		const otherPresets = {}; // Could add global presets here
+		const otherPresets = {};
+		if (this.presets) {
+			for (const [grpKey, grpObj] of Object.entries(this.presets)) {
+				if (grpKey !== category && grpObj && typeof grpObj === "object") {
+					for (const [id, p] of Object.entries(grpObj)) {
+						otherPresets[`${grpKey}.${id}`] = {
+							...p,
+							_cat: grpKey,
+							_id: id,
+							_label: `${p.name} (${grpKey})`,
+						};
+					}
+				}
+			}
+		}
 
-		const allAvailable = { ...categoryPresets, ...otherPresets };
-
-		if (Object.keys(allAvailable).length === 0) {
+		if (Object.keys(categoryPresets).length === 0 && Object.keys(otherPresets).length === 0) {
 			html +=
 				'<div style="padding:10px; font-size:0.8rem; color:var(--muted);">Không có mẫu nào.</div>';
 		} else {
-			for (const [id, preset] of Object.entries(allAvailable)) {
+			for (const [id, preset] of Object.entries(categoryPresets)) {
 				html += `
                     <button class="action-menu-item" onclick="SchemaBuilder.applyPresetToModule('${moduleKey}', '${id}', '${category}'); SchemaBuilder.hidePresetMenu();">
                         ${preset.name}
                     </button>
                 `;
+			}
+			if (Object.keys(otherPresets).length > 0) {
+				html += '<div style="padding:6px 12px; font-size:0.65rem; color:var(--muted); border-top:1px solid var(--border); margin-top:4px;">MẪU NHÓM KHÁC</div>';
+				for (const item of Object.values(otherPresets)) {
+					html += `
+                    <button class="action-menu-item" onclick="SchemaBuilder.applyPresetToModule('${moduleKey}', '${item._id}', '${item._cat}'); SchemaBuilder.hidePresetMenu();">
+                        ${item._label}
+                    </button>
+                `;
+				}
 			}
 		}
 
@@ -1259,8 +1718,9 @@ const SchemaBuilder = {
 				mod.view = false;
 			}
 		} else {
-			// Deep merge preset.config into this.currentData[moduleKey]
-			this.deepMerge(this.currentData[moduleKey], preset.config);
+			// Deep merge preset.config or preset.data into this.currentData[moduleKey]
+			const cfg = preset.config || preset.data || {};
+			this.deepMerge(this.currentData[moduleKey], JSON.parse(JSON.stringify(cfg)));
 		}
 
 		this.renderForm();
@@ -1517,70 +1977,183 @@ const SchemaBuilder = {
 		}
 	},
 
-	reorderKeys(obj) {
-		if (obj === null || typeof obj !== "object" || Array.isArray(obj))
+	reorderKeys(obj, context = "root") {
+		if (Array.isArray(obj)) {
+			return obj.map((item) => SchemaBuilder.reorderKeys(item, context));
+		}
+		if (obj === null || typeof obj !== "object") {
 			return obj;
+		}
 
-		const priorityMap = {
-			title_main: 1,
-			website: 1.1,
-			amp: 1.2,
-			route: 1.3,
-			controller: 1.31,
-			method: 1.32,
-			slugs: 1.33,
-			title_main_categories: 2,
-			title_main_brand: 3,
-			send_email: 5,
-			type: 10,
-			name: 20,
-			name_categories: 21,
-			name_brand: 22,
-			slug: 30,
-			slug_categories: 31,
-			slug_brand: 32,
-			seo: 33,
-			seo_categories: 34,
-			seo_brand: 35,
-			show_images: 40,
-			show_images_categories: 41,
-			show_images_brand: 42,
-			images: 43,
-			gallery: 50,
-			gallery_categories: 51,
-			gallery_brand: 52,
-			status: 60,
-			status_categories: 61,
-			status_brand: 62,
-			copy_categories: 70,
-			copy_brand: 71,
-			desc: 80,
-			desc_cke: 81,
-			desc_categories: 82,
-			desc_categories_cke: 83,
-			desc_brand: 84,
-			desc_brand_cke: 85,
-			content: 90,
-			content_categories: 91,
-			content_brand: 92,
-			content_cke: 93,
-			content_categories_cke: 94,
-			content_brand_cke: 95,
-			options2: 96,
-			hienthi: 1000,
-			is_show: 1000,
+		const originalKeys = Object.keys(obj);
+		let sortedKeys;
+
+		if (context === "root") {
+			// Preserve user's Type order; always keep hinh-thuc-thanh-toan at the end
+			sortedKeys = originalKeys.slice().sort((a, b) => {
+				if (a === "hinh-thuc-thanh-toan" && b !== "hinh-thuc-thanh-toan") return 1;
+				if (b === "hinh-thuc-thanh-toan" && a !== "hinh-thuc-thanh-toan") return -1;
+				return originalKeys.indexOf(a) - originalKeys.indexOf(b);
+			});
+			const sorted = {};
+			for (const k of sortedKeys) {
+				sorted[k] = SchemaBuilder.reorderKeys(obj[k], "module");
+			}
+			return sorted;
+		}
+
+		if (context === "images") {
+			const sorted = {};
+			for (const k of originalKeys) {
+				sorted[k] = SchemaBuilder.reorderKeys(obj[k], "imageItem");
+			}
+			return sorted;
+		}
+
+		if (context === "gallery") {
+			const sorted = {};
+			for (const k of originalKeys) {
+				sorted[k] = SchemaBuilder.reorderKeys(obj[k], "galleryItem");
+			}
+			return sorted;
+		}
+
+		const priorityMaps = {
+			categories: {
+				list: 1,
+				cat: 2,
+				item: 3,
+				sub: 4,
+			},
+			imageItem: {
+				title: 1,
+				width: 2,
+				height: 3,
+				thumb: 4,
+			},
+			galleryItem: {
+				title_main_photo: 1,
+				title_sub_photo: 2,
+				status_photo: 3,
+				number_photo: 4,
+				images_photo: 5,
+				avatar_photo: 6,
+				name_photo: 7,
+				photo_width: 8,
+				photo_height: 9,
+				photo_thumb: 10,
+				width_photo: 11,
+				height_photo: 12,
+				thumb_photo: 13,
+			},
+			website: {
+				type: 1,
+				title: 2,
+				bre: 3,
+				view_page: 4,
+				amp: 5,
+				route: 6,
+			},
+			websiteType: {
+				index: 1,
+				detail: 2,
+			},
+			status: {
+				noibat: 1,
+				moi: 2,
+				banchay: 3,
+				hienthi: 1000,
+				is_show: 1000,
+			},
+			module: {
+				title_main: 1,
+				title_main_categories: 2,
+				title_main_brand: 3,
+				website: 4,
+				amp: 4.1,
+				route: 4.2,
+				controller: 4.3,
+				method: 4.4,
+				slugs: 4.5,
+				send_email: 5,
+				type: 6,
+				copy: 10,
+				copy_categories: 11,
+				copy_brand: 12,
+				tags: 15,
+				slug: 20,
+				slug_categories: 21,
+				slug_brand: 22,
+				status: 25,
+				status_categories: 26,
+				status_brand: 27,
+				show_images: 30,
+				show_images_categories: 31,
+				show_images_brand: 32,
+				images: 35,
+				gallery: 40,
+				gallery_categories: 41,
+				gallery_brand: 42,
+				view: 45,
+				comment: 46,
+				properties: 47,
+				code: 48,
+				regular_price: 49,
+				sale_price: 50,
+				discount: 51,
+				datePublish: 52,
+				name: 55,
+				name_categories: 56,
+				name_brand: 57,
+				desc: 60,
+				desc_cke: 61,
+				desc_categories: 62,
+				desc_categories_cke: 63,
+				desc_brand: 64,
+				desc_brand_cke: 65,
+				content: 70,
+				content_cke: 71,
+				content_categories: 72,
+				content_categories_cke: 73,
+				content_brand: 74,
+				content_brand_cke: 75,
+				schema: 80,
+				seo: 85,
+				seo_categories: 86,
+				seo_brand: 87,
+				group: 90,
+				categories: 92,
+				brand: 94,
+				options2: 96,
+				hienthi: 1000,
+				is_show: 1000,
+			},
+		};
+
+		const priorityMap = priorityMaps[context] || priorityMaps.module;
+		sortedKeys = originalKeys.slice().sort((a, b) => {
+			const pA = priorityMap[a] ?? 500;
+			const pB = priorityMap[b] ?? 500;
+			if (pA !== pB) return pA - pB;
+			return originalKeys.indexOf(a) - originalKeys.indexOf(b);
+		});
+
+		const getChildContext = (parentCtx, key) => {
+			if (parentCtx === "categories") return "module";
+			if (parentCtx === "website" && key === "type") return "websiteType";
+			if (parentCtx === "galleryItem" && key === "status_photo") return "status";
+			if (key === "categories") return "categories";
+			if (key === "images") return "images";
+			if (key === "gallery" || key === "gallery_categories" || key === "gallery_brand") return "gallery";
+			if (key === "website") return "website";
+			if (key === "status" || key === "status_categories" || key === "status_brand" || key === "status_photo") return "status";
+			if (key === "brand" || key === "group") return "module";
+			return "module";
 		};
 
 		const sorted = {};
-		const keys = Object.keys(obj).sort((a, b) => {
-			const pA = priorityMap[a] || 999;
-			const pB = priorityMap[b] || 999;
-			if (pA !== pB) return pA - pB;
-			return Object.keys(obj).indexOf(a) - Object.keys(obj).indexOf(b);
-		});
-
-		for (const k of keys) {
-			sorted[k] = SchemaBuilder.reorderKeys(obj[k]);
+		for (const k of sortedKeys) {
+			sorted[k] = SchemaBuilder.reorderKeys(obj[k], getChildContext(context, k));
 		}
 		return sorted;
 	},
@@ -1599,7 +2172,7 @@ const SchemaBuilder = {
 
 		try {
 			// Deep clone and reorder
-			const finalData = SchemaBuilder.reorderKeys(this.currentData);
+			const finalData = SchemaBuilder.reorderKeys(this.currentData, "root");
 
 			const res = await (
 				await fetch(`api.php?action=saveModuleSchema`, {
@@ -1640,7 +2213,11 @@ const SchemaBuilder = {
 		const modules = ["tin-tuc", "tieu-chi", "thu-vien-anh"];
 		modules.forEach((m) => {
 			if (!this.currentData[m]) {
-				const preset = this.presets.news[m.replace(/-/g, "_")];
+				const newsPresets = (this.presets && this.presets.news) || {};
+				const pKey = m.replace(/-/g, "_");
+				const preset =
+					newsPresets[pKey] ||
+					(m === "tin-tuc" ? newsPresets.tin_tuc_full : null);
 				if (preset) {
 					const configData = preset.data || preset.config;
 					if (configData) {
@@ -1654,6 +2231,56 @@ const SchemaBuilder = {
 		});
 
 		UI.notify("Đã khởi tạo bộ khung Tin tức!", "success");
+		this.renderForm();
+	},
+
+	async initProductsSkeleton() {
+		if (
+			!await UI.confirm(
+				"Bạn có muốn khởi tạo bộ khung chuẩn cho Sản phẩm (san-pham)?",
+			)
+		)
+			return;
+
+		const prodPresets = (this.presets && this.presets.products) || {};
+		const preset = prodPresets.san_pham;
+		if (preset && !this.currentData["san-pham"]) {
+			const configData = preset.config || preset.data;
+			if (configData) {
+				this.currentData["san-pham"] = JSON.parse(JSON.stringify(configData));
+			}
+		}
+
+		UI.notify("Đã khởi tạo bộ khung Sản phẩm!", "success");
+		this.renderForm();
+	},
+
+	async initPhotosSkeleton() {
+		if (
+			!await UI.confirm(
+				"Bạn có muốn khởi tạo bộ khung chuẩn cho Hình ảnh (Logo, Favicon, Slideshow, Đối tác, Mạng xã hội)?",
+			)
+		)
+			return;
+
+		const photoPresets = (this.presets && this.presets.photos) || {};
+		const mapping = [
+			["logo", "logo"],
+			["favicon", "favicon"],
+			["slideshow", "slideshow"],
+			["doi-tac", "doi_tac"],
+			["social", "social"],
+		];
+		mapping.forEach(([modKey, pKey]) => {
+			if (!this.currentData[modKey] && photoPresets[pKey]) {
+				const cfg = photoPresets[pKey].config || photoPresets[pKey].data;
+				if (cfg) {
+					this.currentData[modKey] = JSON.parse(JSON.stringify(cfg));
+				}
+			}
+		});
+
+		UI.notify("Đã khởi tạo bộ khung Hình ảnh!", "success");
 		this.renderForm();
 	},
 

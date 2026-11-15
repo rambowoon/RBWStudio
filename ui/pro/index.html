@@ -560,7 +560,7 @@
                                         </svg>
                                         <span>Chọn tất cả</span>
                                     </button>
-                                    <button type="button" class="am-toolbar-btn" onclick="ImageTrimManager.loadImages()">
+                                    <button type="button" class="am-toolbar-btn" onclick="ImageTrimManager.loadImages(true)">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                                             <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
                                         </svg>
@@ -978,7 +978,7 @@
                                         </svg>
                                         Chọn ảnh (cho sub-type đang active)
                                         <span class="seed-img-total-chip">Tổng: <strong id="seed-img-total">0</strong> ảnh</span>
-                                        <button type="button" class="am-toolbar-btn" id="btn-seed-scan" style="margin-left:auto" onclick="SeedManager.scanFolder()">
+                                        <button type="button" class="am-toolbar-btn" id="btn-seed-scan" style="margin-left:auto" onclick="SeedManager.scanFolder('', true)">
                                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                                                 <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                             </svg>
@@ -1867,14 +1867,14 @@ Pass: password123..." style="height:200px"></textarea>
     <div id="action-menu-portal" class="action-menu"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-    <script src="assets/js/tauri_bridge.js?v=1.0.2"></script>
-    <script src="assets/js/api.js?v=1.0.2"></script>
-    <script src="assets/js/ui.js?v=1.0.2"></script>
-    <script src="assets/js/app.js?v=1.0.2"></script>
-    <script src="assets/js/converter.js?v=1.0.0"></script>
-    <script src="assets/js/ai_checker.js?v=1.0.0"></script>
-    <script src="assets/js/schema_components.js?v=1.0.3"></script>
-    <script src="assets/js/schema_builder.js?v=1.0.3"></script>
+    <script src="assets/js/tauri_bridge.js?v=2.0.6"></script>
+    <script src="assets/js/api.js?v=2.0.3"></script>
+    <script src="assets/js/ui.js?v=2.0.3"></script>
+    <script src="assets/js/app.js?v=2.0.3"></script>
+    <script src="assets/js/converter.js?v=2.0.3"></script>
+    <script src="assets/js/ai_checker.js?v=2.0.3"></script>
+    <script src="assets/js/schema_components.js?v=2.0.3"></script>
+    <script src="assets/js/schema_builder.js?v=2.0.7"></script>
     <script type="module">
         import {
             Font,
@@ -1890,13 +1890,13 @@ Pass: password123..." style="height:200px"></textarea>
             console.error('WOFF2 init failed', err);
         });
     </script>
-    <script src="assets/js/font_manager.js?v=1.0.0"></script>
-    <script src="assets/js/webp_manager.js?v=1.0.0"></script>
-    <script src="assets/js/image_trim_manager.js?v=1.0.0"></script>
-    <script src="assets/js/auto_media_manager.js?v=1.0.0"></script>
-    <script src="assets/js/seed_manager.js?v=1.0.1"></script>
-    <script src="assets/js/file_manager.js?v=1.0.0"></script>
-    <script src="assets/js/cache_clearer.js?v=1.0.0"></script>
+    <script src="assets/js/font_manager.js?v=2.0.3"></script>
+    <script src="assets/js/webp_manager.js?v=2.0.3"></script>
+    <script src="assets/js/image_trim_manager.js?v=2.0.3"></script>
+    <script src="assets/js/auto_media_manager.js?v=2.0.3"></script>
+    <script src="assets/js/seed_manager.js?v=2.0.3"></script>
+    <script src="assets/js/file_manager.js?v=2.0.3"></script>
+    <script src="assets/js/cache_clearer.js?v=2.0.3"></script>
     <!-- Change Type Database Modal -->
     <div id="change-type-modal" class="modal-overlay">
         <div class="modal" style="max-width: 500px">

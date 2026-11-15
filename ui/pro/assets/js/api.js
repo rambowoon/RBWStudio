@@ -43,9 +43,49 @@ const Api = {
         return this.fetch(`loadModuleSchema&name=${encodeURIComponent(name || '')}&file=${encodeURIComponent(file || '')}&category=${encodeURIComponent(category || '')}`);
     },
 
-    async getTypeImageSize(name, type) {
+    async getTypeImageSize(name, type, category = App.currentCategory) {
+        const normalizeTypeKey = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const targetKey = normalizeTypeKey(type);
+        try {
+            const cat = category || "";
+            const cacheKey = `${name}::${cat}`;
+            let images =
+                typeof WebpManager !== "undefined" &&
+                WebpManager._cache &&
+                Array.isArray(WebpManager._cache[cacheKey])
+                    ? WebpManager._cache[cacheKey]
+                    : null;
+            if (!images) {
+                const listRes = await this.fetch(
+                    `listProjectImages&name=${encodeURIComponent(name || "")}&category=${encodeURIComponent(cat)}`,
+                );
+                if (listRes && listRes.status === "success" && Array.isArray(listRes.data)) {
+                    images = listRes.data;
+                    if (typeof WebpManager !== "undefined" && WebpManager._cache) {
+                        WebpManager._cache[cacheKey] = images;
+                    }
+                }
+            }
+            if (Array.isArray(images) && targetKey) {
+                const matched = images.find((img) => {
+                    if (!img || !img.name) return false;
+                    const base = img.name.replace(/\.[^.]+$/, "");
+                    return normalizeTypeKey(base) === targetKey && Number(img.width) > 0 && Number(img.height) > 0;
+                });
+                if (matched) {
+                    return {
+                        status: "success",
+                        data: {
+                            file: matched.name,
+                            width: Number(matched.width),
+                            height: Number(matched.height),
+                        },
+                    };
+                }
+            }
+        } catch (_) {}
         return this.fetch(
-            `getTypeImageSize&name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
+            `getTypeImageSize&name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}&category=${encodeURIComponent(category || "")}`,
         );
     },
 

@@ -1307,6 +1307,93 @@ const UI = {
 			SyncCenter.lastProject = null;
 			SyncCenter.lastData = null;
 		}
+		this.prefetchProjectMedia(name);
+	},
+
+	_prefetchKey: null,
+
+	prefetchProjectMedia(name) {
+		if (!name) return;
+		const cat = (typeof App !== "undefined" && App.currentCategory) ? App.currentCategory : "";
+		const key = `${name}::${cat}`;
+		if (this._prefetchKey === key) return;
+		this._prefetchKey = key;
+
+		const prefetchUrls = (urls) => {
+			if (typeof window.__rbwPrefetchImageUrl !== "function" || !Array.isArray(urls)) return;
+			const uniq = [];
+			const seen = new Set();
+			for (let i = 0; i < urls.length && uniq.length < 48; i++) {
+				const u = urls[i];
+				if (u && !seen.has(u)) {
+					seen.add(u);
+					uniq.push(u);
+				}
+			}
+			uniq.forEach((u) => window.__rbwPrefetchImageUrl(u));
+		};
+
+		setTimeout(() => {
+			if (this._lastRenderedProject !== name) return;
+
+			if (typeof WebpManager !== "undefined" && !WebpManager._cache[key]) {
+				fetch(`api.php?action=listProjectImages&name=${encodeURIComponent(name)}&category=${encodeURIComponent(cat)}`)
+					.then((r) => r.json())
+					.then((res) => {
+						if (res && res.status === "success" && Array.isArray(res.data)) {
+							WebpManager._cache[key] = res.data;
+						}
+					})
+					.catch(() => {});
+			}
+
+			if (typeof ImageTrimManager !== "undefined" && !ImageTrimManager._cache[key]) {
+				fetch(`api.php?action=listProjectTrimImages&name=${encodeURIComponent(name)}&category=${encodeURIComponent(cat)}`)
+					.then((r) => r.json())
+					.then((res) => {
+						if (res && res.status === "success" && Array.isArray(res.data)) {
+							ImageTrimManager._cache[key] = res.data;
+							prefetchUrls(res.data.map((img) => img && img.previewUrl));
+						}
+					})
+					.catch(() => {});
+			}
+
+			if (typeof AutoMediaManager !== "undefined") {
+				const amKey = `${name}::${cat}::type-photo`;
+				if (!AutoMediaManager._cache[amKey]) {
+					fetch(`scan_images.php?main_key=type-photo&project_name=${encodeURIComponent(name)}&category=${encodeURIComponent(cat)}`)
+						.then((r) => r.json())
+						.then((res) => {
+							if (res && res.status === "success" && res.groups) {
+								AutoMediaManager._cache[amKey] = res.groups;
+								const urls = [];
+								Object.values(res.groups).forEach((arr) => {
+									if (Array.isArray(arr)) arr.forEach((img) => img && img.preview_url && urls.push(img.preview_url));
+								});
+								prefetchUrls(urls);
+							}
+						})
+						.catch(() => {});
+				}
+			}
+
+			if (typeof SeedManager !== "undefined") {
+				const sdKey = `${name}::${cat}::project_images::`;
+				if (!SeedManager._folderCache[sdKey]) {
+					fetch(`seed_images.php?action=scan_folder&project_name=${encodeURIComponent(name)}&category=${encodeURIComponent(cat)}&folder=project_images&subdir=`)
+						.then((r) => r.json())
+						.then((res) => {
+							if (res && res.status === "success") {
+								const entry = { images: res.images || [], subfolders: res.subfolders || [] };
+								SeedManager._folderCache[sdKey] = entry;
+								prefetchUrls(entry.images.map((img) => img && (img.preview || img.preview_url)));
+							}
+						})
+						.catch(() => {});
+				}
+			}
+		}, 60);
 	},
 
 	fillProjectDetailForm(name, config, category) {

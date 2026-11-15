@@ -2,12 +2,13 @@ const AutoMediaManager = {
 	currentProject: '',
 	currentMainKey: 'type-photo',
 	mainKeys: ['type-photo', 'type-static', 'type-news', 'type-products'],
+	_cache: {},
 
-	async init(projectName) {
+	async init(projectName, force = false) {
 		if (!projectName) return;
 		this.currentProject = projectName;
 		this.bindEvents();
-		await this.loadImages(this.currentMainKey);
+		await this.loadImages(this.currentMainKey, force);
 	},
 
 	bindEvents() {
@@ -29,7 +30,7 @@ const AutoMediaManager = {
 		// Rescan button
 		const rescanBtn = document.getElementById('btn-am-rescan');
 		if (rescanBtn) {
-			rescanBtn.addEventListener('click', () => this.loadImages(this.currentMainKey));
+			rescanBtn.addEventListener('click', () => this.loadImages(this.currentMainKey, true));
 		}
 
 		// Toggle select/deselect all
@@ -92,7 +93,7 @@ const AutoMediaManager = {
 		}
 	},
 
-	async loadImages(mainKey) {
+	async loadImages(mainKey, force = false) {
 		if (!this.mainKeys.includes(mainKey)) return;
 		this.currentMainKey = mainKey;
 
@@ -108,17 +109,25 @@ const AutoMediaManager = {
 		if (selectedEl) selectedEl.textContent = '0';
 		if (toggleBtn) this._setToggleMode(toggleBtn, 'select');
 
+		const cat = (typeof App !== 'undefined' && App.currentCategory) ? App.currentCategory : '';
+		const cacheKey = `${this.currentProject}::${cat}::${mainKey}`;
+		if (!force && this._cache[cacheKey]) {
+			this.renderGroups(this._cache[cacheKey]);
+			return;
+		}
+
 		this.renderState('loading', '');
 
 		try {
-			const cat = (typeof App !== 'undefined' && App.currentCategory) ? App.currentCategory : '';
 			const url = `scan_images.php?main_key=${encodeURIComponent(mainKey)}&project_name=${encodeURIComponent(this.currentProject)}&category=${encodeURIComponent(cat)}`;
 			const res = await (await fetch(url)).json();
 			if (res.status !== 'success') {
 				this.renderState('error', res.message || 'Lỗi quét ảnh');
 				return;
 			}
-			this.renderGroups(res.groups || {});
+			const groups = res.groups || {};
+			this._cache[cacheKey] = groups;
+			this.renderGroups(groups);
 		} catch (e) {
 			this.renderState('error', 'Không thể kết nối scan_images.php');
 		}
@@ -292,7 +301,8 @@ const AutoMediaManager = {
 			}
 
 			UI.notify(`✅ Hoàn tất! Cập nhật ${updated} bản ghi, xóa ${deleted} file cũ.`, 'success');
-			await this.loadImages(this.currentMainKey);
+			this._cache = {};
+			await this.loadImages(this.currentMainKey, true);
 		} catch (e) {
 			UI.notify('Không thể gọi auto_update.php', 'error');
 		} finally {
