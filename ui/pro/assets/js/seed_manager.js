@@ -28,6 +28,13 @@ const SeedManager = {
 	},
 
 	bindEvents() {
+		// Nút làm mới / quét lại Types
+		document.getElementById('btn-seed-refresh-types')?.addEventListener('click', async () => {
+			this._typesCache = {};
+			await this.loadTypes(this.currentMainKey, true);
+			if (typeof UI !== 'undefined' && UI.notify) UI.notify('Đã làm mới danh sách Type!', 'success');
+		});
+
 		const wrap = document.getElementById('seed-main-tabs');
 		if (!wrap || wrap.dataset.bound === '1') return;
 		wrap.dataset.bound = '1';
@@ -252,7 +259,9 @@ const SeedManager = {
 			const kindBadge = st.kind === 'static'
 				? '<span class="seed-badge static">static</span>'
 				: '<span class="seed-badge album">album</span>';
-			const count = (st.number !== null && st.number !== undefined) ? st.number : '∞';
+			const count = (typeof st.record_count === 'number')
+				? st.record_count
+				: ((typeof st.number === 'number') ? st.number : (st.number === true ? '∞' : (typeof st.number === 'string' && st.number ? st.number : 0)));
 			const selectedCount = (this.selectedImages[k] || []).length;
 
 			return `

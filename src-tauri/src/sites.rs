@@ -805,6 +805,40 @@ pub fn install_or_open_chrome_extension(mode: &str) -> Result<serde_json::Value,
         }
     }
 
+    #[cfg(target_os = "macos")]
+    {
+        match mode {
+            "open_folder" => {
+                let _ = Command::new("open").args(["-R", &ext_str]).spawn();
+            }
+            "launch_chrome_ext" => {
+                if let Some(chrome) = chrome_exe.as_ref() {
+                    let _ = Command::new(chrome)
+                        .args([
+                            format!("--load-extension={}", ext_str),
+                            "https://projects.nasani.vn/ky-thuat/program/list/".to_string(),
+                        ])
+                        .spawn();
+                } else {
+                    let _ = Command::new("open")
+                        .arg("https://projects.nasani.vn/ky-thuat/program/list/")
+                        .spawn();
+                }
+            }
+            _ => {
+                let _ = Command::new("open").args(["-R", &ext_str]).spawn();
+                if let Some(chrome) = chrome_exe.as_ref() {
+                    let _ = Command::new(chrome)
+                        .args([
+                            format!("--load-extension={}", ext_str),
+                            "chrome://extensions/".to_string(),
+                        ])
+                        .spawn();
+                }
+            }
+        }
+    }
+
     Ok(serde_json::json!({
         "status": "success",
         "path": ext_str,

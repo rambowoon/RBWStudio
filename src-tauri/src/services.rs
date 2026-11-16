@@ -88,6 +88,140 @@ pub fn is_port_in_use(port: u16) -> bool {
     .is_ok()
 }
 
+#[cfg(target_os = "macos")]
+pub fn list_macos_homebrew_binaries(category: &str) -> Vec<String> {
+    let mut list = Vec::new();
+    let brew_prefixes = [
+        PathBuf::from("/opt/homebrew"),
+        PathBuf::from("/usr/local"),
+    ];
+
+    match category {
+        "php" => {
+            for prefix in &brew_prefixes {
+                let opt_dir = prefix.join("opt");
+                if let Ok(entries) = fs::read_dir(&opt_dir) {
+                    for entry in entries.flatten() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if name.starts_with("php@") || name == "php" {
+                                let cgi_bin = entry.path().join("bin/php-cgi");
+                                if cgi_bin.is_file() {
+                                    let label = format!("brew-{}", name);
+                                    if !list.contains(&label) {
+                                        list.push(label);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                let direct_cgi = prefix.join("bin/php-cgi");
+                if direct_cgi.is_file() {
+                    let label = "brew-php".to_string();
+                    if !list.contains(&label) {
+                        list.push(label);
+                    }
+                }
+            }
+        }
+        "mysql" => {
+            for prefix in &brew_prefixes {
+                if prefix.join("bin/mariadbd").is_file() || prefix.join("bin/mariadb").is_file() {
+                    let label = "brew-mariadb".to_string();
+                    if !list.contains(&label) {
+                        list.push(label);
+                    }
+                }
+                if prefix.join("bin/mysqld").is_file() {
+                    let label = "brew-mysql".to_string();
+                    if !list.contains(&label) {
+                        list.push(label);
+                    }
+                }
+            }
+        }
+        "nginx" => {
+            for prefix in &brew_prefixes {
+                if prefix.join("bin/nginx").is_file() {
+                    let label = "brew-nginx".to_string();
+                    if !list.contains(&label) {
+                        list.push(label);
+                    }
+                }
+            }
+        }
+        "apache" => {
+            for prefix in &brew_prefixes {
+                if prefix.join("bin/httpd").is_file() {
+                    let label = "brew-httpd".to_string();
+                    if !list.contains(&label) {
+                        list.push(label);
+                    }
+                }
+            }
+            if Path::new("/usr/sbin/httpd").is_file() {
+                let label = "system-httpd".to_string();
+                if !list.contains(&label) {
+                    list.push(label);
+                }
+            }
+        }
+        _ => {}
+    }
+    list
+}
+
+#[cfg(target_os = "macos")]
+pub fn find_macos_brew_binary_path(category: &str, ver: &str) -> Option<PathBuf> {
+    let brew_prefixes = [
+        PathBuf::from("/opt/homebrew"),
+        PathBuf::from("/usr/local"),
+    ];
+    match category {
+        "php" => {
+            let pkg_name = ver.strip_prefix("brew-").unwrap_or(ver);
+            for prefix in &brew_prefixes {
+                let opt_cgi = prefix.join("opt").join(pkg_name).join("bin/php-cgi");
+                if opt_cgi.is_file() {
+                    return Some(opt_cgi);
+                }
+                let bin_cgi = prefix.join("bin/php-cgi");
+                if bin_cgi.is_file() {
+                    return Some(bin_cgi);
+                }
+            }
+        }
+        "mysql" => {
+            for prefix in &brew_prefixes {
+                if ver.contains("mariadb") {
+                    let m = prefix.join("bin/mariadbd");
+                    if m.is_file() { return Some(m); }
+                    let m2 = prefix.join("bin/mariadb");
+                    if m2.is_file() { return Some(m2); }
+                }
+                let m = prefix.join("bin/mysqld");
+                if m.is_file() { return Some(m); }
+            }
+        }
+        "nginx" => {
+            for prefix in &brew_prefixes {
+                let n = prefix.join("bin/nginx");
+                if n.is_file() { return Some(n); }
+            }
+        }
+        "apache" => {
+            for prefix in &brew_prefixes {
+                let a = prefix.join("bin/httpd");
+                if a.is_file() { return Some(a); }
+            }
+            let sys = PathBuf::from("/usr/sbin/httpd");
+            if sys.is_file() { return Some(sys); }
+        }
+        _ => {}
+    }
+    None
+}
+
 pub fn list_installed_versions(category: &str) -> Vec<String> {
     let dir = config::get_base_dir().join("bin").join(category);
     let mut list = Vec::new();
@@ -97,6 +231,15 @@ pub fn list_installed_versions(category: &str) -> Vec<String> {
                 if let Some(name) = entry.file_name().to_str() {
                     list.push(name.to_string());
                 }
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let brew_items = list_macos_homebrew_binaries(category);
+        for item in brew_items {
+            if !list.contains(&item) {
+                list.push(item);
             }
         }
     }
@@ -928,6 +1071,14 @@ http {{
             vhost_blocks = vhost_blocks
         );
         let _ = fs::write(conf_dir.join("nginx.conf"), main_conf);
+        let fg_params = conf_dir.join("fastcgi_params");
+        if !fg_params.exists() {
+            let _ = fs::write(&fg_params, "fastcgi_param  QUERY_STRING       $query_string;\nfastcgi_param  REQUEST_METHOD     $request_method;\nfastcgi_param  CONTENT_TYPE       $content_type;\nfastcgi_param  CONTENT_LENGTH     $content_length;\nfastcgi_param  SCRIPT_NAME        $fastcgi_script_name;\nfastcgi_param  REQUEST_URI        $request_uri;\nfastcgi_param  DOCUMENT_URI       $document_uri;\nfastcgi_param  DOCUMENT_ROOT      $document_root;\nfastcgi_param  SERVER_PROTOCOL    $server_protocol;\nfastcgi_param  REQUEST_SCHEME     $scheme;\nfastcgi_param  HTTPS              $https if_not_empty;\nfastcgi_param  GATEWAY_INTERFACE  CGI/1.1;\nfastcgi_param  SERVER_SOFTWARE    nginx/$nginx_version;\nfastcgi_param  REMOTE_ADDR        $remote_addr;\nfastcgi_param  REMOTE_PORT        $remote_port;\nfastcgi_param  SERVER_ADDR        $server_addr;\nfastcgi_param  SERVER_PORT        $server_port;\nfastcgi_param  SERVER_NAME        $server_name;\nfastcgi_param  REDIRECT_STATUS    200;\n");
+        }
+        let mime_types = conf_dir.join("mime.types");
+        if !mime_types.exists() {
+            let _ = fs::write(&mime_types, "types {\n    text/html                             html htm shtml;\n    text/css                              css;\n    text/xml                              xml;\n    image/gif                             gif;\n    image/jpeg                            jpeg jpg;\n    application/javascript                js;\n    application/atom+xml                  atom;\n    application/rss+xml                   rss;\n    image/png                             png;\n    image/svg+xml                         svg svgz;\n    image/webp                            webp;\n    application/json                      json;\n    application/zip                       zip;\n    application/x-font-ttf                ttf;\n    font/woff                             woff;\n    font/woff2                            woff2;\n}\n");
+        }
     }
 
     // 2. Configure Apache httpd.conf (Full Rewrite matching DownloadCenterForm.ConfigureApache)
@@ -1201,7 +1352,13 @@ pub fn start_php_service(settings: &AppSettings) -> Result<(), String> {
             }
             let php_dir = base.join("bin/php").join(&ver);
             configure_php(&php_dir);
-            if let Some(exe) = find_executable_recursive(&php_dir, &["php-cgi.exe", "php-cgi", "php-fpm"]) {
+            #[allow(unused_mut)]
+            let mut exe_opt = find_executable_recursive(&php_dir, &["php-cgi.exe", "php-cgi", "php-fpm"]);
+            #[cfg(target_os = "macos")]
+            if exe_opt.is_none() {
+                exe_opt = find_macos_brew_binary_path("php", &ver);
+            }
+            if let Some(exe) = exe_opt {
                 let mut cmd = create_hidden_command(&exe.to_string_lossy());
                 cmd.current_dir(&php_dir)
                     .env("PHP_FCGI_MAX_REQUESTS", "0")
@@ -1256,12 +1413,28 @@ pub fn start_web_service(settings: &AppSettings) -> Result<(), String> {
             &settings.active_nginx_version
         };
         let nginx_dir = base.join("bin/nginx").join(ver);
-        if let Some(exe) = find_executable_recursive(&nginx_dir, &["nginx.exe", "nginx"]) {
+        let _conf_path = nginx_dir.join("conf/nginx.conf");
+        let _ = fs::create_dir_all(nginx_dir.join("logs"));
+        #[allow(unused_mut)]
+        let mut exe_opt = find_executable_recursive(&nginx_dir, &["nginx.exe", "nginx"]);
+        #[cfg(target_os = "macos")]
+        if exe_opt.is_none() {
+            exe_opt = find_macos_brew_binary_path("nginx", ver);
+        }
+        if let Some(exe) = exe_opt {
             let exe_parent = exe.parent().unwrap_or(&nginx_dir);
             let mut cmd = create_hidden_command(&exe.to_string_lossy());
-            cmd.current_dir(exe_parent)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
+            cmd.current_dir(exe_parent);
+            #[cfg(target_os = "macos")]
+            {
+                cmd.args([
+                    "-c",
+                    &_conf_path.to_string_lossy(),
+                    "-p",
+                    &nginx_dir.to_string_lossy(),
+                ]);
+            }
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
             if let Ok(child) = cmd.spawn() {
                 with_pm(|pm| pm.web_child = Some(child));
                 return Ok(());
@@ -1284,8 +1457,15 @@ pub fn start_web_service(settings: &AppSettings) -> Result<(), String> {
         } else {
             apache_dir.clone()
         };
+        let _ = fs::create_dir_all(srv_root.join("logs"));
         let conf_path = srv_root.join("conf/httpd.conf");
-        if let Some(exe) = find_executable_recursive(&srv_root, &["httpd.exe", "httpd", "apachectl"]) {
+        #[allow(unused_mut)]
+        let mut exe_opt = find_executable_recursive(&srv_root, &["httpd.exe", "httpd", "apachectl"]);
+        #[cfg(target_os = "macos")]
+        if exe_opt.is_none() {
+            exe_opt = find_macos_brew_binary_path("apache", ver);
+        }
+        if let Some(exe) = exe_opt {
             let exe_parent = exe.parent().unwrap_or(&srv_root);
             let mut cmd = create_hidden_command(&exe.to_string_lossy());
             cmd.current_dir(exe_parent)
@@ -1333,8 +1513,36 @@ pub fn start_mysql_service(settings: &AppSettings) -> Result<(), String> {
     configure_mysql(&mysql_dir, settings.mysql_port);
     configure_phpmyadmin(settings.mysql_port);
 
+    let data_dir = mysql_dir.join("data");
+    if !data_dir.exists() {
+        let _ = fs::create_dir_all(&data_dir);
+        #[cfg(target_os = "macos")]
+        {
+            for tool_name in &["mariadb-install-db", "mysql_install_db"] {
+                for prefix in &[PathBuf::from("/opt/homebrew"), PathBuf::from("/usr/local")] {
+                    let tool = prefix.join("bin").join(tool_name);
+                    if tool.is_file() {
+                        let _ = std::process::Command::new(tool)
+                            .args([
+                                &format!("--datadir={}", data_dir.to_string_lossy()),
+                                "--auth-root-authentication-method=normal",
+                            ])
+                            .output();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     let my_ini_path = mysql_dir.join("my.ini");
-    if let Some(exe) = find_executable_recursive(&mysql_dir, &["mysqld.exe", "mariadbd.exe", "mysqld", "mariadbd"]) {
+    #[allow(unused_mut)]
+    let mut exe_opt = find_executable_recursive(&mysql_dir, &["mysqld.exe", "mariadbd.exe", "mysqld", "mariadbd"]);
+    #[cfg(target_os = "macos")]
+    if exe_opt.is_none() {
+        exe_opt = find_macos_brew_binary_path("mysql", ver);
+    }
+    if let Some(exe) = exe_opt {
         let exe_parent = exe.parent().unwrap_or(&mysql_dir);
         let mut cmd = create_hidden_command(&exe.to_string_lossy());
         cmd.current_dir(exe_parent)

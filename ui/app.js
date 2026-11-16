@@ -1682,7 +1682,23 @@ function renderStoreItems(category) {
   if (!container) return;
   const filtered = appState.storeItems.filter((i) => i.category === category);
 
-  container.innerHTML = filtered
+  const isMac = (appState.os_platform === "macos") || (document.getElementById("osBadge")?.textContent?.includes("macOS"));
+  let brewBanner = "";
+  if (isMac) {
+    brewBanner = `
+    <div class="store-card" style="border: 1px solid var(--accent); background: rgba(139, 92, 246, 0.08); grid-column: 1 / -1; margin-bottom: 12px;">
+      <div class="store-head">
+        <span class="tile sm tile-violet">${svgIcon("terminal", 16)}</span>
+        <div class="store-meta">
+          <div class="store-title" style="color: var(--accent);">⚡ Cài đặt trọn bộ dịch vụ macOS qua Homebrew</div>
+          <div class="store-desc">Cài đặt tự động PHP, MariaDB và Nginx bằng lệnh: <code>brew install php mariadb nginx</code></div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btnBrewInstallQuick" style="white-space: nowrap;">💻 Mở Terminal cài đặt</button>
+      </div>
+    </div>`;
+  }
+
+  container.innerHTML = brewBanner + filtered
     .map(
       (item) => `
     <div class="store-card ${item.installed ? "installed" : ""}" id="store-card-${item.id}">
@@ -1716,6 +1732,15 @@ function renderStoreItems(category) {
       if (wrap) wrap.style.display = "block";
       await tauriInvoke("download_and_install_item", { itemId: id });
     });
+  });
+
+  document.getElementById("btnBrewInstallQuick")?.addEventListener("click", async () => {
+    try {
+      const res = await tauriInvoke("install_macos_homebrew_services");
+      showToast(res || "Đang mở Terminal cài đặt Homebrew...", "success");
+    } catch (e) {
+      showToast(String(e), "error");
+    }
   });
 }
 

@@ -636,19 +636,47 @@ async fn check_github_update() -> ReleaseInfo {
                 let mut asset_download_url = None;
                 let mut asset_size = None;
 
+                let is_macos = cfg!(target_os = "macos");
+                let arch = std::env::consts::ARCH; // "aarch64" (Apple Silicon) or "x86_64" (Intel)
+
                 if let Some(assets) = val.get("assets").and_then(|a| a.as_array()) {
                     for asset in assets {
                         let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
                         let lower = name.to_lowercase();
-                        if lower.ends_with(".exe") || lower.ends_with(".zip") {
-                            asset_name = Some(name.to_string());
-                            asset_download_url = asset
-                                .get("browser_download_url")
-                                .and_then(|u| u.as_str())
-                                .map(|s| s.to_string());
-                            asset_size = asset.get("size").and_then(|s| s.as_u64());
-                            if lower.ends_with(".exe") {
-                                break;
+
+                        if is_macos {
+                            // On macOS prefer .dmg or .app.tar.gz matching architecture
+                            let is_mac_pkg = lower.ends_with(".dmg") || lower.ends_with(".app.tar.gz") || lower.ends_with(".tar.gz");
+                            if is_mac_pkg {
+                                let match_arch = if arch == "aarch64" {
+                                    lower.contains("aarch64") || lower.contains("arm64") || lower.contains("apple")
+                                } else {
+                                    lower.contains("x86_64") || lower.contains("x64") || lower.contains("intel")
+                                };
+                                if match_arch || asset_download_url.is_none() {
+                                    asset_name = Some(name.to_string());
+                                    asset_download_url = asset
+                                        .get("browser_download_url")
+                                        .and_then(|u| u.as_str())
+                                        .map(|s| s.to_string());
+                                    asset_size = asset.get("size").and_then(|s| s.as_u64());
+                                    if match_arch {
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            // On Windows prefer .exe or .zip
+                            if lower.ends_with(".exe") || lower.ends_with(".zip") {
+                                asset_name = Some(name.to_string());
+                                asset_download_url = asset
+                                    .get("browser_download_url")
+                                    .and_then(|u| u.as_str())
+                                    .map(|s| s.to_string());
+                                asset_size = asset.get("size").and_then(|s| s.as_u64());
+                                if lower.ends_with(".exe") {
+                                    break;
+                                }
                             }
                         }
                     }
@@ -780,6 +808,39 @@ fn download_and_apply_update(app: AppHandle, download_url: String) {
                 return;
             }
         };
+
+        #[cfg(target_os = "macos")]
+        {
+            let lower_url = download_url.to_lowercase();
+            if lower_url.ends_with(".dmg") {
+                emit_progress(90, "Đang mở gói cài đặt DMG...", false, "");
+                let _ = std::process::Command::new("open")
+                    .arg(&temp_file_path)
+                    .spawn();
+                emit_progress(100, "Đã mở file DMG! Hãy kéo RBWStudio vào Applications để hoàn tất.", true, "");
+                return;
+            } else if lower_url.ends_with(".tar.gz") || lower_url.ends_with(".tgz") {
+                emit_progress(90, "Đang giải nén bộ cài macOS...", false, "");
+                let target_app = std::path::Path::new("/Applications/RBWStudio.app");
+                let status = std::process::Command::new("tar")
+                    .args(["-xzf", &temp_file_path.to_string_lossy(), "-C", "/Applications"])
+                    .status();
+                if let Ok(st) = status {
+                    if st.success() {
+                        let _ = std::process::Command::new("codesign")
+                            .args(["--force", "--deep", "-s", "-", "/Applications/RBWStudio.app"])
+                            .status();
+                        let _ = fs::remove_file(&temp_file_path);
+                        emit_progress(100, "Cập nhật thành công! Hãy nhấn Khởi động lại ứng dụng.", true, "");
+                        return;
+                    }
+                }
+                // Fallback mở file
+                let _ = std::process::Command::new("open").arg(&temp_file_path).spawn();
+                emit_progress(100, "Đã tải xong gói cập nhật macOS!", true, "");
+                return;
+            }
+        }
 
         let is_zip = download_url.to_lowercase().ends_with(".zip");
         let new_binary_path = if is_zip {
@@ -1210,7 +1271,18 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut builder = TrayIconBuilder::new()
         .tooltip("RBWStudio — Portable Web Server Manager")
-        .show_menu_on_left_click(false)
+        .menu(&menu);
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.show_menu_on_left_click(true);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        builder = builder.show_menu_on_left_click(false);
+    }
+
+    builder = builder
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => {
                 if let Some(w) = app.get_webview_window("main") {
@@ -1334,8 +1406,11 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                             let size = tray_win.outer_size().unwrap_or(tauri::PhysicalSize { width: (270.0 * factor) as u32, height: (420.0 * factor) as u32 });
                             let phys_w = size.width as f64;
                             let phys_h = size.height as f64;
-                            let x = (position.x - (phys_w / 2.0)).max(10.0);
+                            #[cfg(target_os = "macos")]
+                            let y = (position.y + 10.0).max(10.0);
+                            #[cfg(not(target_os = "macos"))]
                             let y = (position.y - phys_h - 10.0).max(10.0);
+                            let x = (position.x - (phys_w / 2.0)).max(10.0);
                             let _ = tray_win.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
                                 x: x as i32,
                                 y: y as i32,
@@ -1351,25 +1426,53 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     ..
                 } => {
                     let app = tray.app_handle();
-                    if let Some(tray_win) = app.get_webview_window("tray") {
-                        let _ = tray_win.hide();
-                    }
-                    if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.unminimize();
-                        let _ = w.set_focus();
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        if let Some(tray_win) = app.get_webview_window("tray") {
+                            let _ = tray_win.hide();
+                        }
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.unminimize();
+                            let _ = w.set_focus();
+                        }
                     }
                 }
                 _ => {}
             }
         });
 
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
+    let icon = app.default_window_icon()
+        .cloned()
+        .or_else(|| {
+            tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")).ok()
+        });
+    if let Some(ic) = icon {
+        builder = builder.icon(ic);
     }
 
     let _ = builder.build(app)?;
     Ok(())
+}
+
+#[tauri::command]
+fn install_macos_homebrew_services() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let script = r#"tell application "Terminal"
+            do script "echo '=== Cài đặt PHP, MariaDB, Nginx cho RBWStudio qua Homebrew ===' && brew install php mariadb nginx && echo 'Hoàn tất cài đặt! Bạn có thể đóng Terminal và bấm làm mới ứng dụng.'"
+            activate
+        end tell"#;
+        std::process::Command::new("osascript")
+            .args(["-e", script])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok("Đã mở Terminal để cài đặt PHP, MariaDB, Nginx qua Homebrew.".to_string());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Lệnh này chỉ hỗ trợ trên hệ điều hành macOS.".to_string())
+    }
 }
 
 fn main() {
@@ -1422,13 +1525,17 @@ fn main() {
             }
 
             // Quản lý hiển thị cửa sổ chính:
-            // Cửa sổ "main" có "visible": false trong tauri.conf.json.
-            // Nếu là autostart cùng Windows, giữ cửa sổ ẩn hoàn toàn dưới khay hệ thống (Tray Icon).
-            // Nếu người dùng mở app bình thường, hiển thị cửa sổ và focus.
+            // Nếu là autostart, giữ cửa sổ ẩn hoàn toàn dưới khay hệ thống (Tray Icon).
+            // Nếu người dùng mở app bình thường, hiển thị cửa sổ, unminimize và kích hoạt focus.
             if let Some(w) = app.get_webview_window("main") {
                 if !is_autostart {
                     let _ = w.show();
+                    let _ = w.unminimize();
                     let _ = w.set_focus();
+                    #[cfg(target_os = "macos")]
+                    {
+                        let _ = app.handle().set_activation_policy(tauri::ActivationPolicy::Regular);
+                    }
                 } else {
                     let _ = w.hide();
                 }
@@ -1536,7 +1643,8 @@ fn main() {
             rbw_pro_dispatch,
             rbw_pro_load_image,
             start_color_picker,
-            get_color_picker_status
+            get_color_picker_status,
+            install_macos_homebrew_services
         ])
         .run(tauri::generate_context!())
         .expect("Lỗi khởi chạy ứng dụng RBWStudio");

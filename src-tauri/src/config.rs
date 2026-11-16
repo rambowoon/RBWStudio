@@ -78,8 +78,10 @@ fn default_da_port() -> String {
 
 pub fn get_base_dir() -> PathBuf {
     if let Ok(exe_path) = env::current_exe() {
+        let _exe_str = exe_path.to_string_lossy();
+
+        // 1. Nếu đang chạy trong môi trường dev (cargo run / cargo tauri dev)
         if let Some(exe_dir) = exe_path.parent() {
-            // Check if running from src-tauri/target/debug(/deps) or release(/deps)
             let check_dir = if exe_dir.ends_with("deps") {
                 exe_dir.parent().unwrap_or(exe_dir)
             } else {
@@ -94,6 +96,26 @@ pub fn get_base_dir() -> PathBuf {
                     }
                 }
             }
+        }
+
+        // 2. Trên macOS: Khi chạy từ gói .app đóng gói (Applications hoặc DMG),
+        // bên trong Contents/MacOS là read-only và bị macOS Sandbox bảo vệ.
+        // Chuyển toàn bộ dữ liệu làm việc (data, www, bin, ssl) sang ~/RBWStudio để toàn quyền ghi.
+        #[cfg(target_os = "macos")]
+        {
+            if _exe_str.contains(".app/Contents/MacOS") {
+                if let Some(home) = dirs::home_dir() {
+                    let mac_dir = home.join("RBWStudio");
+                    if !mac_dir.exists() {
+                        let _ = fs::create_dir_all(&mac_dir);
+                    }
+                    return mac_dir;
+                }
+            }
+        }
+
+        // 3. Chạy dạng Portable thông thường (Windows / Linux / macOS binary ngoài bundle)
+        if let Some(exe_dir) = exe_path.parent() {
             return exe_dir.to_path_buf();
         }
     }

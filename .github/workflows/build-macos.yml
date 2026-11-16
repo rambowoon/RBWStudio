@@ -42,6 +42,12 @@ jobs:
       - name: Build Tauri app (macOS)
         run: cargo tauri build --target ${{ matrix.target }}
 
+      - name: Ad-hoc code sign .app bundle
+        run: |
+          if [ -d "src-tauri/target/${{ matrix.target }}/release/bundle/macos/RBWStudio.app" ]; then
+            codesign --force --deep -s - "src-tauri/target/${{ matrix.target }}/release/bundle/macos/RBWStudio.app"
+          fi
+
       - name: Upload macOS build artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -91,6 +91,8 @@ pub fn refresh_installed_flags(items: &mut [DownloadItem]) {
             "vcredist" => {
                 if item.id.contains("cloudflared") {
                     cf_installed
+                } else if item.id.contains("nasani-extension") {
+                    base.join("extensions").join("nasani-sync").join("manifest.json").exists()
                 } else {
                     vc_installed
                 }
@@ -297,20 +299,20 @@ pub fn get_offline_fallback_items() -> Vec<DownloadItem> {
             url: "https://files.phpmyadmin.net/phpMyAdmin/4.9.11/phpMyAdmin-4.9.11-all-languages.zip".to_string(),
             installed: false,
         },
-        // 7. VC++ & Cloudflared
+        // 7. VC++, Cloudflared & Chrome Extension Nasani
         DownloadItem {
             id: "vcredist-2022".to_string(),
             category: "vcredist".to_string(),
             name: "Visual C++ 2015-2022 (x64)".to_string(),
             version: "14.42".to_string(),
-            description: "Lưu tại: .\\downloads".to_string(),
+            description: "Thư viện runtime cho Windows PHP/Apache".to_string(),
             url: "https://aka.ms/vs/17/release/vc_redist.x64.exe".to_string(),
             installed: false,
         },
         DownloadItem {
             id: "cloudflared-latest".to_string(),
             category: "vcredist".to_string(),
-            name: "Cloudflared (Stable x64)".to_string(),
+            name: "Cloudflared Tunnel (Stable)".to_string(),
             version: "latest".to_string(),
             description: "Lưu tại: .\\bin\\cloudflared".to_string(),
             url: if is_mac {
@@ -318,6 +320,15 @@ pub fn get_offline_fallback_items() -> Vec<DownloadItem> {
             } else {
                 "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe".to_string()
             },
+            installed: false,
+        },
+        DownloadItem {
+            id: "nasani-extension".to_string(),
+            category: "vcredist".to_string(),
+            name: "Tiện ích Chrome Nasani Sync".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Extension đồng bộ deadline, nhận việc & auto report".to_string(),
+            url: "local://extensions/nasani-sync".to_string(),
             installed: false,
         },
     ]
@@ -729,6 +740,19 @@ pub fn install_store_item(app: AppHandle, item_id: String) {
 
         emit(82, "Đang tự động giải nén và cấu hình...", false, "");
 
+        if item.id == "nasani-extension" {
+            let res = crate::sites::install_or_open_chrome_extension("install");
+            match res {
+                Ok(_) => {
+                    emit(100, "Đã mở Chrome & thư mục Extension để cài đặt!", true, "");
+                }
+                Err(e) => {
+                    emit(0, "Lỗi cài đặt tiện ích Chrome", true, &e);
+                }
+            }
+            return;
+        }
+
         if item.id == "cloudflared-latest" {
             let cf_dir = base.join("bin/cloudflared");
             let _ = fs::create_dir_all(&cf_dir);
@@ -737,6 +761,11 @@ pub fn install_store_item(app: AppHandle, item_id: String) {
             #[cfg(not(target_os = "windows"))]
             let target_bin = cf_dir.join("cloudflared");
             let _ = fs::copy(&archive_path, &target_bin);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&target_bin, fs::Permissions::from_mode(0o755));
+            }
             emit(100, "Đã cài đặt Cloudflared hoàn tất!", true, "");
             return;
         }
@@ -842,6 +871,15 @@ fn extract_zip_flattened(zip_path: &Path, target_dir: &Path) -> Result<(), Strin
             }
             let mut outfile = File::create(&out_path).map_err(|e| e.to_string())?;
             std::io::copy(&mut entry, &mut outfile).map_err(|e| e.to_string())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Some(mode) = entry.unix_mode() {
+                    let _ = fs::set_permissions(&out_path, fs::Permissions::from_mode(mode));
+                } else if out_path.extension().is_none() || out_path.extension().map_or(false, |ext| ext == "sh" || ext == "dylib" || ext == "so") {
+                    let _ = fs::set_permissions(&out_path, fs::Permissions::from_mode(0o755));
+                }
+            }
         }
     }
 

@@ -2188,6 +2188,8 @@ const SchemaBuilder = {
 			).json();
 
 			if (res.status === "success") {
+				if (typeof SeedManager !== "undefined") SeedManager._typesCache = {};
+				if (typeof AutoMediaManager !== "undefined") AutoMediaManager._cache = {};
 				UI.notify("Đã lưu cấu hình Schema thành công!", "success");
 			} else {
 				UI.notify("Lỗi: " + res.message, "error");

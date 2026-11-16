@@ -1704,9 +1704,6 @@ const UI = {
 					<div class="pd-top-header">
 						<h3 class="pd-top-title">QUẢN LÝ DỰ ÁN NASANI</h3>
 						<div class="pd-top-actions">
-							<button type="button" class="pd-btn-design" onclick="UI.showExtensionModal()" title="Cài đặt &amp; Đồng bộ Extension Chrome Nasani Sync">
-								<span>🧩 Extension</span>
-							</button>
 							<button type="button" class="pd-btn-report" onclick="UI.triggerAutoReport(App.currentProjectName, App.currentCategory)" title="Báo cáo hoàn thành cho trưởng nhóm">
 								<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
 								<span>Báo cáo</span>
@@ -2931,7 +2928,10 @@ const UI = {
 				document.getElementById("detail-project-name")?.innerText?.trim() ||
 				(typeof App !== "undefined" && App.currentProject ? App.currentProject : "") ||
 				"";
-			SeedManager.init(projectName);
+			if (typeof SeedManager !== "undefined") {
+				SeedManager._typesCache = {};
+				SeedManager.init(projectName);
+			}
 		} else if (tabId === "d_tab-synccenter") {
 			if (typeof SyncCenter !== "undefined") SyncCenter.init();
 		} else if (tabId === "d_tab-backups") {
