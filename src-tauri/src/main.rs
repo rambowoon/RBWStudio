@@ -20,11 +20,13 @@ use mail::CaughtEmail;
 use serde::{Deserialize, Serialize};
 use services::ServiceStatus;
 use sites::SiteInfo;
-use std::fs;
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use zip::ZipArchive;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, WindowEvent,
+    AppHandle, Emitter, Manager, WindowEvent,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +51,18 @@ pub struct ReleaseInfo {
     pub release_notes: String,
     pub download_url: String,
     pub published_at: String,
+    pub asset_name: Option<String>,
+    pub asset_download_url: Option<String>,
+    pub asset_size: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProgressEvent {
+    pub percent: u8,
+    pub status: String,
+    pub done: bool,
+    pub error: String,
 }
 
 #[tauri::command]
@@ -71,7 +85,7 @@ async fn get_initial_state(app: AppHandle) -> InitialAppState {
             emails,
             store_items,
             os_platform: std::env::consts::OS.to_string(),
-            app_version: "1.0.0".to_string(),
+            app_version: env!("CARGO_PKG_VERSION").to_string(),
         }
     })
     .await
@@ -531,52 +545,127 @@ fn download_and_install_item(app: AppHandle, item_id: String) {
     downloads::install_store_item(app, item_id);
 }
 
+fn parse_version_numbers(v: &str) -> Vec<u64> {
+    v.trim_start_matches('v')
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|s| s.parse::<u64>().ok())
+        .collect()
+}
+
+fn is_version_newer(latest: &str, current: &str) -> bool {
+    let l_nums = parse_version_numbers(latest);
+    let c_nums = parse_version_numbers(current);
+    if l_nums.is_empty() || c_nums.is_empty() {
+        return false;
+    }
+    for (l, c) in l_nums.iter().zip(c_nums.iter()) {
+        if l > c {
+            return true;
+        }
+        if l < c {
+            return false;
+        }
+    }
+    l_nums.len() > c_nums.len()
+}
+
 #[tauri::command]
 async fn check_github_update() -> ReleaseInfo {
     tauri::async_runtime::spawn_blocking(|| {
-        let current = "1.0.0".to_string();
-        if let Ok(client) = reqwest::blocking::Client::builder()
+        let current = env!("CARGO_PKG_VERSION").to_string();
+        let client = reqwest::blocking::Client::builder()
             .user_agent("RBWStudio-Updater/1.0")
-            .timeout(std::time::Duration::from_secs(6))
-            .build()
-        {
+            .timeout(std::time::Duration::from_secs(8))
+            .build();
+
+        if let Ok(client) = client {
+            let mut val_opt: Option<serde_json::Value> = None;
+
+            // Try /releases/latest first
             if let Ok(resp) = client
-                .get("https://api.github.com/repos/rambowoon/RBWStack/releases/latest")
+                .get("https://api.github.com/repos/rambowoon/RBWStudio/releases/latest")
                 .send()
             {
-                if let Ok(val) = resp.json::<serde_json::Value>() {
-                    let tag = val
-                        .get("tag_name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("v1.0.0")
-                        .trim_start_matches('v')
-                        .to_string();
-                    let notes = val
-                        .get("body")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Đã tối ưu hóa kiến trúc đa nền tảng Tauri v2 + Rust.")
-                        .to_string();
-                    let html_url = val
-                        .get("html_url")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("https://github.com/rambowoon/RBWStack/releases")
-                        .to_string();
-                    let pub_at = val
-                        .get("published_at")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-
-                    let has_update = tag != current && !tag.is_empty();
-                    return ReleaseInfo {
-                        current_version: current,
-                        latest_version: tag,
-                        has_update,
-                        release_notes: notes,
-                        download_url: html_url,
-                        published_at: pub_at,
-                    };
+                if resp.status().is_success() {
+                    if let Ok(val) = resp.json::<serde_json::Value>() {
+                        val_opt = Some(val);
+                    }
                 }
+            }
+
+            // Fallback to /releases?per_page=1 if latest is 404 or empty
+            if val_opt.is_none() {
+                if let Ok(resp) = client
+                    .get("https://api.github.com/repos/rambowoon/RBWStudio/releases?per_page=1")
+                    .send()
+                {
+                    if resp.status().is_success() {
+                        if let Ok(list) = resp.json::<Vec<serde_json::Value>>() {
+                            if let Some(first) = list.into_iter().next() {
+                                val_opt = Some(first);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Some(val) = val_opt {
+                let tag = val
+                    .get("tag_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("v1.0.0")
+                    .trim_start_matches('v')
+                    .to_string();
+                let notes = val
+                    .get("body")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Phiên bản cập nhật mới từ GitHub Releases.")
+                    .to_string();
+                let html_url = val
+                    .get("html_url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("https://github.com/rambowoon/RBWStudio/releases")
+                    .to_string();
+                let pub_at = val
+                    .get("published_at")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let mut asset_name = None;
+                let mut asset_download_url = None;
+                let mut asset_size = None;
+
+                if let Some(assets) = val.get("assets").and_then(|a| a.as_array()) {
+                    for asset in assets {
+                        let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                        let lower = name.to_lowercase();
+                        if lower.ends_with(".exe") || lower.ends_with(".zip") {
+                            asset_name = Some(name.to_string());
+                            asset_download_url = asset
+                                .get("browser_download_url")
+                                .and_then(|u| u.as_str())
+                                .map(|s| s.to_string());
+                            asset_size = asset.get("size").and_then(|s| s.as_u64());
+                            if lower.ends_with(".exe") {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                let has_update = is_version_newer(&tag, &current);
+                return ReleaseInfo {
+                    current_version: current,
+                    latest_version: tag,
+                    has_update,
+                    release_notes: notes,
+                    download_url: html_url,
+                    published_at: pub_at,
+                    asset_name,
+                    asset_download_url,
+                    asset_size,
+                };
             }
         }
 
@@ -584,13 +673,201 @@ async fn check_github_update() -> ReleaseInfo {
             current_version: current.clone(),
             latest_version: current,
             has_update: false,
-            release_notes: "• Ra mắt RBWStudio v1.0.0 chạy trên lõi Rust + Tauri v2 siêu nhẹ.\n• Hỗ trợ tương thích song song Windows & macOS.\n• Tích hợp sẵn máy chủ SMTP Mail Sandbox (cổng 1025).\n• Tích hợp bộ chuyển đổi TTF/OTF sang WOFF & trình tải Google Fonts.\n• Tự động đồng bộ cấu hình DirectAdmin & FTP Deploy Demo.".to_string(),
-            download_url: "https://github.com/rambowoon/RBWStack/releases".to_string(),
+            release_notes: "• RBWStudio chạy trên nền tảng Rust + Tauri v2 siêu nhẹ.\n• Hỗ trợ tương thích song song Windows & macOS.\n• Tích hợp sẵn máy chủ SMTP Mail Sandbox (cổng 1025).\n• Tích hợp bộ chuyển đổi TTF/OTF sang WOFF & trình tải Google Fonts.\n• Tự động đồng bộ cấu hình DirectAdmin & FTP Deploy Demo.".to_string(),
+            download_url: "https://github.com/rambowoon/RBWStudio/releases".to_string(),
             published_at: "2026".to_string(),
+            asset_name: None,
+            asset_download_url: None,
+            asset_size: None,
         }
     })
     .await
     .unwrap()
+}
+
+#[tauri::command]
+fn download_and_apply_update(app: AppHandle, download_url: String) {
+    std::thread::spawn(move || {
+        let emit_progress = |pct: u8, msg: &str, done: bool, err: &str| {
+            let _ = app.emit("app-update-progress", UpdateProgressEvent {
+                percent: pct,
+                status: msg.to_string(),
+                done,
+                error: err.to_string(),
+            });
+        };
+
+        emit_progress(5, "Đang kết nối tới máy chủ cập nhật...", false, "");
+
+        let client = match reqwest::blocking::Client::builder()
+            .user_agent("RBWStudio-Updater/1.0")
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                emit_progress(0, "Lỗi kết nối", false, &format!("Không thể tạo kết nối HTTP: {}", e));
+                return;
+            }
+        };
+
+        let mut resp = match client.get(&download_url).send() {
+            Ok(r) => r,
+            Err(e) => {
+                emit_progress(0, "Lỗi tải về", false, &format!("Không thể tải file cập nhật: {}", e));
+                return;
+            }
+        };
+
+        if !resp.status().is_success() {
+            emit_progress(0, "Lỗi tải về", false, &format!("Máy chủ phản hồi HTTP {}", resp.status()));
+            return;
+        }
+
+        let total_size = resp.content_length().unwrap_or(0);
+        let temp_dir = std::env::temp_dir().join("rbwstudio_update");
+        let _ = fs::create_dir_all(&temp_dir);
+        let temp_file_path = temp_dir.join("update_package.bin");
+
+        let mut file = match File::create(&temp_file_path) {
+            Ok(f) => f,
+            Err(e) => {
+                emit_progress(0, "Lỗi ghi đĩa", false, &format!("Không thể tạo file tạm: {}", e));
+                return;
+            }
+        };
+
+        let mut downloaded: u64 = 0;
+        let mut buffer = [0u8; 64 * 1024];
+        let mut last_percent: u8 = 5;
+
+        loop {
+            match resp.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if let Err(e) = file.write_all(&buffer[..n]) {
+                        emit_progress(0, "Lỗi ghi đĩa", false, &format!("Lỗi ghi file cập nhật: {}", e));
+                        return;
+                    }
+                    downloaded += n as u64;
+                    if total_size > 0 {
+                        let pct = (5 + ((downloaded as f64 / total_size as f64) * 75.0) as u8).min(80);
+                        if pct > last_percent {
+                            last_percent = pct;
+                            emit_progress(
+                                pct,
+                                &format!("Đang tải: {:.1} MB / {:.1} MB ({}%)", downloaded as f64 / 1_048_576.0, total_size as f64 / 1_048_576.0, pct),
+                                false,
+                                "",
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    emit_progress(0, "Lỗi tải về", false, &format!("Bị ngắt quãng khi tải: {}", e));
+                    return;
+                }
+            }
+        }
+        drop(file);
+
+        emit_progress(85, "Đang xử lý gói cài đặt...", false, "");
+
+        let current_exe = match std::env::current_exe() {
+            Ok(p) => p,
+            Err(e) => {
+                emit_progress(0, "Lỗi hệ thống", false, &format!("Không lấy được đường dẫn ứng dụng: {}", e));
+                return;
+            }
+        };
+
+        let is_zip = download_url.to_lowercase().ends_with(".zip");
+        let new_binary_path = if is_zip {
+            emit_progress(88, "Đang giải nén tập tin...", false, "");
+            let zip_file = match File::open(&temp_file_path) {
+                Ok(f) => f,
+                Err(e) => {
+                    emit_progress(0, "Lỗi mở file", false, &format!("Không thể mở file nén: {}", e));
+                    return;
+                }
+            };
+            let mut archive = match ZipArchive::new(zip_file) {
+                Ok(a) => a,
+                Err(e) => {
+                    emit_progress(0, "Lỗi giải nén", false, &format!("File nén không hợp lệ: {}", e));
+                    return;
+                }
+            };
+
+            let extracted_exe = temp_dir.join("RBWStudio_extracted.exe");
+            let mut found_exe = false;
+            for i in 0..archive.len() {
+                if let Ok(mut item) = archive.by_index(i) {
+                    let name = item.name().to_string();
+                    if name.to_lowercase().ends_with(".exe") {
+                        if let Ok(mut out_f) = File::create(&extracted_exe) {
+                            let _ = std::io::copy(&mut item, &mut out_f);
+                            found_exe = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if !found_exe {
+                emit_progress(0, "Lỗi gói cập nhật", false, "Không tìm thấy file thực thi .exe trong file zip.");
+                return;
+            }
+            extracted_exe
+        } else {
+            temp_file_path.clone()
+        };
+
+        emit_progress(95, "Đang áp dụng bản cập nhật mới...", false, "");
+
+        let old_exe = current_exe.with_extension("exe.old");
+        if old_exe.exists() {
+            let _ = fs::remove_file(&old_exe);
+        }
+        if let Err(e) = fs::rename(&current_exe, &old_exe) {
+            emit_progress(0, "Lỗi ghi đè", false, &format!("Không thể di chuyển file thực thi cũ: {}", e));
+            return;
+        }
+
+        if let Err(e) = fs::copy(&new_binary_path, &current_exe) {
+            let _ = fs::rename(&old_exe, &current_exe);
+            emit_progress(0, "Lỗi cài đặt", false, &format!("Không thể sao chép file mới: {}", e));
+            return;
+        }
+
+        let _ = fs::remove_file(&temp_file_path);
+
+        emit_progress(100, "Cập nhật hoàn tất! Hãy nhấn nút Khởi động lại ứng dụng.", true, "");
+    });
+}
+
+#[tauri::command]
+fn restart_app(app: AppHandle) {
+    std::thread::spawn(move || {
+        let _ = services::stop_web_service();
+        let _ = services::stop_php_service();
+        let _ = services::stop_mysql_service();
+
+        if let Ok(exe_path) = std::env::current_exe() {
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                const DETACHED_PROCESS: u32 = 0x00000008;
+                let _ = std::process::Command::new(exe_path)
+                    .creation_flags(DETACHED_PROCESS)
+                    .spawn();
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = std::process::Command::new(exe_path).spawn();
+            }
+        }
+        app.exit(0);
+    });
 }
 
 #[tauri::command]
@@ -846,7 +1123,8 @@ async fn rbw_pro_load_image(url: String) -> Result<String, String> {
 }
 
 fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let header_i = MenuItem::with_id(app, "title", "⚡ RBWStudio v1.0.0", false, None::<&str>)?;
+    let header_title = format!("⚡ RBWStudio v{}", env!("CARGO_PKG_VERSION"));
+    let header_i = MenuItem::with_id(app, "title", &header_title, false, None::<&str>)?;
     let show_i = MenuItem::with_id(app, "show", "🖥️  Mở Bảng Điều Khiển (Dashboard)", true, None::<&str>)?;
 
     // Service controls
@@ -1061,6 +1339,18 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() {
+    // Dọn dẹp file thực thi tạm .old từ các lần tự động cập nhật trước
+    if let Ok(exe_path) = std::env::current_exe() {
+        let old_exe = exe_path.with_extension("exe.old");
+        if old_exe.exists() {
+            let _ = std::fs::remove_file(old_exe);
+        }
+    }
+    let temp_update_dir = std::env::temp_dir().join("rbwstudio_update");
+    if temp_update_dir.exists() {
+        let _ = std::fs::remove_dir_all(temp_update_dir);
+    }
+
     config::ensure_directories();
     let _ = db::init_database();
     services::create_default_index_if_empty();
@@ -1082,22 +1372,31 @@ fn main() {
             color_picker::start_hotkey_listener(app.handle().clone());
 
             let args: Vec<String> = std::env::args().collect();
-            let is_autostart = args.iter().any(|a| a == "--autostart" || a == "-a");
+            let is_autostart = args.iter().any(|a| {
+                let l = a.to_lowercase();
+                l == "--autostart" || l == "-a" || l == "/autostart" || l == "--hidden" || l.contains("autostart")
+            });
 
             let settings = config::load_app_settings();
 
             // Nếu khởi động cùng Windows (hoặc cấu hình auto_start bật)
             if is_autostart || settings.auto_start {
-                // Tự động start tất cả dịch vụ song song (PHP, Web, MySQL)
+                let settings_clone = settings.clone();
                 std::thread::spawn(move || {
-                    services::start_all_services_fast(&settings);
+                    services::start_all_services_fast(&settings_clone);
                 });
+            }
 
-                // Ẩn cửa sổ chính xuống khay hệ thống nếu chạy từ autostart
-                if is_autostart {
-                    if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.hide();
-                    }
+            // Quản lý hiển thị cửa sổ chính:
+            // Cửa sổ "main" có "visible": false trong tauri.conf.json.
+            // Nếu là autostart cùng Windows, giữ cửa sổ ẩn hoàn toàn dưới khay hệ thống (Tray Icon).
+            // Nếu người dùng mở app bình thường, hiển thị cửa sổ và focus.
+            if let Some(w) = app.get_webview_window("main") {
+                if !is_autostart {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                } else {
+                    let _ = w.hide();
                 }
             }
 
@@ -1170,6 +1469,8 @@ fn main() {
             sync_online_store_versions,
             download_and_install_item,
             check_github_update,
+            download_and_apply_update,
+            restart_app,
             window_close_or_hide,
             window_toggle_maximize,
             show_main_window,
@@ -1204,4 +1505,20 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("Lỗi khởi chạy ứng dụng RBWStudio");
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+
+    #[test]
+    fn test_version_comparisons() {
+        assert!(is_version_newer("v1.0.1", "1.0.0"));
+        assert!(is_version_newer("1.1.0", "1.0.0"));
+        assert!(is_version_newer("2.0.0", "1.9.9"));
+        assert!(is_version_newer("1.0.0.1", "1.0.0"));
+        assert!(!is_version_newer("1.0.0", "1.0.0"));
+        assert!(!is_version_newer("v1.0.0", "1.0.0"));
+        assert!(!is_version_newer("0.9.9", "1.0.0"));
+    }
 }

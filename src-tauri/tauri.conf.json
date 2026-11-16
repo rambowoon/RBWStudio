@@ -20,14 +20,15 @@
         "maximizable": true,
         "decorations": false,
         "transparent": false,
-        "center": true
+        "center": true,
+        "visible": false
       },
       {
         "label": "tray",
         "url": "tray.html",
         "title": "RBWStudio Menu",
         "width": 270,
-        "height": 460,
+        "height": 430,
         "resizable": false,
         "maximizable": false,
         "decorations": false,

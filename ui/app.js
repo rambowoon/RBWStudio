@@ -81,7 +81,8 @@ let appState = {
   selectedFontMode: "local",
   selectedFontFamily: null,
   activeStoreCategory: "php",
-  latestReleaseUrl: "https://github.com/rambowoon/RBWStack/releases",
+  latestReleaseUrl: "https://github.com/rambowoon/RBWStudio/releases",
+  latestReleaseInfo: null,
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -1916,9 +1917,45 @@ function bindModalEvents() {
     }
   });
 
-  document.getElementById("btnCheckUpdate")?.addEventListener("click", checkUpdateInfo);
+  document.getElementById("btnCheckUpdate")?.addEventListener("click", () => checkUpdateInfo(true));
   document.getElementById("btnOpenReleaseUrl")?.addEventListener("click", () => {
-    tauriInvoke("open_browser", { url: appState.latestReleaseUrl });
+    tauriInvoke("open_browser", { url: appState.latestReleaseUrl || "https://github.com/rambowoon/RBWStudio/releases" });
+  });
+  document.getElementById("btnAutoInstallUpdate")?.addEventListener("click", async () => {
+    const info = appState.latestReleaseInfo;
+    if (!info || !info.assetDownloadUrl) return;
+
+    const progressContainer = document.getElementById("updateProgressContainer");
+    const progressBar = document.getElementById("updateProgressBar");
+    const progressPercent = document.getElementById("updateProgressPercent");
+    const progressStatus = document.getElementById("updateProgressStatus");
+    const btnAuto = document.getElementById("btnAutoInstallUpdate");
+
+    if (progressContainer) progressContainer.style.display = "block";
+    if (progressBar) progressBar.style.width = "5%";
+    if (progressPercent) progressPercent.textContent = "5%";
+    if (progressStatus) progressStatus.textContent = "Đang kết nối để tải bản cập nhật...";
+    if (btnAuto) {
+      btnAuto.disabled = true;
+      btnAuto.innerHTML = `<span class="step-spinner"></span> Đang tải...`;
+    }
+
+    showToast("Đang tải bản cập nhật mới từ GitHub...", "info");
+
+    try {
+      await tauriInvoke("download_and_apply_update", { downloadUrl: info.assetDownloadUrl });
+    } catch (err) {
+      showToast("Lỗi cập nhật: " + err, "error");
+      if (progressStatus) progressStatus.textContent = "Lỗi: " + err;
+      if (btnAuto) {
+        btnAuto.disabled = false;
+        btnAuto.innerHTML = `${svgIcon("download", 14)} Cập nhật tự động (v${info.latestVersion})`;
+      }
+    }
+  });
+
+  document.getElementById("btnRestartApp")?.addEventListener("click", () => {
+    tauriInvoke("restart_app");
   });
   document.getElementById("btnSyncOnlineStore")?.addEventListener("click", async () => {
     setHeaderStatus("Đang quét phiên bản mới nhất...", true);
@@ -2104,19 +2141,76 @@ function renderProjectInstalledFonts(css, installed) {
   });
 }
 
-async function checkUpdateInfo() {
-  const info = await tauriInvoke("check_github_update");
-  if (!info) return;
-  document.getElementById("lblCurrentVer").textContent = `v${info.currentVersion}`;
-  document.getElementById("txtReleaseNotes").textContent = info.releaseNotes;
-  appState.latestReleaseUrl = info.downloadUrl;
-  const btn = document.getElementById("btnOpenReleaseUrl");
-  if (info.hasUpdate) {
-    document.getElementById("lblLatestVerStatus").textContent = `Đã có phiên bản mới v${info.latestVersion}!`;
-    btn.hidden = false;
-  } else {
-    document.getElementById("lblLatestVerStatus").textContent = "Bạn đang sử dụng phiên bản mới nhất.";
-    btn.hidden = true;
+async function checkUpdateInfo(manual = false) {
+  const btnCheck = document.getElementById("btnCheckUpdate");
+  const origHtml = btnCheck ? btnCheck.innerHTML : "";
+  if (btnCheck) {
+    btnCheck.disabled = true;
+    btnCheck.innerHTML = `${svgIcon("refresh", 14)} Đang kiểm tra...`;
+  }
+
+  try {
+    const info = await tauriInvoke("check_github_update");
+    if (!info) return;
+
+    appState.latestReleaseInfo = info;
+    appState.latestReleaseUrl = info.downloadUrl || "https://github.com/rambowoon/RBWStudio/releases";
+
+    const lblCurrentVer = document.getElementById("lblCurrentVer");
+    const lblLatestVerStatus = document.getElementById("lblLatestVerStatus");
+    const txtReleaseNotes = document.getElementById("txtReleaseNotes");
+    const btnAuto = document.getElementById("btnAutoInstallUpdate");
+    const btnOpen = document.getElementById("btnOpenReleaseUrl");
+    const btnRestart = document.getElementById("btnRestartApp");
+    const navBadge = document.getElementById("updateNavBadge");
+
+    if (lblCurrentVer) lblCurrentVer.textContent = `v${info.currentVersion}`;
+    if (txtReleaseNotes) txtReleaseNotes.textContent = info.releaseNotes;
+
+    if (info.hasUpdate) {
+      const pubDate = info.publishedAt ? ` (Ngày phát hành: ${info.publishedAt.slice(0, 10)})` : "";
+      if (lblLatestVerStatus) {
+        lblLatestVerStatus.innerHTML = `<span style="color:#10b981;font-weight:600">Đã có phiên bản mới v${info.latestVersion}!</span>${pubDate}`;
+      }
+      if (btnAuto) {
+        if (info.assetDownloadUrl) {
+          btnAuto.style.display = "inline-flex";
+          btnAuto.disabled = false;
+          btnAuto.innerHTML = `${svgIcon("download", 14)} Cập nhật tự động (v${info.latestVersion})`;
+        } else {
+          btnAuto.style.display = "none";
+        }
+      }
+      if (btnOpen) {
+        btnOpen.style.display = "inline-flex";
+        btnOpen.innerHTML = `${svgIcon("external", 14)} Tải trên GitHub`;
+      }
+      if (btnRestart) btnRestart.style.display = "none";
+      if (navBadge) navBadge.style.display = "inline-flex";
+
+      if (manual) showToast(`Đã tìm thấy bản cập nhật mới v${info.latestVersion}!`, "success");
+    } else {
+      if (lblLatestVerStatus) {
+        lblLatestVerStatus.textContent = "Bạn đang sử dụng phiên bản mới nhất.";
+      }
+      if (btnAuto) btnAuto.style.display = "none";
+      if (btnRestart) btnRestart.style.display = "none";
+      if (btnOpen) {
+        btnOpen.style.display = "inline-flex";
+        btnOpen.innerHTML = `${svgIcon("external", 14)} GitHub Releases`;
+      }
+      if (navBadge) navBadge.style.display = "none";
+
+      if (manual) showToast(`Bạn đang sử dụng phiên bản mới nhất (v${info.currentVersion})`, "info");
+    }
+  } catch (err) {
+    console.error("Check update error:", err);
+    if (manual) showToast("Không thể kết nối đến GitHub Releases: " + err, "error");
+  } finally {
+    if (btnCheck) {
+      btnCheck.disabled = false;
+      btnCheck.innerHTML = origHtml || `${svgIcon("refresh", 14)} Kiểm tra bản mới`;
+    }
   }
 }
 
@@ -2160,6 +2254,35 @@ function bindRealtimeListeners() {
       const step = p >= 88 ? 5 : p >= 70 ? 4 : p >= 55 ? 3 : p >= 30 ? 2 : 1;
       for (let i = 1; i < step; i++) setMainDeployStep(i, "done");
       setMainDeployStep(step, "active", payload.message);
+    }
+  });
+
+  tauriListen("app-update-progress", (event) => {
+    const payload = event.payload;
+    const progressContainer = document.getElementById("updateProgressContainer");
+    const progressBar = document.getElementById("updateProgressBar");
+    const progressPercent = document.getElementById("updateProgressPercent");
+    const progressStatus = document.getElementById("updateProgressStatus");
+    const btnAuto = document.getElementById("btnAutoInstallUpdate");
+    const btnRestart = document.getElementById("btnRestartApp");
+
+    if (progressContainer) progressContainer.style.display = "block";
+    if (progressBar) progressBar.style.width = `${payload.percent}%`;
+    if (progressPercent) progressPercent.textContent = `${payload.percent}%`;
+    if (progressStatus) progressStatus.textContent = payload.status;
+
+    if (payload.done) {
+      if (payload.error) {
+        showToast("Lỗi cập nhật: " + payload.error, "error");
+        if (btnAuto) {
+          btnAuto.disabled = false;
+          btnAuto.innerHTML = `${svgIcon("download", 14)} Thử cập nhật lại`;
+        }
+      } else {
+        showToast("Đã tải và cài đặt cập nhật thành công! Vui lòng khởi động lại ứng dụng.", "success");
+        if (btnAuto) btnAuto.style.display = "none";
+        if (btnRestart) btnRestart.style.display = "inline-flex";
+      }
     }
   });
 
