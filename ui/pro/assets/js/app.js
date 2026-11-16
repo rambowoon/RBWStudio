@@ -71,6 +71,23 @@ const App = {
 				this.showDeployProjectModal(pName);
 			}
 		});
+
+		// Lắng nghe hàng đợi triển khai từ Chrome Extension (khi user bấm "Triển khai" trên projects.nasani.vn)
+		setInterval(async () => {
+			try {
+				const r = await fetch("api.php?action=checkPendingStudioDeploy");
+				const d = await r.json();
+				if (d && d.status === "success" && d.projectName) {
+					if (window.parent && window.parent !== window) {
+						window.parent.postMessage({ type: "rbw-open-tab", tab: "pro" }, "*");
+						if (window.parent.__TAURI__?.core?.invoke) {
+							window.parent.__TAURI__.core.invoke("show_main_window").catch(() => {});
+						}
+					}
+					this.showDeployProjectModal(d.projectName);
+				}
+			} catch (_) {}
+		}, 3000);
 	},
 
 	async showCategories() {

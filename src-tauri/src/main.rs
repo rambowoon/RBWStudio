@@ -920,6 +920,40 @@ async fn resize_tray_window(app: AppHandle, height: f64) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn resize_main_window(app: AppHandle, pro_mode: bool) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("main") {
+        if win.is_maximized().unwrap_or(false) {
+            return Ok(());
+        }
+
+        let (target_w, target_h) = if pro_mode {
+            (1440.0_f64, 880.0_f64)
+        } else {
+            (1080.0_f64, 680.0_f64)
+        };
+
+        let (final_w, final_h) = if let Ok(Some(monitor)) = win.current_monitor() {
+            let scale = monitor.scale_factor();
+            let mon_w = monitor.size().width as f64 / scale;
+            let mon_h = monitor.size().height as f64 / scale;
+            (
+                target_w.min((mon_w - 40.0).max(1080.0)),
+                target_h.min((mon_h - 60.0).max(680.0)),
+            )
+        } else {
+            (target_w, target_h)
+        };
+
+        let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: final_w,
+            height: final_h,
+        }));
+        let _ = win.center();
+    }
+    Ok(())
+}
+
 // ============================================================================
 // RBW PRO TOOLS COMMANDS
 // ============================================================================
@@ -1476,6 +1510,7 @@ fn main() {
             show_main_window,
             exit_app,
             resize_tray_window,
+            resize_main_window,
             pro_get_manager_url,
             pro_get_hosts,
             pro_save_hosts_raw,

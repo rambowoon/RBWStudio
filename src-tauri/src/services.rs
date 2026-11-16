@@ -589,13 +589,10 @@ pub fn trust_ssl_certificate(crt_path: &Path) {
 
 pub fn generate_vhosts_configs(settings: &AppSettings) {
     let base = config::get_base_dir();
-    let sites_root = config::get_sites_root_dir();
     let www_base = config::get_www_base_dir();
     let root_project = config::load_text_file("root_project.txt");
-    let doc_root = if !root_project.is_empty() && sites_root.join(&root_project).exists() {
-        sites_root.join(&root_project)
-    } else if !root_project.is_empty() && www_base.join(&root_project).exists() {
-        www_base.join(&root_project)
+    let doc_root = if !root_project.is_empty() {
+        config::resolve_site_dir(&root_project).unwrap_or_else(|| www_base.clone())
     } else {
         www_base.clone()
     };
@@ -608,6 +605,7 @@ pub fn generate_vhosts_configs(settings: &AppSettings) {
     let ssl_map = config::load_bool_map("ssl.json");
     let site_php_map = config::load_string_map("sites.json");
     let pma_dir = base.join("phpmyadmin").to_string_lossy().replace('\\', "/");
+    let rbw_mgr_dir = www_base.join("RBWManager").to_string_lossy().replace('\\', "/");
     let doc_root_str = doc_root.to_string_lossy().replace('\\', "/");
     let sites_root_str = www_base.to_string_lossy().replace('\\', "/");
 
@@ -623,8 +621,17 @@ pub fn generate_vhosts_configs(settings: &AppSettings) {
         .to_string_lossy()
         .replace('\\', "/");
 
+    let root_folder_name = doc_root
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&root_project);
+    let root_rel_path = config::get_site_rel_path(&doc_root);
     let root_php_port = if !root_project.is_empty() {
-        if let Some(ver) = site_php_map.get(&root_project) {
+        if let Some(ver) = site_php_map
+            .get(&root_project)
+            .or_else(|| site_php_map.get(root_folder_name))
+            .or_else(|| site_php_map.get(&root_rel_path))
+        {
             get_site_php_port(ver, settings)
         } else {
             settings.php_cgi_port
@@ -632,6 +639,50 @@ pub fn generate_vhosts_configs(settings: &AppSettings) {
     } else {
         settings.php_cgi_port
     };
+
+    struct ResolvedVhost {
+        domain: String,
+        site_path: String,
+        php_port: u16,
+        has_ssl: bool,
+    }
+    let mut vhost_items: Vec<(&String, &String)> = vhosts_map.iter().collect();
+    vhost_items.sort_by(|a, b| a.0.cmp(b.0));
+    let mut seen_domains: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut resolved_vhosts: Vec<ResolvedVhost> = Vec::new();
+    for (site_key, domain) in vhost_items {
+        let dom_clean = domain.trim().to_lowercase();
+        if dom_clean.is_empty() || !seen_domains.insert(dom_clean.clone()) {
+            continue;
+        }
+        let Some(site_dir) = config::resolve_site_dir(site_key) else {
+            continue;
+        };
+        let folder_name = site_dir
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(site_key.as_str());
+        let rel_path = config::get_site_rel_path(&site_dir);
+        let php_ver = site_php_map
+            .get(site_key)
+            .or_else(|| site_php_map.get(folder_name))
+            .or_else(|| site_php_map.get(&rel_path))
+            .cloned()
+            .unwrap_or_default();
+        let php_port = get_site_php_port(&php_ver, settings);
+        let has_ssl = *ssl_map
+            .get(site_key)
+            .or_else(|| ssl_map.get(folder_name))
+            .or_else(|| ssl_map.get(&rel_path))
+            .unwrap_or(&false);
+
+        resolved_vhosts.push(ResolvedVhost {
+            domain: dom_clean,
+            site_path: site_dir.to_string_lossy().replace('\\', "/"),
+            php_port,
+            has_ssl,
+        });
+    }
 
     // 1. Configure Nginx
     for ver in list_installed_versions("nginx") {
@@ -693,23 +744,9 @@ pub fn generate_vhosts_configs(settings: &AppSettings) {
         }
 
         let mut vhost_blocks = String::new();
-        if let Ok(entries) = fs::read_dir(&sites_root) {
-            for entry in entries.flatten() {
-                if !entry.path().is_dir() {
-                    continue;
-                }
-                let site_name = entry.file_name().to_string_lossy().to_string();
-                let domain = match vhosts_map.get(&site_name) {
-                    Some(d) if !d.is_empty() => d.clone(),
-                    _ => continue,
-                };
-                let site_path = entry.path().to_string_lossy().replace('\\', "/");
-                let php_ver = site_php_map.get(&site_name).cloned().unwrap_or_default();
-                let php_port = get_site_php_port(&php_ver, settings);
-                let has_ssl = *ssl_map.get(&site_name).unwrap_or(&false);
-
-                vhost_blocks.push_str(&format!(
-                    r#"
+        for vh in &resolved_vhosts {
+            vhost_blocks.push_str(&format!(
+                r#"
     server {{
         listen       {port};
         server_name  {domain} www.{domain};
@@ -728,16 +765,16 @@ pub fn generate_vhosts_configs(settings: &AppSettings) {
             include        fastcgi_params;
         }}
     }}"#,
-                    port = settings.web_port,
-                    domain = domain,
-                    site_path = site_path,
-                    php_port = php_port
-                ));
+                port = settings.web_port,
+                domain = vh.domain,
+                site_path = vh.site_path,
+                php_port = vh.php_port
+            ));
 
-                if has_ssl {
-                    let (crt, key) = ensure_ssl_cert(&domain);
-                    vhost_blocks.push_str(&format!(
-                        r#"
+            if vh.has_ssl {
+                let (crt, key) = ensure_ssl_cert(&vh.domain);
+                vhost_blocks.push_str(&format!(
+                    r#"
     server {{
         listen       443 ssl;
         server_name  {domain} www.{domain};
@@ -759,13 +796,12 @@ pub fn generate_vhosts_configs(settings: &AppSettings) {
             include        fastcgi_params;
         }}
     }}"#,
-                        domain = domain,
-                        site_path = site_path,
-                        crt = crt.to_string_lossy().replace('\\', "/"),
-                        key = key.to_string_lossy().replace('\\', "/"),
-                        php_port = php_port
-                    ));
-                }
+                    domain = vh.domain,
+                    site_path = vh.site_path,
+                    crt = crt.to_string_lossy().replace('\\', "/"),
+                    key = key.to_string_lossy().replace('\\', "/"),
+                    php_port = vh.php_port
+                ));
             }
         }
 
@@ -811,6 +847,18 @@ http {{
                 include        fastcgi_params;
             }}
         }}
+
+        location ^~ /RBWManager/ {{
+            alias "{rbw_mgr_dir}/";
+            index index.php index.html index.htm;
+
+            location ~ \.php$ {{
+                fastcgi_pass   127.0.0.1:{php_port};
+                fastcgi_index  index.php;
+                fastcgi_param  SCRIPT_FILENAME  $request_filename;
+                include        fastcgi_params;
+            }}
+        }}
 {custom_locations}
         location ~ \.php$ {{
             fastcgi_pass   127.0.0.1:{root_php_port};
@@ -845,6 +893,18 @@ http {{
                 include        fastcgi_params;
             }}
         }}
+
+        location ^~ /RBWManager/ {{
+            alias "{rbw_mgr_dir}/";
+            index index.php index.html index.htm;
+
+            location ~ \.php$ {{
+                fastcgi_pass   127.0.0.1:{php_port};
+                fastcgi_index  index.php;
+                fastcgi_param  SCRIPT_FILENAME  $request_filename;
+                include        fastcgi_params;
+            }}
+        }}
 {custom_locations}
         location ~ \.php$ {{
             fastcgi_pass   127.0.0.1:{root_php_port};
@@ -859,6 +919,7 @@ http {{
             port = settings.web_port,
             doc_root = doc_root_str,
             pma_dir = pma_dir,
+            rbw_mgr_dir = rbw_mgr_dir,
             php_port = settings.php_cgi_port,
             root_php_port = root_php_port,
             custom_locations = custom_locations,
@@ -930,23 +991,9 @@ http {{
         }
 
         let mut vhost_entries = String::new();
-        if let Ok(entries) = fs::read_dir(&sites_root) {
-            for entry in entries.flatten() {
-                if !entry.path().is_dir() {
-                    continue;
-                }
-                let site_name = entry.file_name().to_string_lossy().to_string();
-                let domain = match vhosts_map.get(&site_name) {
-                    Some(d) if !d.is_empty() => d.clone(),
-                    _ => continue,
-                };
-                let site_path = entry.path().to_string_lossy().replace('\\', "/");
-                let php_ver = site_php_map.get(&site_name).cloned().unwrap_or_default();
-                let php_port = get_site_php_port(&php_ver, settings);
-                let has_ssl = *ssl_map.get(&site_name).unwrap_or(&false);
-
-                vhost_entries.push_str(&format!(
-                    r#"
+        for vh in &resolved_vhosts {
+            vhost_entries.push_str(&format!(
+                r#"
 <VirtualHost *:{port}>
     ServerName {domain}
     ServerAlias www.{domain}
@@ -961,16 +1008,16 @@ http {{
     </Directory>
 </VirtualHost>
 "#,
-                    port = settings.web_port,
-                    domain = domain,
-                    site_path = site_path,
-                    php_port = php_port
-                ));
+                port = settings.web_port,
+                domain = vh.domain,
+                site_path = vh.site_path,
+                php_port = vh.php_port
+            ));
 
-                if has_ssl {
-                    let (crt, key) = ensure_ssl_cert(&domain);
-                    vhost_entries.push_str(&format!(
-                        r#"
+            if vh.has_ssl {
+                let (crt, key) = ensure_ssl_cert(&vh.domain);
+                vhost_entries.push_str(&format!(
+                    r#"
 <VirtualHost *:443>
     ServerName {domain}
     ServerAlias www.{domain}
@@ -988,13 +1035,12 @@ http {{
     </Directory>
 </VirtualHost>
 "#,
-                        domain = domain,
-                        site_path = site_path,
-                        crt = crt.to_string_lossy().replace('\\', "/"),
-                        key = key.to_string_lossy().replace('\\', "/"),
-                        php_port = php_port
-                    ));
-                }
+                    domain = vh.domain,
+                    site_path = vh.site_path,
+                    crt = crt.to_string_lossy().replace('\\', "/"),
+                    key = key.to_string_lossy().replace('\\', "/"),
+                    php_port = vh.php_port
+                ));
             }
         }
 
@@ -1059,6 +1105,16 @@ Alias /phpmyadmin "{pma_dir}"
     </FilesMatch>
 </Directory>
 
+Alias /RBWManager "{rbw_mgr_dir}"
+<Directory "{rbw_mgr_dir}">
+    Options Indexes FollowSymLinks MultiViews
+    AllowOverride All
+    Require all granted
+    <FilesMatch \.php$>
+        SetHandler "proxy:fcgi://127.0.0.1:{php_port}//./"
+    </FilesMatch>
+</Directory>
+
 {custom_directories}
 
 DirectoryIndex index.php index.html
@@ -1087,6 +1143,11 @@ LogLevel warn
     SSLEngine on
     SSLCertificateFile "{ssl_crt}"
     SSLCertificateKeyFile "{ssl_key}"
+    <Directory "{doc_root}">
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
     <FilesMatch \.php$>
         SetHandler "proxy:fcgi://127.0.0.1:{root_php_port}//./"
     </FilesMatch>
@@ -1099,6 +1160,7 @@ LogLevel warn
             php_port = settings.php_cgi_port,
             doc_root = doc_root_str,
             pma_dir = pma_dir,
+            rbw_mgr_dir = rbw_mgr_dir,
             custom_directories = custom_directories,
             vhost_entries = vhost_entries,
             ssl_crt = ssl_crt_str,

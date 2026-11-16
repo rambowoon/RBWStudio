@@ -408,3 +408,62 @@ pub fn set_os_auto_start(enabled: bool) {
     }
 }
 
+/// Phân giải đường dẫn thư mục thực tế của một dự án (hỗ trợ cả nằm trực tiếp hoặc trong thư mục tháng như 2026_11/ten_du_an).
+pub fn resolve_site_dir(site_name: &str) -> Option<PathBuf> {
+    let clean = site_name.trim().trim_matches(|c| c == '/' || c == '\\');
+    if clean.is_empty() {
+        return None;
+    }
+
+    let sites_root = get_sites_root_dir();
+    let www_base = get_www_base_dir();
+
+    let direct_sites = sites_root.join(clean);
+    if direct_sites.is_dir() {
+        return Some(direct_sites);
+    }
+
+    let direct_www = www_base.join(clean);
+    if direct_www.is_dir() {
+        return Some(direct_www);
+    }
+
+    for base_dir in [&www_base, &sites_root] {
+        if let Ok(entries) = fs::read_dir(base_dir) {
+            for entry in entries.flatten() {
+                let sub_dir = entry.path();
+                if !sub_dir.is_dir() {
+                    continue;
+                }
+                let folder_name = entry.file_name().to_string_lossy().to_string();
+                if is_month_or_cat_folder(&folder_name) {
+                    let candidate = sub_dir.join(clean);
+                    if candidate.is_dir() {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Lấy đường dẫn tương đối (vd: "2026_11/lychihung_1962126w" hoặc "my_project") so với thư mục www gốc.
+pub fn get_site_rel_path(site_path: &Path) -> String {
+    let www_base = get_www_base_dir();
+    let sites_root = get_sites_root_dir();
+
+    site_path
+        .strip_prefix(&www_base)
+        .or_else(|_| site_path.strip_prefix(&sites_root))
+        .map(|r| r.to_string_lossy().replace('\\', "/").trim_matches('/').to_string())
+        .unwrap_or_else(|_| {
+            site_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string()
+        })
+}
+

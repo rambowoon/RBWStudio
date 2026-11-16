@@ -977,6 +977,139 @@ const UI = {
 		document.body.appendChild(modal);
 	},
 
+	async showExtensionModal() {
+		const existing = document.getElementById("rbw-extension-modal");
+		if (existing) existing.remove();
+
+		let extPath = "D:\\RBWStudio\\extensions\\nasani-sync";
+		let syncedTotal = 0;
+		let syncedAt = "Chưa đồng bộ";
+
+		try {
+			const res = await fetch("api.php?action=getNasaniData").then((r) => r.json());
+			if (res && res.status === "success") {
+				if (res.extension_path) extPath = res.extension_path;
+				const d = res.data || {};
+				syncedTotal = Number(d.total || (Array.isArray(d.projects) ? d.projects.length : 0));
+				if (d.synced_at_formatted) syncedAt = d.synced_at_formatted;
+			}
+		} catch (_) {}
+
+		try {
+			await navigator.clipboard.writeText(extPath);
+		} catch (_) {}
+
+		const escHtml = (s) =>
+			String(s || "")
+				.replace(/&/g, "&amp;")
+				.replace(/</g, "&lt;")
+				.replace(/>/g, "&gt;")
+				.replace(/"/g, "&quot;");
+
+		const modal = document.createElement("div");
+		modal.id = "rbw-extension-modal";
+		modal.style.cssText = `
+			position: fixed; inset: 0; z-index: 9999999;
+			background: rgba(10, 12, 18, 0.78); backdrop-filter: blur(8px);
+			display: flex; align-items: center; justify-content: center;
+			padding: 20px;
+		`;
+
+		modal.innerHTML = `
+			<div style="background: #1e222d; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 16px; width: 100%; max-width: 560px; box-shadow: 0 24px 64px rgba(0,0,0,0.65); overflow: hidden; font-family: inherit; color: #f1f5f9;">
+				<div style="background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%); padding: 18px 24px; display: flex; align-items: center; justify-content: space-between;">
+					<div style="display: flex; align-items: center; gap: 10px;">
+						<span style="font-size: 24px;">🧩</span>
+						<div>
+							<div style="font-weight: 700; font-size: 16px; color: #ffffff;">Chrome Extension — Nasani Projects Sync</div>
+							<div style="font-size: 12px; color: rgba(255,255,255,0.85);">Đồng bộ Deadline &amp; Tự động điền form Báo cáo Nasani</div>
+						</div>
+					</div>
+					<button type="button" id="rbw-ext-close-top" style="background: rgba(0,0,0,0.2); border: none; color: #fff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;">✕</button>
+				</div>
+				<div style="padding: 20px 24px;">
+					<div style="display: flex; gap: 12px; margin-bottom: 14px;">
+						<div style="flex: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px;">
+							<div style="font-size: 11px; text-transform: uppercase; color: #94a3b8; font-weight: 600;">Dự án đã đồng bộ</div>
+							<div style="font-size: 18px; font-weight: 800; color: #38bdf8; margin-top: 2px;">${syncedTotal} dự án</div>
+						</div>
+						<div style="flex: 1.3; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px;">
+							<div style="font-size: 11px; text-transform: uppercase; color: #94a3b8; font-weight: 600;">Đồng bộ lần cuối</div>
+							<div style="font-size: 14px; font-weight: 700; color: #34d399; margin-top: 4px;">${escHtml(syncedAt)}</div>
+						</div>
+					</div>
+
+					<div style="margin-bottom: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px;">
+						<div style="font-size: 11px; text-transform: uppercase; color: #94a3b8; font-weight: 600; margin-bottom: 6px;">Đường dẫn thư mục Extension (Đã tự động copy)</div>
+						<div style="display: flex; gap: 8px; align-items: center;">
+							<input type="text" id="rbw-ext-path-input" readonly value="${escHtml(extPath)}" style="flex: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.12); color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12.5px; font-family: monospace; outline: none;">
+							<button type="button" id="rbw-ext-copy-btn" style="background: rgba(56, 189, 248, 0.16); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;">📋 Copy đường dẫn</button>
+						</div>
+					</div>
+
+					<div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px;">
+						<button type="button" id="rbw-ext-btn-install" style="width: 100%; background: linear-gradient(135deg, #0ea5e9, #2563eb); color: #ffffff; border: none; padding: 12px 16px; border-radius: 10px; font-weight: 700; font-size: 13.5px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(14, 165, 233, 0.35);">
+							<span>🧩</span> Cài vào Chrome (Mở chrome://extensions &amp; Thư mục Extension)
+						</button>
+						<button type="button" id="rbw-ext-btn-launch" style="width: 100%; background: rgba(16, 185, 129, 0.14); border: 1px solid rgba(16, 185, 129, 0.35); color: #34d399; padding: 11px 16px; border-radius: 10px; font-weight: 600; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+							<span>🚀</span> Khởi chạy Chrome nạp sẵn Extension &amp; Mở Nasani
+						</button>
+						<button type="button" id="rbw-ext-btn-open-nasani" style="width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #e2e8f0; padding: 10px 16px; border-radius: 10px; font-weight: 600; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+							<span>🌐</span> Mở danh sách kỹ thuật Nasani (projects.nasani.vn)
+						</button>
+					</div>
+
+					<div style="font-size: 12px; color: #94a3b8; line-height: 1.5; background: rgba(255,255,255,0.02); border-radius: 8px; padding: 10px 12px;">
+						<b>Mẹo cài nhanh:</b> Sau khi bấm nút màu xanh dương bên trên, chỉ cần kéo thả thư mục <b>nasani-sync</b> đang mở vào trang <code>chrome://extensions</code> (hoặc bấm <b>Load unpacked</b> ➔ nhấn <b>Ctrl+V</b>).
+					</div>
+				</div>
+			</div>
+		`;
+
+		document.body.appendChild(modal);
+
+		document.getElementById("rbw-ext-close-top")?.addEventListener("click", () => modal.remove());
+		modal.addEventListener("click", (e) => {
+			if (e.target === modal) modal.remove();
+		});
+		document.getElementById("rbw-ext-copy-btn")?.addEventListener("click", async () => {
+			try {
+				await navigator.clipboard.writeText(extPath);
+				this.showToast("Đã sao chép đường dẫn Extension!", "success");
+			} catch (_) {}
+		});
+		document.getElementById("rbw-ext-btn-install")?.addEventListener("click", () => {
+			this.installChromeExtAction("install", extPath);
+		});
+		document.getElementById("rbw-ext-btn-launch")?.addEventListener("click", () => {
+			this.installChromeExtAction("launch_chrome_ext", extPath);
+		});
+		document.getElementById("rbw-ext-btn-open-nasani")?.addEventListener("click", () => {
+			window.open("https://projects.nasani.vn/ky-thuat/program/list/", "_blank");
+		});
+	},
+
+	async installChromeExtAction(mode, extPath) {
+		if (extPath) {
+			try {
+				await navigator.clipboard.writeText(extPath);
+			} catch (_) {}
+		}
+		try {
+			const res = await fetch(`api.php?action=installChromeExtension&mode=${encodeURIComponent(mode || "install")}`).then((r) => r.json());
+			if (res && res.status === "success") {
+				this.showToast(
+					"Đã copy đường dẫn Extension & mở Chrome! Hãy kéo thả thư mục nasani-sync (hoặc bấm Load unpacked -> Ctrl+V) vào trang Extensions.",
+					"success"
+				);
+			} else {
+				this.showToast((res && res.message) || "Không thể mở trình cài đặt Extension.", "error");
+			}
+		} catch (e) {
+			this.showToast("Lỗi khi gọi trình cài đặt Extension: " + String(e), "error");
+		}
+	},
+
 	// ===== PORTAL MENU (single element at body level) =====
 	openMenu(event, projectName, category) {
 		const trigger = event.currentTarget || event.target;
@@ -1571,6 +1704,9 @@ const UI = {
 					<div class="pd-top-header">
 						<h3 class="pd-top-title">QUẢN LÝ DỰ ÁN NASANI</h3>
 						<div class="pd-top-actions">
+							<button type="button" class="pd-btn-design" onclick="UI.showExtensionModal()" title="Cài đặt &amp; Đồng bộ Extension Chrome Nasani Sync">
+								<span>🧩 Extension</span>
+							</button>
 							<button type="button" class="pd-btn-report" onclick="UI.triggerAutoReport(App.currentProjectName, App.currentCategory)" title="Báo cáo hoàn thành cho trưởng nhóm">
 								<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
 								<span>Báo cáo</span>

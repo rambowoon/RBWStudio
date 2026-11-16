@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Nasani Projects Sync ➔ RBWManager",
+  "version": "1.1.0",
+  "description": "Tự động trích xuất thông tin Dự kiến hoàn thành, Mã HĐ, Link Design từ projects.nasani.vn và đồng bộ về RBWManager.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://projects.nasani.vn/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Nasani Projects Sync"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://projects.nasani.vn/ky-thuat/program/*",
+        "https://projects.nasani.vn/ky-thuat/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["content-local.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

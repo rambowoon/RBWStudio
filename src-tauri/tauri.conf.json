@@ -12,8 +12,8 @@
       {
         "label": "main",
         "title": "RBWStudio - Portable Web Server Manager",
-        "width": 1440,
-        "height": 880,
+        "width": 1080,
+        "height": 680,
         "minWidth": 1080,
         "minHeight": 680,
         "resizable": true,

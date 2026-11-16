@@ -213,45 +213,57 @@ pub fn toggle_site_ssl(site_name: &str, enabled: bool) -> Result<(), String> {
     let mut map = config::load_bool_map("ssl.json");
     map.insert(site_name.to_string(), enabled);
     config::save_bool_map("ssl.json", &map)?;
+    sync_site_env_url(site_name);
     let settings = config::load_app_settings();
     services::generate_vhosts_configs(&settings);
+    if services::is_port_in_use(settings.web_port) {
+        let _ = services::start_web_service(&settings);
+    }
     Ok(())
 }
 
 pub fn set_root_project(site_name: &str) -> Result<String, String> {
-    let current = config::load_text_file("root_project.txt");
-    let next = if current.eq_ignore_ascii_case(site_name) {
+    let old_root = config::load_text_file("root_project.txt");
+    let resolved_rel = config::resolve_site_dir(site_name)
+        .map(|p| config::get_site_rel_path(&p))
+        .unwrap_or_default();
+    let is_same_root = !old_root.is_empty()
+        && (old_root.eq_ignore_ascii_case(site_name)
+            || (!resolved_rel.is_empty() && old_root.eq_ignore_ascii_case(&resolved_rel)));
+
+    let next = if is_same_root {
         String::new()
     } else {
         site_name.to_string()
     };
     config::save_text_file("root_project.txt", &next)?;
 
-    if !next.is_empty() {
-        let sites_root = config::get_sites_root_dir();
-        let www_base = config::get_www_base_dir();
-        let site_path = if sites_root.join(&next).exists() {
-            sites_root.join(&next)
-        } else {
-            www_base.join(&next)
-        };
-        let settings = config::load_app_settings();
-        let port_str = if settings.web_port == 80 {
-            String::new()
-        } else {
-            format!(":{}", settings.web_port)
-        };
-        update_project_env_file(&site_path, &format!("http://localhost{}", port_str), "/");
+    if !old_root.is_empty() {
+        sync_site_env_url(&old_root);
+    }
+    if !next.is_empty() && !next.eq_ignore_ascii_case(&old_root) {
+        sync_site_env_url(&next);
     }
 
     let settings = config::load_app_settings();
     services::generate_vhosts_configs(&settings);
+    let _ = services::start_php_service(&settings);
+    if services::is_port_in_use(settings.web_port) {
+        let _ = services::start_web_service(&settings);
+    }
     Ok(next)
 }
 
 pub fn save_vhost(site_name: &str, domain: &str, enable: bool) -> Result<(), String> {
     let mut vhosts = config::load_string_map("sites_vhosts.json");
-    let old_domain = vhosts.get(site_name).cloned().unwrap_or_default();
+    let rel_path = config::resolve_site_dir(site_name)
+        .map(|p| config::get_site_rel_path(&p))
+        .unwrap_or_default();
+    let old_domain = vhosts
+        .get(site_name)
+        .or_else(|| if !rel_path.is_empty() { vhosts.get(&rel_path) } else { None })
+        .cloned()
+        .unwrap_or_default();
 
     if !old_domain.is_empty() {
         let _ = update_os_hosts_file(&old_domain, false);
@@ -261,62 +273,102 @@ pub fn save_vhost(site_name: &str, domain: &str, enable: bool) -> Result<(), Str
         let clean_domain = domain.trim().to_lowercase();
         let _ = crate::db::set_project_vhost(site_name, &clean_domain);
         update_os_hosts_file(&clean_domain, true)?;
-        vhosts.insert(site_name.to_string(), clean_domain.clone());
+        if !rel_path.is_empty() && rel_path != site_name {
+            vhosts.remove(&rel_path);
+        }
+        vhosts.insert(site_name.to_string(), clean_domain);
         config::save_string_map("sites_vhosts.json", &vhosts)?;
-
-        let site_path = config::get_sites_root_dir().join(site_name);
-        let settings = config::load_app_settings();
-        let ssl_map = config::load_bool_map("ssl.json");
-        let is_ssl = *ssl_map.get(site_name).unwrap_or(&false);
-        let scheme = if is_ssl { "https" } else { "http" };
-        let port_str = if (is_ssl && settings.web_port == 443) || (!is_ssl && settings.web_port == 80) {
-            String::new()
-        } else {
-            format!(":{}", settings.web_port)
-        };
-        update_project_env_file(&site_path, &format!("{}://{}{}", scheme, clean_domain, port_str), "/");
     } else {
         let _ = crate::db::set_project_vhost(site_name, "");
         vhosts.remove(site_name);
+        if !rel_path.is_empty() {
+            vhosts.remove(&rel_path);
+        }
         config::save_string_map("sites_vhosts.json", &vhosts)?;
-
-        let site_path = config::get_sites_root_dir().join(site_name);
-        let www_base = config::get_www_base_dir();
-        let rel_site = site_path
-            .strip_prefix(&www_base)
-            .map(|r| r.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_else(|_| site_name.to_string());
-        let settings = config::load_app_settings();
-        let port_str = if settings.web_port == 80 {
-            String::new()
-        } else {
-            format!(":{}", settings.web_port)
-        };
-        update_project_env_file(
-            &site_path,
-            &format!("http://localhost{}/{}", port_str, rel_site),
-            &format!("/{}/", rel_site),
-        );
     }
+
+    sync_site_env_url(site_name);
 
     let settings = config::load_app_settings();
     services::generate_vhosts_configs(&settings);
+    if services::is_port_in_use(settings.web_port) {
+        let _ = services::start_php_service(&settings);
+        let _ = services::start_web_service(&settings);
+    }
     Ok(())
 }
 
-pub fn update_project_env_file(site_path: &Path, app_url: &str, site_path_val: &str) {
+pub fn sync_site_env_url(site_name: &str) {
+    let Some(site_path) = config::resolve_site_dir(site_name) else {
+        return;
+    };
+    let folder_name = site_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(site_name);
+    let rel_path = config::get_site_rel_path(&site_path);
+
+    let settings = config::load_app_settings();
+    let vhosts_map = config::load_string_map("sites_vhosts.json");
+    let ssl_map = config::load_bool_map("ssl.json");
+    let root_project = config::load_text_file("root_project.txt");
+
+    let vhost_domain = vhosts_map
+        .get(&rel_path)
+        .or_else(|| vhosts_map.get(folder_name))
+        .or_else(|| vhosts_map.get(site_name))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let is_root_project = !root_project.is_empty()
+        && (root_project.eq_ignore_ascii_case(site_name)
+            || root_project.eq_ignore_ascii_case(folder_name)
+            || (!rel_path.is_empty() && root_project.eq_ignore_ascii_case(&rel_path)));
+
+    let is_ssl = *ssl_map
+        .get(&rel_path)
+        .or_else(|| ssl_map.get(folder_name))
+        .or_else(|| ssl_map.get(site_name))
+        .unwrap_or(&false);
+
+    let scheme = if is_ssl { "https" } else { "http" };
+    let port_str = if is_ssl || settings.web_port == 80 {
+        String::new()
+    } else {
+        format!(":{}", settings.web_port)
+    };
+
+    if let Some(domain) = vhost_domain {
+        let base_origin = format!("{}://{}{}", scheme, domain, port_str);
+        update_project_env_file(&site_path, &base_origin, "/");
+    } else if is_root_project {
+        let base_origin = format!("{}://localhost{}", scheme, port_str);
+        update_project_env_file(&site_path, &base_origin, "/");
+    } else {
+        let base_origin = format!("{}://localhost{}", scheme, port_str);
+        let site_path_val = if rel_path.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}/", rel_path.trim_matches('/'))
+        };
+        update_project_env_file(&site_path, &base_origin, &site_path_val);
+    }
+}
+
+pub fn update_project_env_file(site_path: &Path, base_origin: &str, site_path_val: &str) {
     let env_file = site_path.join(".env");
     if !env_file.exists() {
         return;
     }
+    let clean_origin = base_origin.trim_end_matches('/');
     if let Ok(content) = fs::read_to_string(&env_file) {
         let mut lines: Vec<String> = Vec::new();
         for line in content.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("APP_URL=") {
-                lines.push(format!("APP_URL={}", app_url));
+                lines.push(format!("APP_URL={}${{SITE_PATH}}", clean_origin));
             } else if trimmed.starts_with("SITE_PATH=") {
-                lines.push(format!("SITE_PATH='{}'", site_path_val));
+                lines.push(format!("SITE_PATH={}", site_path_val));
             } else {
                 lines.push(line.to_string());
             }
@@ -339,11 +391,18 @@ pub fn get_hosts_file_path() -> PathBuf {
 pub fn update_os_hosts_file(domain: &str, add: bool) -> Result<(), String> {
     let hosts_path = get_hosts_file_path();
     let content = fs::read_to_string(&hosts_path).unwrap_or_default();
+    let www_domain = format!("www.{}", domain);
     let mut lines: Vec<String> = content
         .lines()
         .filter(|l| {
             let t = l.trim();
-            !t.ends_with(&format!(" {}", domain)) && !t.ends_with(&format!("\t{}", domain))
+            if t.is_empty() || t.starts_with('#') {
+                return true;
+            }
+            let has_domain = t.split_whitespace().skip(1).any(|tok| {
+                tok.eq_ignore_ascii_case(domain) || tok.eq_ignore_ascii_case(&www_domain)
+            });
+            !has_domain
         })
         .map(|s| s.to_string())
         .collect();
@@ -588,11 +647,46 @@ pub fn open_in_terminal(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub fn find_chrome_exe() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut candidates = vec![
+            PathBuf::from(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+            PathBuf::from(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+        ];
+        if let Ok(local_app) = std::env::var("LOCALAPPDATA") {
+            candidates.push(PathBuf::from(local_app).join(r"Google\Chrome\Application\chrome.exe"));
+        }
+        for c in candidates {
+            if c.is_file() {
+                return Some(c);
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mac_chrome = PathBuf::from("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
+        if mac_chrome.is_file() {
+            return Some(mac_chrome);
+        }
+    }
+    None
+}
+
 pub fn open_url_in_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        create_hidden_command("cmd")
-            .args(["/C", "start", "", url])
+        if url.contains("projects.nasani.vn") || url.starts_with("chrome://") {
+            if let Some(chrome) = find_chrome_exe() {
+                Command::new(chrome)
+                    .arg(url)
+                    .spawn()
+                    .map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+        }
+        Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", url])
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -604,5 +698,118 @@ pub fn open_url_in_browser(url: &str) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+fn copy_dir_recursive_simple(src: &Path, dst: &Path) -> Result<(), String> {
+    if !dst.exists() {
+        fs::create_dir_all(dst).map_err(|e| e.to_string())?;
+    }
+    let entries = fs::read_dir(src).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let target = dst.join(entry.file_name());
+        if p.is_dir() {
+            copy_dir_recursive_simple(&p, &target)?;
+        } else {
+            fs::copy(&p, &target).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn enable_chrome_developer_mode() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let Ok(local_app) = std::env::var("LOCALAPPDATA") else {
+            return false;
+        };
+        let prefs_path = PathBuf::from(local_app).join(r"Google\Chrome\User Data\Default\Preferences");
+        if !prefs_path.is_file() {
+            return false;
+        }
+        let Ok(raw) = fs::read_to_string(&prefs_path) else {
+            return false;
+        };
+        let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            return false;
+        };
+        if let Some(root_obj) = val.as_object_mut() {
+            let ext_entry = root_obj
+                .entry("extensions")
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(ext_obj) = ext_entry.as_object_mut() {
+                let ui_entry = ext_obj
+                    .entry("ui")
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(ui_obj) = ui_entry.as_object_mut() {
+                    ui_obj.insert("developer_mode".to_string(), serde_json::Value::Bool(true));
+                    if let Ok(updated) = serde_json::to_string(&val) {
+                        return fs::write(&prefs_path, updated).is_ok();
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+pub fn install_or_open_chrome_extension(mode: &str) -> Result<serde_json::Value, String> {
+    let base = config::get_base_dir();
+    let ext_dir = base.join("extensions").join("nasani-sync");
+    if !ext_dir.join("manifest.json").is_file() {
+        let src_dir = base.join("www").join("RBWManager").join("extensions").join("nasani-sync");
+        if src_dir.is_dir() {
+            copy_dir_recursive_simple(&src_dir, &ext_dir)?;
+        } else {
+            return Err("Không tìm thấy thư mục nguồn extension nasani-sync.".to_string());
+        }
+    }
+
+    let dev_mode_enabled = enable_chrome_developer_mode();
+    let chrome_exe = find_chrome_exe();
+    let ext_str = ext_dir.to_string_lossy().to_string();
+
+    #[cfg(target_os = "windows")]
+    {
+        match mode {
+            "open_folder" => {
+                let _ = Command::new("explorer.exe")
+                    .arg(format!("/select,{}", ext_str))
+                    .spawn();
+            }
+            "launch_chrome_ext" => {
+                let chrome = chrome_exe
+                    .as_ref()
+                    .ok_or_else(|| "Không tìm thấy Google Chrome (chrome.exe) trên hệ thống.".to_string())?;
+                Command::new(chrome)
+                    .args([
+                        format!("--load-extension={}", ext_str),
+                        "https://projects.nasani.vn/ky-thuat/program/list/".to_string(),
+                    ])
+                    .spawn()
+                    .map_err(|e| e.to_string())?;
+            }
+            _ => {
+                let _ = Command::new("explorer.exe")
+                    .arg(format!("/select,{}", ext_str))
+                    .spawn();
+                if let Some(chrome) = chrome_exe.as_ref() {
+                    let _ = Command::new(chrome)
+                        .args([
+                            format!("--load-extension={}", ext_str),
+                            "chrome://extensions/".to_string(),
+                        ])
+                        .spawn();
+                }
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "path": ext_str,
+        "chrome_found": chrome_exe.is_some(),
+        "dev_mode_enabled": dev_mode_enabled
+    }))
 }
 

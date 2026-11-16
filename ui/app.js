@@ -179,6 +179,7 @@ function bindWindowControls() {
 
 function bindNavigation() {
   const navItems = document.querySelectorAll(".nav-item");
+  let lastProWindowMode = false;
   navItems.forEach((item) => {
     item.addEventListener("click", () => {
       navItems.forEach((n) => n.classList.remove("active"));
@@ -190,10 +191,16 @@ function bindNavigation() {
       const panel = document.getElementById(`tab-${tabKey}`);
       if (panel) panel.classList.add("active");
 
-      if (tabKey === "pro") {
+      const isProTab = tabKey === "pro";
+      if (isProTab) {
         document.body.classList.add("tab-is-pro");
       } else {
         document.body.classList.remove("tab-is-pro");
+      }
+
+      if (isProTab !== lastProWindowMode) {
+        lastProWindowMode = isProTab;
+        tauriInvoke("resize_main_window", { proMode: isProTab }).catch(() => {});
       }
 
       if (tabKey === "sites") refreshSitesList();
@@ -1475,7 +1482,12 @@ async function handleSiteActionButton(btn) {
       const sites = await tauriInvoke("set_root_project", { siteName });
       appState.sites = sites;
       renderSitesList();
-      showToast(`Đã đặt ${siteName} làm dự án gốc`, "success");
+      const updated = sites.find((s) => s.name === siteName);
+      if (updated?.isRootProject) {
+        showToast(`Đã đặt ${siteName} làm dự án gốc (localhost)`, "success");
+      } else {
+        showToast(`Đã hủy đặt ${siteName} làm dự án gốc`, "info");
+      }
       break;
     }
     case "tunnel": {

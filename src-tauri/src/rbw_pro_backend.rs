@@ -10468,6 +10468,252 @@ fn file_to_data_url(p: &Path) -> Result<String, String> {
     ))
 }
 
+fn sync_nasani_json_to_both(payload_val: &Value) {
+    if let Ok(pretty) = serde_json::to_string_pretty(payload_val) {
+        let p_studio = get_manager_data_root().join("data").join("nasani_projects.json");
+        if let Some(par) = p_studio.parent() {
+            let _ = fs::create_dir_all(par);
+        }
+        let _ = fs::write(&p_studio, &pretty);
+
+        let p_legacy = config::get_base_dir()
+            .join("www")
+            .join("RBWManager")
+            .join("data")
+            .join("nasani_projects.json");
+        if p_legacy.parent().map(|p| p.is_dir()).unwrap_or(false) {
+            let _ = fs::write(&p_legacy, &pretty);
+        }
+    }
+}
+
+pub fn load_nasani_projects_payload() -> Value {
+    let p_studio = get_manager_data_root().join("data").join("nasani_projects.json");
+    let p_legacy = config::get_base_dir()
+        .join("www")
+        .join("RBWManager")
+        .join("data")
+        .join("nasani_projects.json");
+
+    let read_payload = |p: &Path| -> Option<(u64, Value)> {
+        if !p.is_file() {
+            return None;
+        }
+        let raw = fs::read_to_string(p).ok()?;
+        let val = serde_json::from_str::<Value>(&raw).ok()?;
+        let ts = val
+            .get("synced_at")
+            .and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|n| n.max(0) as u64)))
+            .unwrap_or(0);
+        Some((ts, val))
+    };
+
+    let s_opt = read_payload(&p_studio);
+    let l_opt = read_payload(&p_legacy);
+
+    match (s_opt, l_opt) {
+        (Some((ts_s, val_s)), Some((ts_l, val_l))) => {
+            if ts_l > ts_s {
+                sync_nasani_json_to_both(&val_l);
+                val_l
+            } else {
+                if ts_s > ts_l {
+                    sync_nasani_json_to_both(&val_s);
+                }
+                val_s
+            }
+        }
+        (Some((_, val_s)), None) => val_s,
+        (None, Some((_, val_l))) => {
+            sync_nasani_json_to_both(&val_l);
+            val_l
+        }
+        (None, None) => json!({
+            "synced_at": 0,
+            "synced_at_formatted": "",
+            "total": 0,
+            "projects": []
+        }),
+    }
+}
+
+pub fn get_nasani_projects_list() -> Vec<Value> {
+    let payload = load_nasani_projects_payload();
+    if let Some(arr) = payload.get("projects").and_then(|v| v.as_array()) {
+        return arr.clone();
+    }
+    if let Some(arr) = payload.as_array() {
+        return arr.clone();
+    }
+    Vec::new()
+}
+
+fn parse_nasani_timestamp(s: &str) -> i64 {
+    use chrono::TimeZone;
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return 0;
+    }
+    let naive = chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M"))
+        .or_else(|_| {
+            chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d")
+                .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+        });
+    match naive {
+        Ok(ndt) => Local
+            .from_local_datetime(&ndt)
+            .earliest()
+            .map(|dt| dt.timestamp())
+            .unwrap_or(0),
+        Err(_) => 0,
+    }
+}
+
+pub fn format_nasani_info_output(item: &Value) -> Value {
+    let now = Local::now().timestamp();
+    let mut deadline_str = item
+        .get("deadline")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let mut completed_at = item
+        .get("completed_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let status_text_raw = item
+        .get("status_text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let status_text_lower = status_text_raw.trim().to_lowercase();
+
+    let is_done_status = status_text_lower.contains("link hoàn thành")
+        || status_text_lower.contains("web đã bg")
+        || status_text_lower.contains("đã up source")
+        || status_text_lower.contains("đã hoàn thành");
+
+    let item_is_active = item.get("is_active").and_then(|v| v.as_bool()).unwrap_or(false);
+    let item_is_completed = item.get("is_completed").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_explicitly_active = item_is_active && !item_is_completed && !is_done_status;
+    let is_active = is_explicitly_active && !deadline_str.is_empty();
+    let is_completed = !is_active;
+
+    if is_completed {
+        if completed_at.is_empty() && !deadline_str.is_empty() {
+            completed_at = deadline_str.clone();
+        }
+        deadline_str.clear();
+    }
+
+    let mut deadline_ts: i64 = 0;
+    let mut days_left: Value = Value::Null;
+    let mut hours_left: Value = Value::Null;
+    let mut status_type = "completed";
+
+    if is_active {
+        deadline_ts = parse_nasani_timestamp(&deadline_str);
+        if deadline_ts > 0 {
+            let diff_seconds = (deadline_ts - now) as f64;
+            let hrs = ((diff_seconds / 3600.0) * 10.0).round() / 10.0;
+            let days = ((diff_seconds / 86400.0) * 10.0).round() / 10.0;
+            hours_left = json!(hrs);
+            days_left = json!(days);
+
+            if diff_seconds < 0.0 {
+                status_type = "overdue";
+            } else if diff_seconds <= 86400.0 {
+                status_type = "urgent";
+            } else {
+                status_type = "normal";
+            }
+        }
+    }
+
+    json!({
+        "id": item.get("id").and_then(|v| v.as_str()).unwrap_or(""),
+        "contract_code": item.get("contract_code").and_then(|v| v.as_str()).unwrap_or(""),
+        "contract_name": item.get("contract_name").and_then(|v| v.as_str()).unwrap_or(""),
+        "design_url": item.get("design_url").and_then(|v| v.as_str()).unwrap_or(""),
+        "design_folder": item.get("design_folder").and_then(|v| v.as_str()).unwrap_or(""),
+        "nvkd": item.get("nvkd").and_then(|v| v.as_str()).unwrap_or(""),
+        "manager": item.get("manager").and_then(|v| v.as_str()).unwrap_or(""),
+        "area": item.get("area").and_then(|v| v.as_str()).unwrap_or(""),
+        "dev_name": item.get("dev_name").and_then(|v| v.as_str()).unwrap_or(""),
+        "sent_kt_date": item.get("sent_kt_date").and_then(|v| v.as_str()).unwrap_or(""),
+        "lt_hours": item.get("lt_hours").and_then(|v| v.as_str()).unwrap_or(""),
+        "deadline": deadline_str,
+        "deadline_timestamp": deadline_ts,
+        "is_active": is_active,
+        "is_completed": is_completed,
+        "completed_at": completed_at,
+        "leader_deadline": item.get("leader_deadline").and_then(|v| v.as_str()).unwrap_or(""),
+        "status_text": status_text_raw,
+        "status_type": status_type,
+        "hours_left": hours_left,
+        "days_left": days_left
+    })
+}
+
+pub fn match_nasani_project_info(project_name: &str, nasani_list: &[Value]) -> Value {
+    if nasani_list.is_empty() || project_name.trim().is_empty() {
+        return Value::Null;
+    }
+    let p_raw = project_name.trim().to_lowercase();
+    let proj_slug: String = strip_accents(project_name)
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+
+    for item in nasani_list {
+        let code_lower = item
+            .get("contract_code")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
+        let folder = item
+            .get("design_folder")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
+        let name = item
+            .get("contract_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+
+        if !code_lower.is_empty() && p_raw.contains(&code_lower) {
+            return format_nasani_info_output(item);
+        }
+
+        if !folder.is_empty()
+            && (p_raw == folder || p_raw.contains(&folder) || folder.contains(&p_raw))
+        {
+            return format_nasani_info_output(item);
+        }
+
+        if !name.is_empty() {
+            let name_slug: String = strip_accents(name)
+                .to_lowercase()
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .collect();
+            if name_slug.len() >= 6
+                && (proj_slug.contains(&name_slug) || name_slug.contains(&proj_slug))
+            {
+                return format_nasani_info_output(item);
+            }
+        }
+    }
+
+    Value::Null
+}
+
 pub fn dispatch(req: ProDispatchRequest) -> Value {
     let parsed_body = parse_body_as_json(&req);
     let body_obj = parsed_body.as_object().cloned().unwrap_or_default();
@@ -10577,6 +10823,7 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
             let sys_php = get_system_php_version();
             let re_ver = Regex::new(r"(?i)(?:php-?)?(\d+\.\d+)").unwrap();
             let shots_map = load_screenshots_mtime_map();
+            let nasani_list = get_nasani_projects_list();
 
             let mut result = Vec::with_capacity(projects.len());
             let mut total_bytes = 0.0f64;
@@ -10617,6 +10864,7 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
                 let (php_eff, php_short, is_custom_php, _) =
                     resolve_project_php_fast(&p, &sites_php_map, &sys_php, &re_ver);
                 let db_env = parse_project_db_env(Path::new(&p.path));
+                let nasani_info = match_nasani_project_info(&p.name, &nasani_list);
 
                 result.push(json!({
                     "name": p.name,
@@ -10628,6 +10876,7 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
                     "is_config_php": p.is_config_php,
                     "has_config_php": p.has_config_php,
                     "has_config": p.has_config_php,
+                    "nasani_info": nasani_info,
                     "db_info": {
                         "host": db_env.host,
                         "name": db_env.name,
@@ -10694,7 +10943,14 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
             })
         }
         "getProjectConfig" | "getConfig" => {
-            let cfg = get_project_config_entry(&project, &category);
+            let mut cfg = get_project_config_entry(&project, &category);
+            let nasani_info = match_nasani_project_info(&project, &get_nasani_projects_list());
+            if !cfg.is_object() {
+                cfg = json!({});
+            }
+            if let Some(obj) = cfg.as_object_mut() {
+                obj.insert("nasani_info".to_string(), nasani_info);
+            }
             let history = get_project_history_entries(&project, &category);
             json!({
                 "status": "success",
@@ -11268,6 +11524,134 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
                 "status": "success",
                 "message": "Đã cấu hình chứng chỉ SSL tự động thành công!",
                 "logs": ["Cấu hình SSL Let's Encrypt hoàn tất"]
+            })
+        }
+        "syncNasaniData" => {
+            let projects_arr = body_obj
+                .get("projects")
+                .and_then(|v| v.as_array())
+                .cloned();
+            match projects_arr {
+                Some(projects) => {
+                    let count = projects.len();
+                    let ts = now_unix();
+                    let payload = json!({
+                        "synced_at": ts,
+                        "synced_at_formatted": Local::now().format("%d/%m/%Y %H:%M:%S").to_string(),
+                        "total": count,
+                        "projects": projects
+                    });
+                    sync_nasani_json_to_both(&payload);
+                    json!({
+                        "status": "success",
+                        "message": format!("Đã đồng bộ thành công {} dự án từ Nasani", count),
+                        "synced_count": count,
+                        "synced_at": ts
+                    })
+                }
+                None => json!({
+                    "status": "error",
+                    "message": "Dữ liệu dự án không hợp lệ"
+                }),
+            }
+        }
+        "getNasaniData" => {
+            let ext_path = config::get_base_dir()
+                .join("extensions")
+                .join("nasani-sync")
+                .to_string_lossy()
+                .to_string();
+            json!({
+                "status": "success",
+                "data": load_nasani_projects_payload(),
+                "extension_path": ext_path
+            })
+        }
+        "getExistingProjectsList" => {
+            let sizes_cache = load_sizes_cache();
+            let projects = scan_projects_with_cache("all", &sizes_cache);
+            let re_code_end = Regex::new(r"(?i)_(\d+)w?$").unwrap();
+            let re_code_any = Regex::new(r"(\d{5,})").unwrap();
+            let mut names: Vec<String> = Vec::new();
+            let mut codes: Vec<String> = Vec::new();
+            let mut seen_names: HashSet<String> = HashSet::new();
+            let mut seen_codes: HashSet<String> = HashSet::new();
+
+            for p in projects {
+                let p_name = p.name.trim().to_lowercase();
+                if p_name.is_empty() {
+                    continue;
+                }
+                if seen_names.insert(p_name.clone()) {
+                    names.push(p_name.clone());
+                }
+                if let Some(cap) = re_code_end.captures(&p_name).or_else(|| re_code_any.captures(&p_name)) {
+                    if let Some(m) = cap.get(1) {
+                        let code = m.as_str().to_string();
+                        if seen_codes.insert(code.clone()) {
+                            codes.push(code);
+                        }
+                    }
+                }
+            }
+            json!({
+                "status": "success",
+                "data": {
+                    "names": names,
+                    "codes": codes
+                }
+            })
+        }
+        "installChromeExtension" => {
+            let mode = get_param("mode");
+            match crate::sites::install_or_open_chrome_extension(&mode) {
+                Ok(v) => v,
+                Err(e) => json!({ "status": "error", "message": e }),
+            }
+        }
+        "checkPendingStudioDeploy" => {
+            let p_studio = get_manager_data_root().join("data").join("pending_studio_deploy.json");
+            let p_legacy = config::get_base_dir()
+                .join("www")
+                .join("RBWManager")
+                .join("data")
+                .join("pending_studio_deploy.json");
+
+            let mut best_name = String::new();
+            let mut best_ts: u64 = 0;
+
+            for p in [&p_studio, &p_legacy] {
+                if p.is_file() {
+                    if let Ok(raw) = fs::read_to_string(p) {
+                        if let Ok(val) = serde_json::from_str::<Value>(&raw) {
+                            let ts = val
+                                .get("timestamp")
+                                .and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|n| n.max(0) as u64)))
+                                .unwrap_or(0);
+                            let name = val
+                                .get("projectName")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .trim()
+                                .to_string();
+                            if ts >= best_ts && !name.is_empty() {
+                                best_ts = ts;
+                                best_name = name;
+                            }
+                        }
+                    }
+                    let _ = fs::remove_file(p);
+                }
+            }
+
+            let project_out = if best_ts > 0 && now_unix().saturating_sub(best_ts) <= 30 {
+                best_name
+            } else {
+                String::new()
+            };
+            json!({
+                "status": "success",
+                "projectName": project_out
             })
         }
         "cleanupTools" => handle_cleanup_tools(&project, &category),
