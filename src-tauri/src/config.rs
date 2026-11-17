@@ -141,6 +141,53 @@ pub fn get_data_file_path(filename: &str) -> PathBuf {
     new_path
 }
 
+const EMBEDDED_ASSETS: &[(&str, &[u8])] = &[
+    (
+        "config/rbwmanager/bridge.php",
+        include_bytes!("../../config/rbwmanager/bridge.php"),
+    ),
+    (
+        "config/rbwmanager/rbw_autologin.template.php",
+        include_bytes!("../../config/rbwmanager/rbw_autologin.template.php"),
+    ),
+    (
+        "extensions/nasani-sync/README.md",
+        include_bytes!("../../extensions/nasani-sync/README.md"),
+    ),
+    (
+        "extensions/nasani-sync/background.js",
+        include_bytes!("../../extensions/nasani-sync/background.js"),
+    ),
+    (
+        "extensions/nasani-sync/content-local.js",
+        include_bytes!("../../extensions/nasani-sync/content-local.js"),
+    ),
+    (
+        "extensions/nasani-sync/content.css",
+        include_bytes!("../../extensions/nasani-sync/content.css"),
+    ),
+    (
+        "extensions/nasani-sync/content.js",
+        include_bytes!("../../extensions/nasani-sync/content.js"),
+    ),
+    (
+        "extensions/nasani-sync/icon.png",
+        include_bytes!("../../extensions/nasani-sync/icon.png"),
+    ),
+    (
+        "extensions/nasani-sync/manifest.json",
+        include_bytes!("../../extensions/nasani-sync/manifest.json"),
+    ),
+    (
+        "extensions/nasani-sync/popup.html",
+        include_bytes!("../../extensions/nasani-sync/popup.html"),
+    ),
+    (
+        "extensions/nasani-sync/popup.js",
+        include_bytes!("../../extensions/nasani-sync/popup.js"),
+    ),
+];
+
 pub fn ensure_directories() {
     let base = get_base_dir();
     for dir in &[
@@ -158,10 +205,22 @@ pub fn ensure_directories() {
         "tmp/sessions",
         "tmp/uploads",
         "downloads",
+        "config/rbwmanager",
+        "extensions/nasani-sync",
     ] {
         let p = base.join(dir);
         if !p.exists() {
             let _ = fs::create_dir_all(&p);
+        }
+    }
+
+    for (rel_path, bytes) in EMBEDDED_ASSETS {
+        let dest = base.join(rel_path);
+        if !dest.exists() {
+            if let Some(parent) = dest.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::write(&dest, bytes);
         }
     }
 }

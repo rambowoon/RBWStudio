@@ -89,6 +89,84 @@ pub fn is_port_in_use(port: u16) -> bool {
 }
 
 #[cfg(target_os = "macos")]
+const MACOS_BREW_PREFIXES: [&str; 2] = ["/opt/homebrew", "/usr/local"];
+
+#[cfg(target_os = "macos")]
+fn find_macos_brew_opt_dir(category: &str, ver: &str) -> Option<PathBuf> {
+    for prefix_str in MACOS_BREW_PREFIXES {
+        let prefix = Path::new(prefix_str);
+        match category {
+            "php" => {
+                let pkg = ver.strip_prefix("brew-").unwrap_or(ver);
+                let opt = prefix.join("opt").join(pkg);
+                if opt.join("bin/php-cgi").is_file() {
+                    return Some(opt);
+                }
+            }
+            "mysql" => {
+                let pkg = if ver.contains("mariadb") { "mariadb" } else { "mysql" };
+                let opt = prefix.join("opt").join(pkg);
+                if opt.is_dir() {
+                    return Some(opt);
+                }
+            }
+            "apache" => {
+                let opt = prefix.join("opt/httpd");
+                if opt.join("bin/httpd").is_file() || opt.join("lib/httpd/modules").is_dir() {
+                    return Some(opt);
+                }
+            }
+            "nginx" => {
+                let opt = prefix.join("opt/nginx");
+                if opt.join("bin/nginx").is_file() {
+                    return Some(opt);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn find_macos_brew_php_ini(ver: &str) -> Option<PathBuf> {
+    let pkg = ver.strip_prefix("brew-").unwrap_or(ver);
+    for prefix_str in MACOS_BREW_PREFIXES {
+        let etc_php = Path::new(prefix_str).join("etc/php");
+        if let Some(subver) = pkg.strip_prefix("php@") {
+            let candidate = etc_php.join(subver).join("php.ini");
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        } else if pkg == "php" {
+            if let Ok(entries) = fs::read_dir(&etc_php) {
+                for entry in entries.flatten() {
+                    let candidate = entry.path().join("php.ini");
+                    if candidate.is_file() {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn find_macos_apache_modules_dir() -> Option<PathBuf> {
+    for prefix_str in MACOS_BREW_PREFIXES {
+        let prefix = Path::new(prefix_str);
+        for rel in ["opt/httpd/lib/httpd/modules", "lib/httpd/modules"] {
+            let cand = prefix.join(rel);
+            if cand.is_dir() {
+                return Some(cand);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "macos")]
 pub fn list_macos_homebrew_binaries(category: &str) -> Vec<String> {
     let mut list = Vec::new();
     let brew_prefixes = [
@@ -126,13 +204,18 @@ pub fn list_macos_homebrew_binaries(category: &str) -> Vec<String> {
         }
         "mysql" => {
             for prefix in &brew_prefixes {
-                if prefix.join("bin/mariadbd").is_file() || prefix.join("bin/mariadb").is_file() {
+                if prefix.join("opt/mariadb/bin/mariadbd").is_file()
+                    || prefix.join("bin/mariadbd").is_file()
+                    || prefix.join("bin/mariadb").is_file()
+                {
                     let label = "brew-mariadb".to_string();
                     if !list.contains(&label) {
                         list.push(label);
                     }
                 }
-                if prefix.join("bin/mysqld").is_file() {
+                if prefix.join("opt/mysql/bin/mysqld").is_file()
+                    || prefix.join("bin/mysqld").is_file()
+                {
                     let label = "brew-mysql".to_string();
                     if !list.contains(&label) {
                         list.push(label);
@@ -142,7 +225,9 @@ pub fn list_macos_homebrew_binaries(category: &str) -> Vec<String> {
         }
         "nginx" => {
             for prefix in &brew_prefixes {
-                if prefix.join("bin/nginx").is_file() {
+                if prefix.join("opt/nginx/bin/nginx").is_file()
+                    || prefix.join("bin/nginx").is_file()
+                {
                     let label = "brew-nginx".to_string();
                     if !list.contains(&label) {
                         list.push(label);
@@ -152,17 +237,13 @@ pub fn list_macos_homebrew_binaries(category: &str) -> Vec<String> {
         }
         "apache" => {
             for prefix in &brew_prefixes {
-                if prefix.join("bin/httpd").is_file() {
+                if prefix.join("opt/httpd/bin/httpd").is_file()
+                    || prefix.join("bin/httpd").is_file()
+                {
                     let label = "brew-httpd".to_string();
                     if !list.contains(&label) {
                         list.push(label);
                     }
-                }
-            }
-            if Path::new("/usr/sbin/httpd").is_file() {
-                let label = "system-httpd".to_string();
-                if !list.contains(&label) {
-                    list.push(label);
                 }
             }
         }
@@ -185,37 +266,56 @@ pub fn find_macos_brew_binary_path(category: &str, ver: &str) -> Option<PathBuf>
                 if opt_cgi.is_file() {
                     return Some(opt_cgi);
                 }
-                let bin_cgi = prefix.join("bin/php-cgi");
-                if bin_cgi.is_file() {
-                    return Some(bin_cgi);
+                if pkg_name == "php" {
+                    let bin_cgi = prefix.join("bin/php-cgi");
+                    if bin_cgi.is_file() {
+                        return Some(bin_cgi);
+                    }
                 }
             }
         }
         "mysql" => {
             for prefix in &brew_prefixes {
                 if ver.contains("mariadb") {
-                    let m = prefix.join("bin/mariadbd");
-                    if m.is_file() { return Some(m); }
-                    let m2 = prefix.join("bin/mariadb");
-                    if m2.is_file() { return Some(m2); }
+                    for rel in [
+                        "opt/mariadb/bin/mariadbd",
+                        "bin/mariadbd",
+                        "opt/mariadb/bin/mysqld",
+                    ] {
+                        let m = prefix.join(rel);
+                        if m.is_file() {
+                            return Some(m);
+                        }
+                    }
+                } else {
+                    for rel in ["opt/mysql/bin/mysqld", "bin/mysqld"] {
+                        let m = prefix.join(rel);
+                        if m.is_file() {
+                            return Some(m);
+                        }
+                    }
                 }
-                let m = prefix.join("bin/mysqld");
-                if m.is_file() { return Some(m); }
             }
         }
         "nginx" => {
             for prefix in &brew_prefixes {
-                let n = prefix.join("bin/nginx");
-                if n.is_file() { return Some(n); }
+                for rel in ["opt/nginx/bin/nginx", "bin/nginx"] {
+                    let n = prefix.join(rel);
+                    if n.is_file() {
+                        return Some(n);
+                    }
+                }
             }
         }
         "apache" => {
             for prefix in &brew_prefixes {
-                let a = prefix.join("bin/httpd");
-                if a.is_file() { return Some(a); }
+                for rel in ["opt/httpd/bin/httpd", "bin/httpd"] {
+                    let a = prefix.join(rel);
+                    if a.is_file() {
+                        return Some(a);
+                    }
+                }
             }
-            let sys = PathBuf::from("/usr/sbin/httpd");
-            if sys.is_file() { return Some(sys); }
         }
         _ => {}
     }
@@ -509,6 +609,7 @@ fn ensure_ioncube_in_php_ini(php_dir: &Path, base: &Path, content: &mut String) 
 
 pub fn configure_php(php_dir: &Path) {
     let base = config::get_base_dir();
+    let _ = fs::create_dir_all(php_dir);
     let ini_path = php_dir.join("php.ini");
     if !ini_path.exists() {
         let dev = php_dir.join("php.ini-development");
@@ -518,31 +619,66 @@ pub fn configure_php(php_dir: &Path) {
         } else if prod.exists() {
             let _ = fs::copy(&prod, &ini_path);
         } else {
-            let _ = fs::write(&ini_path, "[PHP]\n");
+            #[cfg(target_os = "macos")]
+            {
+                let ver = php_dir
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("php");
+                if let Some(brew_ini) = find_macos_brew_php_ini(ver) {
+                    let _ = fs::copy(&brew_ini, &ini_path);
+                } else {
+                    let _ = fs::write(&ini_path, "[PHP]\n");
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = fs::write(&ini_path, "[PHP]\n");
+            }
         }
     }
 
     if let Ok(mut content) = fs::read_to_string(&ini_path) {
         let mut ini_changed = false;
+        let has_ext_dir = php_dir.join("ext").is_dir();
         let ext_dir = php_dir.join("ext").to_string_lossy().replace('\\', "/");
         let tmp_sessions = base.join("tmp/sessions").to_string_lossy().replace('\\', "/");
         let tmp_uploads = base.join("tmp/uploads").to_string_lossy().replace('\\', "/");
+        let _ = fs::create_dir_all(base.join("tmp/sessions"));
+        let _ = fs::create_dir_all(base.join("tmp/uploads"));
 
         if !content.contains("; RBWStack Auto Config") {
-            content = content.replace(";extension_dir = \"ext\"", &format!("extension_dir = \"{}\"", ext_dir));
-            let exts = [
-                "curl", "fileinfo", "gd", "gd2", "intl", "mbstring", "exif", "mysqli", "openssl",
-                "pdo_mysql", "pdo_sqlite", "soap", "sockets", "sodium", "sqlite3", "tidy", "xsl", "zip",
-            ];
-            for ext in exts {
-                content = content.replace(&format!(";extension={}", ext), &format!("extension={}", ext));
-                content = content.replace(&format!(";extension=php_{}.dll", ext), &format!("extension=php_{}.dll", ext));
+            if has_ext_dir {
+                content = content.replace(
+                    ";extension_dir = \"ext\"",
+                    &format!("extension_dir = \"{}\"", ext_dir),
+                );
+                let exts = [
+                    "curl", "fileinfo", "gd", "gd2", "intl", "mbstring", "exif", "mysqli",
+                    "openssl", "pdo_mysql", "pdo_sqlite", "soap", "sockets", "sodium", "sqlite3",
+                    "tidy", "xsl", "zip",
+                ];
+                for ext in exts {
+                    content = content.replace(
+                        &format!(";extension={}", ext),
+                        &format!("extension={}", ext),
+                    );
+                    content = content.replace(
+                        &format!(";extension=php_{}.dll", ext),
+                        &format!("extension=php_{}.dll", ext),
+                    );
+                }
             }
 
             let settings = config::load_app_settings();
+            let ext_line = if has_ext_dir {
+                format!("extension_dir = \"{}\"\n", ext_dir)
+            } else {
+                String::new()
+            };
             let mut custom_block = format!(
-                "\n; RBWStack Auto Config\nextension_dir = \"{}\"\nsession.save_path = \"{}\"\nupload_tmp_dir = \"{}\"\nsendmail_from = \"admin@rbwstack.local\"\nSMTP = 127.0.0.1\nsmtp_port = 1025\ndisplay_errors = Off\nlog_errors = On\ndate.timezone = Asia/Ho_Chi_Minh\n",
-                ext_dir, tmp_sessions, tmp_uploads
+                "\n; RBWStack Auto Config\n{}session.save_path = \"{}\"\nupload_tmp_dir = \"{}\"\nsendmail_from = \"admin@rbwstack.local\"\nSMTP = 127.0.0.1\nsmtp_port = 1025\ndisplay_errors = Off\nlog_errors = On\ndate.timezone = Asia/Ho_Chi_Minh\n",
+                ext_line, tmp_sessions, tmp_uploads
             );
 
             if settings.auto_optimize_php {
@@ -565,45 +701,130 @@ pub fn configure_php(php_dir: &Path) {
     }
 }
 
-pub fn configure_mysql(mysql_dir: &Path, mysql_port: u16) {
-    let my_ini_path = mysql_dir.join("my.ini");
-    let mysql_dir_fwd = mysql_dir.to_string_lossy().replace('\\', "/");
-    let raw_ini = format!(
-        r#"[mysqld]
-port = {port}
-basedir = "{dir}"
-datadir = "{dir}/data"
-character-set-server = utf8mb4
-collation-server = utf8mb4_unicode_ci
-default-storage-engine = INNODB
-max_allowed_packet = 64M
-innodb_log_file_size = 50M
-
-[mysql]
-default-character-set = utf8mb4
-
-[client]
-port = {port}
-default-character-set = utf8mb4
-"#,
-        port = mysql_port,
-        dir = mysql_dir_fwd
-    );
-
-    let _ = fs::write(&my_ini_path, raw_ini);
-
+pub fn ensure_mysql_data_initialized(mysql_dir: &Path, ver: &str) {
     let data_dir = mysql_dir.join("data");
-    if !data_dir.exists() {
-        let _ = fs::create_dir_all(&data_dir);
+    let _ = fs::create_dir_all(&data_dir);
+    if data_dir.join("mysql").is_dir() {
+        return;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let opt_dir = find_macos_brew_opt_dir("mysql", ver);
+        if ver.contains("mariadb") {
+            let mut candidates: Vec<PathBuf> = Vec::new();
+            if let Some(ref opt) = opt_dir {
+                candidates.push(opt.join("bin/mariadb-install-db"));
+                candidates.push(opt.join("scripts/mariadb-install-db"));
+                candidates.push(opt.join("bin/mysql_install_db"));
+            }
+            for prefix_str in MACOS_BREW_PREFIXES {
+                let p = Path::new(prefix_str);
+                candidates.push(p.join("bin/mariadb-install-db"));
+                candidates.push(p.join("bin/mysql_install_db"));
+            }
+            for tool in candidates {
+                if tool.is_file() {
+                    let mut cmd = Command::new(&tool);
+                    if let Some(ref opt) = opt_dir {
+                        cmd.arg(format!("--basedir={}", opt.to_string_lossy()));
+                    }
+                    let _ = cmd
+                        .args([
+                            &format!("--datadir={}", data_dir.to_string_lossy()),
+                            "--auth-root-authentication-method=normal",
+                        ])
+                        .output();
+                    return;
+                }
+            }
+        } else if let Some(exe) = find_macos_brew_binary_path("mysql", ver) {
+            let mut cmd = Command::new(&exe);
+            if let Some(ref opt) = opt_dir {
+                cmd.arg(format!("--basedir={}", opt.to_string_lossy()));
+            }
+            let _ = cmd
+                .args([
+                    "--initialize-insecure",
+                    &format!("--datadir={}", data_dir.to_string_lossy()),
+                ])
+                .output();
+            return;
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = ver;
         if let Some(init_exe) = find_executable_recursive(
             mysql_dir,
-            &["mysql_install_db.exe", "mariadb-install-db.exe", "mysql_install_db"],
+            &[
+                "mysql_install_db.exe",
+                "mariadb-install-db.exe",
+                "mysql_install_db",
+            ],
         ) {
             let _ = create_hidden_command(&init_exe.to_string_lossy())
                 .arg(format!("--datadir={}", data_dir.to_string_lossy()))
                 .output();
         }
     }
+}
+
+pub fn configure_mysql(mysql_dir: &Path, mysql_port: u16) {
+    let _ = fs::create_dir_all(mysql_dir);
+    let ver = mysql_dir
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let my_ini_path = mysql_dir.join("my.ini");
+    let mysql_dir_fwd = mysql_dir.to_string_lossy().replace('\\', "/");
+
+    #[cfg(target_os = "macos")]
+    let (basedir_fwd, extra_mysqld_opts, socket_line) = {
+        let b = find_macos_brew_opt_dir("mysql", ver)
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|| mysql_dir_fwd.clone());
+        let sock = format!("socket = \"{}/mysql.sock\"\n", mysql_dir_fwd);
+        let opts = if ver.contains("mariadb") {
+            "innodb_log_file_size = 50M\n".to_string()
+        } else {
+            String::new()
+        };
+        (b, opts, sock)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let (basedir_fwd, extra_mysqld_opts, socket_line) = (
+        mysql_dir_fwd.clone(),
+        "default-storage-engine = INNODB\ninnodb_log_file_size = 50M\n".to_string(),
+        String::new(),
+    );
+
+    let raw_ini = format!(
+        r#"[mysqld]
+port = {port}
+basedir = "{basedir}"
+datadir = "{datadir}/data"
+{socket_line}character-set-server = utf8mb4
+collation-server = utf8mb4_unicode_ci
+max_allowed_packet = 64M
+{extra_opts}
+[mysql]
+default-character-set = utf8mb4
+
+[client]
+port = {port}
+{socket_line}default-character-set = utf8mb4
+"#,
+        port = mysql_port,
+        basedir = basedir_fwd,
+        datadir = mysql_dir_fwd,
+        socket_line = socket_line,
+        extra_opts = extra_mysqld_opts
+    );
+
+    let _ = fs::write(&my_ini_path, raw_ini);
+    ensure_mysql_data_initialized(mysql_dir, ver);
 }
 
 pub fn configure_phpmyadmin(mysql_port: u16) {
@@ -730,6 +951,115 @@ pub fn trust_ssl_certificate(crt_path: &Path) {
     }
 }
 
+const NGINX_MIME_TYPES: &str = "types {\n    text/html                             html htm shtml;\n    text/css                              css;\n    text/xml                              xml;\n    image/gif                             gif;\n    image/jpeg                            jpeg jpg;\n    application/javascript                js;\n    application/atom+xml                  atom;\n    application/rss+xml                   rss;\n    image/png                             png;\n    image/svg+xml                         svg svgz;\n    image/webp                            webp;\n    application/json                      json;\n    application/zip                       zip;\n    application/x-font-ttf                ttf;\n    font/woff                             woff;\n    font/woff2                            woff2;\n}\n";
+
+const APACHE_MIME_TYPES: &str = "text/html\t\t\thtml htm shtml\ntext/css\t\t\tcss\ntext/xml\t\t\txml\nimage/gif\t\t\tgif\nimage/jpeg\t\t\tjpeg jpg\napplication/javascript\t\tjs\napplication/atom+xml\t\tatom\napplication/rss+xml\t\trss\nimage/png\t\t\tpng\nimage/svg+xml\t\t\tsvg svgz\nimage/webp\t\t\twebp\napplication/json\t\tjson\napplication/zip\t\t\tzip\napplication/x-font-ttf\t\tttf\nfont/woff\t\t\twoff\nfont/woff2\t\t\twoff2\n";
+
+#[cfg(target_os = "macos")]
+fn build_macos_apache_modules_block(apache_dir: &str) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!("PidFile \"{}/logs/httpd.pid\"", apache_dir));
+    lines.push(format!("DefaultRuntimeDir \"{}/logs\"", apache_dir));
+
+    if let Some(mod_dir) = find_macos_apache_modules_dir() {
+        for (mpm_name, mpm_file) in [
+            ("mpm_event_module", "mod_mpm_event.so"),
+            ("mpm_prefork_module", "mod_mpm_prefork.so"),
+            ("mpm_worker_module", "mod_mpm_worker.so"),
+        ] {
+            let p = mod_dir.join(mpm_file);
+            if p.is_file() {
+                lines.push(format!(
+                    "LoadModule {} \"{}\"",
+                    mpm_name,
+                    p.to_string_lossy().replace('\\', "/")
+                ));
+                break;
+            }
+        }
+
+        let candidates = [
+            ("unixd_module", "mod_unixd.so"),
+            ("authn_file_module", "mod_authn_file.so"),
+            ("authn_core_module", "mod_authn_core.so"),
+            ("authz_host_module", "mod_authz_host.so"),
+            ("authz_groupfile_module", "mod_authz_groupfile.so"),
+            ("authz_user_module", "mod_authz_user.so"),
+            ("authz_core_module", "mod_authz_core.so"),
+            ("access_compat_module", "mod_access_compat.so"),
+            ("auth_basic_module", "mod_auth_basic.so"),
+            ("reqtimeout_module", "mod_reqtimeout.so"),
+            ("filter_module", "mod_filter.so"),
+            ("mime_module", "mod_mime.so"),
+            ("log_config_module", "mod_log_config.so"),
+            ("env_module", "mod_env.so"),
+            ("headers_module", "mod_headers.so"),
+            ("setenvif_module", "mod_setenvif.so"),
+            ("version_module", "mod_version.so"),
+            ("status_module", "mod_status.so"),
+            ("autoindex_module", "mod_autoindex.so"),
+            ("dir_module", "mod_dir.so"),
+            ("alias_module", "mod_alias.so"),
+            ("actions_module", "mod_actions.so"),
+            ("rewrite_module", "mod_rewrite.so"),
+            ("cgi_module", "mod_cgi.so"),
+            ("cgid_module", "mod_cgid.so"),
+            ("proxy_module", "mod_proxy.so"),
+            ("proxy_fcgi_module", "mod_proxy_fcgi.so"),
+            ("ssl_module", "mod_ssl.so"),
+            ("socache_shmcb_module", "mod_socache_shmcb.so"),
+        ];
+        for (mod_name, file_name) in candidates {
+            let p = mod_dir.join(file_name);
+            if p.is_file() {
+                lines.push(format!(
+                    "LoadModule {} \"{}\"",
+                    mod_name,
+                    p.to_string_lossy().replace('\\', "/")
+                ));
+            }
+        }
+    }
+
+    lines.push("TypesConfig conf/mime.types".to_string());
+    lines.join("\n")
+}
+
+#[cfg(not(target_os = "macos"))]
+fn build_windows_apache_modules_block(php_dir: &str) -> String {
+    format!(
+        r#"SetEnv PHPRC "{php_dir}"
+LoadModule authn_file_module modules/mod_authn_file.so
+LoadModule authn_core_module modules/mod_authn_core.so
+LoadModule authz_host_module modules/mod_authz_host.so
+LoadModule authz_groupfile_module modules/mod_authz_groupfile.so
+LoadModule authz_user_module modules/mod_authz_user.so
+LoadModule authz_core_module modules/mod_authz_core.so
+LoadModule access_compat_module modules/mod_access_compat.so
+LoadModule auth_basic_module modules/mod_auth_basic.so
+LoadModule reqtimeout_module modules/mod_reqtimeout.so
+LoadModule filter_module modules/mod_filter.so
+LoadModule mime_module modules/mod_mime.so
+LoadModule log_config_module modules/mod_log_config.so
+LoadModule env_module modules/mod_env.so
+LoadModule headers_module modules/mod_headers.so
+LoadModule setenvif_module modules/mod_setenvif.so
+LoadModule version_module modules/mod_version.so
+LoadModule status_module modules/mod_status.so
+LoadModule autoindex_module modules/mod_autoindex.so
+LoadModule dir_module modules/mod_dir.so
+LoadModule alias_module modules/mod_alias.so
+LoadModule actions_module modules/mod_actions.so
+LoadModule rewrite_module modules/mod_rewrite.so
+LoadModule cgi_module modules/mod_cgi.so
+LoadModule proxy_module modules/mod_proxy.so
+LoadModule proxy_fcgi_module modules/mod_proxy_fcgi.so
+LoadModule ssl_module modules/mod_ssl.so
+LoadModule socache_shmcb_module modules/mod_socache_shmcb.so"#,
+        php_dir = php_dir
+    )
+}
+
 pub fn generate_vhosts_configs(settings: &AppSettings) {
     let base = config::get_base_dir();
     let www_base = config::get_www_base_dir();
@@ -832,6 +1162,16 @@ pub fn generate_vhosts_configs(settings: &AppSettings) {
         let nginx_dir = base.join("bin/nginx").join(&ver);
         let conf_dir = nginx_dir.join("conf");
         let _ = fs::create_dir_all(&conf_dir);
+        let _ = fs::create_dir_all(nginx_dir.join("logs"));
+        for tmp_sub in [
+            "temp/client_body_temp",
+            "temp/proxy_temp",
+            "temp/fastcgi_temp",
+            "temp/uwsgi_temp",
+            "temp/scgi_temp",
+        ] {
+            let _ = fs::create_dir_all(nginx_dir.join(tmp_sub));
+        }
 
         let mut custom_locations = String::new();
         for (site_name, php_ver) in &site_php_map {
@@ -950,12 +1290,20 @@ pub fn generate_vhosts_configs(settings: &AppSettings) {
 
         let main_conf = format!(
             r#"worker_processes  1;
+pid        logs/nginx.pid;
+error_log  logs/error.log;
 events {{
     worker_connections  1024;
 }}
 http {{
     include       mime.types;
     default_type  application/octet-stream;
+    access_log    logs/access.log;
+    client_body_temp_path temp/client_body_temp;
+    proxy_temp_path       temp/proxy_temp;
+    fastcgi_temp_path     temp/fastcgi_temp;
+    uwsgi_temp_path       temp/uwsgi_temp;
+    scgi_temp_path        temp/scgi_temp;
     sendfile        on;
     keepalive_timeout  3600;
     fastcgi_read_timeout 3600s;
@@ -1077,7 +1425,7 @@ http {{
         }
         let mime_types = conf_dir.join("mime.types");
         if !mime_types.exists() {
-            let _ = fs::write(&mime_types, "types {\n    text/html                             html htm shtml;\n    text/css                              css;\n    text/xml                              xml;\n    image/gif                             gif;\n    image/jpeg                            jpeg jpg;\n    application/javascript                js;\n    application/atom+xml                  atom;\n    application/rss+xml                   rss;\n    image/png                             png;\n    image/svg+xml                         svg svgz;\n    image/webp                            webp;\n    application/json                      json;\n    application/zip                       zip;\n    application/x-font-ttf                ttf;\n    font/woff                             woff;\n    font/woff2                            woff2;\n}\n");
+            let _ = fs::write(&mime_types, NGINX_MIME_TYPES);
         }
     }
 
@@ -1092,6 +1440,11 @@ http {{
         };
         let conf_dir = srv_root.join("conf");
         let _ = fs::create_dir_all(&conf_dir);
+        let _ = fs::create_dir_all(srv_root.join("logs"));
+        let apache_mime_types = conf_dir.join("mime.types");
+        if !apache_mime_types.exists() {
+            let _ = fs::write(&apache_mime_types, APACHE_MIME_TYPES);
+        }
         let httpd_conf_path = conf_dir.join("httpd.conf");
         let apache_dir_str = srv_root.to_string_lossy().replace('\\', "/");
 
@@ -1195,40 +1548,19 @@ http {{
             }
         }
 
+        let _ = &active_php_dir;
+        #[cfg(target_os = "macos")]
+        let modules_block = build_macos_apache_modules_block(&apache_dir_str);
+        #[cfg(not(target_os = "macos"))]
+        let modules_block = build_windows_apache_modules_block(&active_php_dir);
+
         let httpd_conf = format!(
             r#"ServerRoot "{apache_dir}"
 Listen {port}
 Listen 443
 SSLSessionCache "shmcb:logs/ssl_scache(512000)"
-SetEnv PHPRC "{php_dir}"
-LoadModule authn_file_module modules/mod_authn_file.so
-LoadModule authn_core_module modules/mod_authn_core.so
-LoadModule authz_host_module modules/mod_authz_host.so
-LoadModule authz_groupfile_module modules/mod_authz_groupfile.so
-LoadModule authz_user_module modules/mod_authz_user.so
-LoadModule authz_core_module modules/mod_authz_core.so
-LoadModule access_compat_module modules/mod_access_compat.so
-LoadModule auth_basic_module modules/mod_auth_basic.so
-LoadModule reqtimeout_module modules/mod_reqtimeout.so
-LoadModule filter_module modules/mod_filter.so
-LoadModule mime_module modules/mod_mime.so
-LoadModule log_config_module modules/mod_log_config.so
-LoadModule env_module modules/mod_env.so
-LoadModule headers_module modules/mod_headers.so
-LoadModule setenvif_module modules/mod_setenvif.so
-LoadModule version_module modules/mod_version.so
-LoadModule status_module modules/mod_status.so
-LoadModule autoindex_module modules/mod_autoindex.so
-LoadModule dir_module modules/mod_dir.so
-LoadModule alias_module modules/mod_alias.so
-LoadModule actions_module modules/mod_actions.so
-LoadModule rewrite_module modules/mod_rewrite.so
-LoadModule cgi_module modules/mod_cgi.so
-LoadModule proxy_module modules/mod_proxy.so
-LoadModule proxy_fcgi_module modules/mod_proxy_fcgi.so
+{modules_block}
 ProxyFCGIBackendType GENERIC
-LoadModule ssl_module modules/mod_ssl.so
-LoadModule socache_shmcb_module modules/mod_socache_shmcb.so
 
 <FilesMatch \.php$>
     SetHandler "proxy:fcgi://127.0.0.1:{root_php_port}//./"
@@ -1306,7 +1638,7 @@ LogLevel warn
 "#,
             apache_dir = apache_dir_str,
             port = settings.web_port,
-            php_dir = active_php_dir,
+            modules_block = modules_block,
             root_php_port = root_php_port,
             php_port = settings.php_cgi_port,
             doc_root = doc_root_str,
@@ -1432,6 +1764,8 @@ pub fn start_web_service(settings: &AppSettings) -> Result<(), String> {
                     &_conf_path.to_string_lossy(),
                     "-p",
                     &nginx_dir.to_string_lossy(),
+                    "-g",
+                    "daemon off;",
                 ]);
             }
             cmd.stdout(Stdio::null()).stderr(Stdio::null());
@@ -1468,15 +1802,15 @@ pub fn start_web_service(settings: &AppSettings) -> Result<(), String> {
         if let Some(exe) = exe_opt {
             let exe_parent = exe.parent().unwrap_or(&srv_root);
             let mut cmd = create_hidden_command(&exe.to_string_lossy());
-            cmd.current_dir(exe_parent)
-                .args([
-                    "-d",
-                    &srv_root.to_string_lossy(),
-                    "-f",
-                    &conf_path.to_string_lossy(),
-                ])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
+            cmd.current_dir(exe_parent).args([
+                "-d",
+                &srv_root.to_string_lossy(),
+                "-f",
+                &conf_path.to_string_lossy(),
+            ]);
+            #[cfg(target_os = "macos")]
+            cmd.arg("-DFOREGROUND");
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
             if let Ok(child) = cmd.spawn() {
                 with_pm(|pm| pm.web_child = Some(child));
                 return Ok(());
@@ -1513,28 +1847,6 @@ pub fn start_mysql_service(settings: &AppSettings) -> Result<(), String> {
     configure_mysql(&mysql_dir, settings.mysql_port);
     configure_phpmyadmin(settings.mysql_port);
 
-    let data_dir = mysql_dir.join("data");
-    if !data_dir.exists() {
-        let _ = fs::create_dir_all(&data_dir);
-        #[cfg(target_os = "macos")]
-        {
-            for tool_name in &["mariadb-install-db", "mysql_install_db"] {
-                for prefix in &[PathBuf::from("/opt/homebrew"), PathBuf::from("/usr/local")] {
-                    let tool = prefix.join("bin").join(tool_name);
-                    if tool.is_file() {
-                        let _ = std::process::Command::new(tool)
-                            .args([
-                                &format!("--datadir={}", data_dir.to_string_lossy()),
-                                "--auth-root-authentication-method=normal",
-                            ])
-                            .output();
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
     let my_ini_path = mysql_dir.join("my.ini");
     #[allow(unused_mut)]
     let mut exe_opt = find_executable_recursive(&mysql_dir, &["mysqld.exe", "mariadbd.exe", "mysqld", "mariadbd"]);
@@ -1546,12 +1858,10 @@ pub fn start_mysql_service(settings: &AppSettings) -> Result<(), String> {
         let exe_parent = exe.parent().unwrap_or(&mysql_dir);
         let mut cmd = create_hidden_command(&exe.to_string_lossy());
         cmd.current_dir(exe_parent)
-            .args([
-                &format!("--defaults-file={}", my_ini_path.to_string_lossy()),
-                "--standalone",
-            ])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .arg(format!("--defaults-file={}", my_ini_path.to_string_lossy()));
+        #[cfg(target_os = "windows")]
+        cmd.arg("--standalone");
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
         if let Ok(child) = cmd.spawn() {
             with_pm(|pm| pm.mysql_child = Some(child));
             return Ok(());
@@ -1589,7 +1899,7 @@ pub fn kill_process_by_name(names: &[&str]) {
         for name in names {
             if !name.ends_with(".exe") {
                 let _ = Command::new("pkill")
-                    .args(["-f", name])
+                    .args(["-x", name])
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .output();

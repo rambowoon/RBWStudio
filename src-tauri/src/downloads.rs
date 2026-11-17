@@ -4,8 +4,9 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
 use zip::ZipArchive;
@@ -78,6 +79,11 @@ pub fn refresh_installed_flags(items: &mut [DownloadItem]) {
     let pma_installed = services::is_phpmyadmin_installed();
     let cf_installed = services::is_cloudflared_installed();
     let vc_installed = is_vc_runtime_installed();
+    let installed_php = services::list_installed_versions("php");
+    let installed_apache = services::list_installed_versions("apache");
+    let installed_nginx = services::list_installed_versions("nginx");
+    let installed_mysql = services::list_installed_versions("mysql");
+    let installed_nodejs = services::list_installed_versions("nodejs");
 
     for item in items.iter_mut() {
         item.installed = match item.category.as_str() {
@@ -97,7 +103,18 @@ pub fn refresh_installed_flags(items: &mut [DownloadItem]) {
                     vc_installed
                 }
             }
-            cat => base.join("bin").join(cat).join(&item.version).exists(),
+            cat => {
+                let list_for_cat = match cat {
+                    "php" => &installed_php,
+                    "apache" => &installed_apache,
+                    "nginx" => &installed_nginx,
+                    "mysql" => &installed_mysql,
+                    "nodejs" => &installed_nodejs,
+                    _ => &installed_php,
+                };
+                base.join("bin").join(cat).join(&item.version).exists()
+                    || (cat != "_" && list_for_cat.iter().any(|v| v == &item.version))
+            }
         };
     }
 }
@@ -118,62 +135,236 @@ pub fn get_store_items() -> Vec<DownloadItem> {
 
 pub fn get_offline_fallback_items() -> Vec<DownloadItem> {
     let is_mac = cfg!(target_os = "macos");
-    vec![
-        // 1. PHP Engine (Offline fallback matching DownloadCenterForm.cs)
-        DownloadItem {
-            id: "php-8.3.6".to_string(),
-            category: "php".to_string(),
-            name: "PHP 8.3.6 (Mới nhất - Thread Safe x64)".to_string(),
-            version: "php-8.3.6".to_string(),
-            description: "Lưu tại: .\\bin\\php\\php-8.3.6".to_string(),
-            url: "https://windows.php.net/downloads/releases/archives/php-8.3.6-Win32-vs16-x64.zip".to_string(),
-            installed: false,
-        },
-        DownloadItem {
-            id: "php-8.2.12".to_string(),
-            category: "php".to_string(),
-            name: "PHP 8.2.12 (Ổn định - Thread Safe x64)".to_string(),
-            version: "php-8.2.12".to_string(),
-            description: "Lưu tại: .\\bin\\php\\php-8.2.12".to_string(),
-            installed: false,
-            url: "https://windows.php.net/downloads/releases/archives/php-8.2.12-Win32-vs16-x64.zip".to_string(),
-        },
-        DownloadItem {
-            id: "php-8.1.28".to_string(),
-            category: "php".to_string(),
-            name: "PHP 8.1.28 (Tương thích - Thread Safe x64)".to_string(),
-            version: "php-8.1.28".to_string(),
-            description: "Lưu tại: .\\bin\\php\\php-8.1.28".to_string(),
-            url: "https://windows.php.net/downloads/releases/archives/php-8.1.28-Win32-vs16-x64.zip".to_string(),
-            installed: false,
-        },
-        DownloadItem {
-            id: "php-7.4.33".to_string(),
-            category: "php".to_string(),
-            name: "PHP 7.4.33 (Kế thừa cũ)".to_string(),
-            version: "php-7.4.33".to_string(),
-            description: "Lưu tại: .\\bin\\php\\php-7.4.33".to_string(),
-            url: "https://windows.php.net/downloads/releases/archives/php-7.4.33-Win32-vc15-x64.zip".to_string(),
-            installed: false,
-        },
-        DownloadItem {
-            id: "php-5.6.40".to_string(),
-            category: "php".to_string(),
-            name: "PHP 5.6.40 (Kế thừa rất cũ)".to_string(),
-            version: "php-5.6.40".to_string(),
-            description: "Lưu tại: .\\bin\\php\\php-5.6.40".to_string(),
-            url: "https://windows.php.net/downloads/releases/archives/php-5.6.40-Win32-VC11-x64.zip".to_string(),
-            installed: false,
-        },
-        // 2. Node.js Engine
+    let is_arm64 = cfg!(target_arch = "aarch64");
+    let node_arch = if is_arm64 { "darwin-arm64" } else { "darwin-x64" };
+    let cf_arch = if is_arm64 { "darwin-arm64" } else { "darwin-amd64" };
+    let mut items = Vec::new();
+
+    if is_mac {
+        items.extend([
+            DownloadItem {
+                id: "php-latest-mac".to_string(),
+                category: "php".to_string(),
+                name: "PHP Mới nhất (Homebrew)".to_string(),
+                version: "brew-php".to_string(),
+                description: "Cài qua Homebrew (brew install php)".to_string(),
+                url: "brew://php".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "php-8.4-mac".to_string(),
+                category: "php".to_string(),
+                name: "PHP 8.4 (Homebrew)".to_string(),
+                version: "brew-php@8.4".to_string(),
+                description: "Cài qua Homebrew (brew install php@8.4)".to_string(),
+                url: "brew://php@8.4".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "php-8.3-mac".to_string(),
+                category: "php".to_string(),
+                name: "PHP 8.3 (Homebrew)".to_string(),
+                version: "brew-php@8.3".to_string(),
+                description: "Cài qua Homebrew (brew install php@8.3)".to_string(),
+                url: "brew://php@8.3".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "php-8.2-mac".to_string(),
+                category: "php".to_string(),
+                name: "PHP 8.2 (Homebrew)".to_string(),
+                version: "brew-php@8.2".to_string(),
+                description: "Cài qua Homebrew (brew install php@8.2)".to_string(),
+                url: "brew://php@8.2".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "php-8.1-mac".to_string(),
+                category: "php".to_string(),
+                name: "PHP 8.1 (Homebrew)".to_string(),
+                version: "brew-php@8.1".to_string(),
+                description: "Cài qua Homebrew (brew install php@8.1)".to_string(),
+                url: "brew://php@8.1".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "php-7.4-mac".to_string(),
+                category: "php".to_string(),
+                name: "PHP 7.4 (shivammathur/php)".to_string(),
+                version: "brew-php@7.4".to_string(),
+                description: "Cài qua tap shivammathur/php (php@7.4)".to_string(),
+                url: "brew://shivammathur/php/php@7.4".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "httpd-brew-mac".to_string(),
+                category: "apache".to_string(),
+                name: "Apache HTTP Server (Homebrew)".to_string(),
+                version: "brew-httpd".to_string(),
+                description: "Cài qua Homebrew (brew install httpd)".to_string(),
+                url: "brew://httpd".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "nginx-brew-mac".to_string(),
+                category: "nginx".to_string(),
+                name: "Nginx Server (Homebrew)".to_string(),
+                version: "brew-nginx".to_string(),
+                description: "Cài qua Homebrew (brew install nginx)".to_string(),
+                url: "brew://nginx".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "mariadb-brew-mac".to_string(),
+                category: "mysql".to_string(),
+                name: "MariaDB (Homebrew - Khuyên dùng)".to_string(),
+                version: "brew-mariadb".to_string(),
+                description: "Cài qua Homebrew (brew install mariadb)".to_string(),
+                url: "brew://mariadb".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "mysql-brew-mac".to_string(),
+                category: "mysql".to_string(),
+                name: "MySQL Community (Homebrew)".to_string(),
+                version: "brew-mysql".to_string(),
+                description: "Cài qua Homebrew (brew install mysql)".to_string(),
+                url: "brew://mysql".to_string(),
+                installed: false,
+            },
+        ]);
+    } else {
+        items.extend([
+            DownloadItem {
+                id: "php-8.3.6".to_string(),
+                category: "php".to_string(),
+                name: "PHP 8.3.6 (Mới nhất - Thread Safe x64)".to_string(),
+                version: "php-8.3.6".to_string(),
+                description: "Lưu tại: .\\bin\\php\\php-8.3.6".to_string(),
+                url: "https://windows.php.net/downloads/releases/archives/php-8.3.6-Win32-vs16-x64.zip".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "php-8.2.12".to_string(),
+                category: "php".to_string(),
+                name: "PHP 8.2.12 (Ổn định - Thread Safe x64)".to_string(),
+                version: "php-8.2.12".to_string(),
+                description: "Lưu tại: .\\bin\\php\\php-8.2.12".to_string(),
+                installed: false,
+                url: "https://windows.php.net/downloads/releases/archives/php-8.2.12-Win32-vs16-x64.zip".to_string(),
+            },
+            DownloadItem {
+                id: "php-8.1.28".to_string(),
+                category: "php".to_string(),
+                name: "PHP 8.1.28 (Tương thích - Thread Safe x64)".to_string(),
+                version: "php-8.1.28".to_string(),
+                description: "Lưu tại: .\\bin\\php\\php-8.1.28".to_string(),
+                url: "https://windows.php.net/downloads/releases/archives/php-8.1.28-Win32-vs16-x64.zip".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "php-7.4.33".to_string(),
+                category: "php".to_string(),
+                name: "PHP 7.4.33 (Kế thừa cũ)".to_string(),
+                version: "php-7.4.33".to_string(),
+                description: "Lưu tại: .\\bin\\php\\php-7.4.33".to_string(),
+                url: "https://windows.php.net/downloads/releases/archives/php-7.4.33-Win32-vc15-x64.zip".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "php-5.6.40".to_string(),
+                category: "php".to_string(),
+                name: "PHP 5.6.40 (Kế thừa rất cũ)".to_string(),
+                version: "php-5.6.40".to_string(),
+                description: "Lưu tại: .\\bin\\php\\php-5.6.40".to_string(),
+                url: "https://windows.php.net/downloads/releases/archives/php-5.6.40-Win32-VC11-x64.zip".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "httpd-2.4.67".to_string(),
+                category: "apache".to_string(),
+                name: "Apache 2.4.67 (VS18 Mới nhất)".to_string(),
+                version: "httpd-2.4.67".to_string(),
+                description: "Lưu tại: .\\bin\\apache\\httpd-2.4.67".to_string(),
+                url: "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.67-260504-Win64-VS18.zip".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "httpd-2.4.63".to_string(),
+                category: "apache".to_string(),
+                name: "Apache 2.4.63 (VS17)".to_string(),
+                version: "httpd-2.4.63".to_string(),
+                description: "Lưu tại: .\\bin\\apache\\httpd-2.4.63".to_string(),
+                url: "https://www.apachelounge.com/download/VS17/binaries/httpd-2.4.63-250207-win64-VS17.zip".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "nginx-1.26.0".to_string(),
+                category: "nginx".to_string(),
+                name: "Nginx 1.26.0 (Stable)".to_string(),
+                version: "nginx-1.26.0".to_string(),
+                description: "Lưu tại: .\\bin\\nginx\\nginx-1.26.0".to_string(),
+                url: "https://nginx.org/download/nginx-1.26.0.zip".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "nginx-1.24.0".to_string(),
+                category: "nginx".to_string(),
+                name: "Nginx 1.24.0 (Legacy)".to_string(),
+                version: "nginx-1.24.0".to_string(),
+                description: "Lưu tại: .\\bin\\nginx\\nginx-1.24.0".to_string(),
+                url: "https://nginx.org/download/nginx-1.24.0.zip".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "mariadb-11.3.2".to_string(),
+                category: "mysql".to_string(),
+                name: "MariaDB 11.3.2 (Stable x64)".to_string(),
+                version: "mariadb-11.3.2".to_string(),
+                description: "Lưu tại: .\\bin\\mysql\\mariadb-11.3.2".to_string(),
+                url: "https://archive.mariadb.org/mariadb-11.3.2/winx64-packages/mariadb-11.3.2-winx64.zip".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "mariadb-10.11.2".to_string(),
+                category: "mysql".to_string(),
+                name: "MariaDB 10.11.2 (LTS x64)".to_string(),
+                version: "mariadb-10.11.2".to_string(),
+                description: "Lưu tại: .\\bin\\mysql\\mariadb-10.11.2".to_string(),
+                url: "https://archive.mariadb.org/mariadb-10.11.2/winx64-packages/mariadb-10.11.2-winx64.zip".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "mysql-8.0.36".to_string(),
+                category: "mysql".to_string(),
+                name: "MySQL 8.0.36 (Oracle Community)".to_string(),
+                version: "mysql-8.0.36".to_string(),
+                description: "Lưu tại: .\\bin\\mysql\\mysql-8.0.36".to_string(),
+                url: "https://downloads.mysql.com/archives/get/p/23/file/mysql-8.0.36-winx64.zip".to_string(),
+                installed: false,
+            },
+            DownloadItem {
+                id: "mysql-5.7.44".to_string(),
+                category: "mysql".to_string(),
+                name: "MySQL 5.7.44 (Oracle Classic)".to_string(),
+                version: "mysql-5.7.44".to_string(),
+                description: "Lưu tại: .\\bin\\mysql\\mysql-5.7.44".to_string(),
+                url: "https://downloads.mysql.com/archives/get/p/23/file/mysql-5.7.44-winx64.zip".to_string(),
+                installed: false,
+            },
+        ]);
+    }
+
+    // Node.js Engine (cross-platform)
+    items.extend([
         DownloadItem {
             id: "node-v22.14.0".to_string(),
             category: "nodejs".to_string(),
             name: "Node.js v22.14.0 (LTS Mới nhất)".to_string(),
             version: "node-v22.14.0".to_string(),
-            description: "Lưu tại: .\\bin\\nodejs\\node-v22.14.0".to_string(),
+            description: "Lưu tại: bin/nodejs/node-v22.14.0".to_string(),
             url: if is_mac {
-                "https://nodejs.org/dist/v22.14.0/node-v22.14.0-darwin-arm64.tar.gz".to_string()
+                format!("https://nodejs.org/dist/v22.14.0/node-v22.14.0-{}.tar.gz", node_arch)
             } else {
                 "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x64.zip".to_string()
             },
@@ -184,9 +375,9 @@ pub fn get_offline_fallback_items() -> Vec<DownloadItem> {
             category: "nodejs".to_string(),
             name: "Node.js v20.12.2 (LTS Ổn định)".to_string(),
             version: "node-v20.12.2".to_string(),
-            description: "Lưu tại: .\\bin\\nodejs\\node-v20.12.2".to_string(),
+            description: "Lưu tại: bin/nodejs/node-v20.12.2".to_string(),
             url: if is_mac {
-                "https://nodejs.org/dist/v20.12.2/node-v20.12.2-darwin-arm64.tar.gz".to_string()
+                format!("https://nodejs.org/dist/v20.12.2/node-v20.12.2-{}.tar.gz", node_arch)
             } else {
                 "https://nodejs.org/dist/v20.12.2/node-v20.12.2-win-x64.zip".to_string()
             },
@@ -197,96 +388,21 @@ pub fn get_offline_fallback_items() -> Vec<DownloadItem> {
             category: "nodejs".to_string(),
             name: "Node.js v18.20.2 (LTS cũ)".to_string(),
             version: "node-v18.20.2".to_string(),
-            description: "Lưu tại: .\\bin\\nodejs\\node-v18.20.2".to_string(),
+            description: "Lưu tại: bin/nodejs/node-v18.20.2".to_string(),
             url: if is_mac {
-                "https://nodejs.org/dist/v18.20.2/node-v18.20.2-darwin-arm64.tar.gz".to_string()
+                format!("https://nodejs.org/dist/v18.20.2/node-v18.20.2-{}.tar.gz", node_arch)
             } else {
                 "https://nodejs.org/dist/v18.20.2/node-v18.20.2-win-x64.zip".to_string()
             },
             installed: false,
         },
-        // 3. Apache Server
-        DownloadItem {
-            id: "httpd-2.4.67".to_string(),
-            category: "apache".to_string(),
-            name: "Apache 2.4.67 (VS18 Mới nhất)".to_string(),
-            version: "httpd-2.4.67".to_string(),
-            description: "Lưu tại: .\\bin\\apache\\httpd-2.4.67".to_string(),
-            url: "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.67-260504-Win64-VS18.zip".to_string(),
-            installed: false,
-        },
-        DownloadItem {
-            id: "httpd-2.4.63".to_string(),
-            category: "apache".to_string(),
-            name: "Apache 2.4.63 (VS17)".to_string(),
-            version: "httpd-2.4.63".to_string(),
-            description: "Lưu tại: .\\bin\\apache\\httpd-2.4.63".to_string(),
-            url: "https://www.apachelounge.com/download/VS17/binaries/httpd-2.4.63-250207-win64-VS17.zip".to_string(),
-            installed: false,
-        },
-        // 4. Nginx Server
-        DownloadItem {
-            id: "nginx-1.26.0".to_string(),
-            category: "nginx".to_string(),
-            name: "Nginx 1.26.0 (Stable)".to_string(),
-            version: "nginx-1.26.0".to_string(),
-            description: "Lưu tại: .\\bin\\nginx\\nginx-1.26.0".to_string(),
-            url: "https://nginx.org/download/nginx-1.26.0.zip".to_string(),
-            installed: false,
-        },
-        DownloadItem {
-            id: "nginx-1.24.0".to_string(),
-            category: "nginx".to_string(),
-            name: "Nginx 1.24.0 (Legacy)".to_string(),
-            version: "nginx-1.24.0".to_string(),
-            description: "Lưu tại: .\\bin\\nginx\\nginx-1.24.0".to_string(),
-            url: "https://nginx.org/download/nginx-1.24.0.zip".to_string(),
-            installed: false,
-        },
-        // 5. Database (MariaDB + Oracle MySQL)
-        DownloadItem {
-            id: "mariadb-11.3.2".to_string(),
-            category: "mysql".to_string(),
-            name: "MariaDB 11.3.2 (Stable x64)".to_string(),
-            version: "mariadb-11.3.2".to_string(),
-            description: "Lưu tại: .\\bin\\mysql\\mariadb-11.3.2".to_string(),
-            url: "https://archive.mariadb.org/mariadb-11.3.2/winx64-packages/mariadb-11.3.2-winx64.zip".to_string(),
-            installed: false,
-        },
-        DownloadItem {
-            id: "mariadb-10.11.2".to_string(),
-            category: "mysql".to_string(),
-            name: "MariaDB 10.11.2 (LTS x64)".to_string(),
-            version: "mariadb-10.11.2".to_string(),
-            description: "Lưu tại: .\\bin\\mysql\\mariadb-10.11.2".to_string(),
-            url: "https://archive.mariadb.org/mariadb-10.11.2/winx64-packages/mariadb-10.11.2-winx64.zip".to_string(),
-            installed: false,
-        },
-        DownloadItem {
-            id: "mysql-8.0.36".to_string(),
-            category: "mysql".to_string(),
-            name: "MySQL 8.0.36 (Oracle Community)".to_string(),
-            version: "mysql-8.0.36".to_string(),
-            description: "Lưu tại: .\\bin\\mysql\\mysql-8.0.36".to_string(),
-            url: "https://downloads.mysql.com/archives/get/p/23/file/mysql-8.0.36-winx64.zip".to_string(),
-            installed: false,
-        },
-        DownloadItem {
-            id: "mysql-5.7.44".to_string(),
-            category: "mysql".to_string(),
-            name: "MySQL 5.7.44 (Oracle Classic)".to_string(),
-            version: "mysql-5.7.44".to_string(),
-            description: "Lưu tại: .\\bin\\mysql\\mysql-5.7.44".to_string(),
-            url: "https://downloads.mysql.com/archives/get/p/23/file/mysql-5.7.44-winx64.zip".to_string(),
-            installed: false,
-        },
-        // 6. phpMyAdmin
+        // phpMyAdmin (cross-platform PHP app)
         DownloadItem {
             id: "phpmyadmin-5.2.1".to_string(),
             category: "phpmyadmin".to_string(),
             name: "phpMyAdmin 5.2.1".to_string(),
             version: "5.2.1".to_string(),
-            description: "Lưu tại: .\\phpmyadmin".to_string(),
+            description: "Lưu tại: phpmyadmin".to_string(),
             url: "https://files.phpmyadmin.net/phpMyAdmin/5.2.1/phpMyAdmin-5.2.1-all-languages.zip".to_string(),
             installed: false,
         },
@@ -295,18 +411,8 @@ pub fn get_offline_fallback_items() -> Vec<DownloadItem> {
             category: "phpmyadmin".to_string(),
             name: "phpMyAdmin 4.9.11 (Cho PHP cũ)".to_string(),
             version: "4.9.11".to_string(),
-            description: "Lưu tại: .\\phpmyadmin-old".to_string(),
+            description: "Lưu tại: phpmyadmin-old".to_string(),
             url: "https://files.phpmyadmin.net/phpMyAdmin/4.9.11/phpMyAdmin-4.9.11-all-languages.zip".to_string(),
-            installed: false,
-        },
-        // 7. VC++, Cloudflared & Chrome Extension Nasani
-        DownloadItem {
-            id: "vcredist-2022".to_string(),
-            category: "vcredist".to_string(),
-            name: "Visual C++ 2015-2022 (x64)".to_string(),
-            version: "14.42".to_string(),
-            description: "Thư viện runtime cho Windows PHP/Apache".to_string(),
-            url: "https://aka.ms/vs/17/release/vc_redist.x64.exe".to_string(),
             installed: false,
         },
         DownloadItem {
@@ -314,9 +420,12 @@ pub fn get_offline_fallback_items() -> Vec<DownloadItem> {
             category: "vcredist".to_string(),
             name: "Cloudflared Tunnel (Stable)".to_string(),
             version: "latest".to_string(),
-            description: "Lưu tại: .\\bin\\cloudflared".to_string(),
+            description: "Lưu tại: bin/cloudflared".to_string(),
             url: if is_mac {
-                "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz".to_string()
+                format!(
+                    "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-{}.tgz",
+                    cf_arch
+                )
             } else {
                 "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe".to_string()
             },
@@ -331,7 +440,21 @@ pub fn get_offline_fallback_items() -> Vec<DownloadItem> {
             url: "local://extensions/nasani-sync".to_string(),
             installed: false,
         },
-    ]
+    ]);
+
+    if !is_mac {
+        items.push(DownloadItem {
+            id: "vcredist-2022".to_string(),
+            category: "vcredist".to_string(),
+            name: "Visual C++ 2015-2022 (x64)".to_string(),
+            version: "14.42".to_string(),
+            description: "Thư viện runtime cho Windows PHP/Apache".to_string(),
+            url: "https://aka.ms/vs/17/release/vc_redist.x64.exe".to_string(),
+            installed: false,
+        });
+    }
+
+    items
 }
 
 pub fn sync_online_versions_background(app: AppHandle) {
@@ -349,74 +472,91 @@ pub fn sync_online_versions_background(app: AppHandle) {
         let mut combined: Vec<DownloadItem> = Vec::new();
         let mut any_online = false;
 
-        // 1. Scrape PHP
-        let php_online = scrape_php(&client);
-        if !php_online.is_empty() {
-            any_online = true;
-            combined.extend(php_online);
+        if cfg!(target_os = "macos") {
+            // On macOS, core stacks install natively via Homebrew / macOS builds
+            combined.extend(
+                fallback
+                    .iter()
+                    .filter(|i| i.category != "phpmyadmin")
+                    .cloned(),
+            );
+            let pma_online = scrape_pma(&client);
+            if !pma_online.is_empty() {
+                any_online = true;
+                combined.extend(pma_online);
+            } else {
+                combined.extend(fallback.iter().filter(|i| i.category == "phpmyadmin").cloned());
+            }
         } else {
-            combined.extend(fallback.iter().filter(|i| i.category == "php").cloned());
+            // 1. Scrape PHP
+            let php_online = scrape_php(&client);
+            if !php_online.is_empty() {
+                any_online = true;
+                combined.extend(php_online);
+            } else {
+                combined.extend(fallback.iter().filter(|i| i.category == "php").cloned());
+            }
+
+            // 2. Node.js (keep fallback + scrape if needed)
+            combined.extend(fallback.iter().filter(|i| i.category == "nodejs").cloned());
+
+            // 3. Scrape Apache
+            let apache_online = scrape_apache(&client);
+            if !apache_online.is_empty() {
+                any_online = true;
+                combined.extend(apache_online);
+            } else {
+                combined.extend(fallback.iter().filter(|i| i.category == "apache").cloned());
+            }
+
+            // 4. Scrape Nginx
+            let nginx_online = scrape_nginx(&client);
+            if !nginx_online.is_empty() {
+                any_online = true;
+                combined.extend(nginx_online);
+            } else {
+                combined.extend(fallback.iter().filter(|i| i.category == "nginx").cloned());
+            }
+
+            // 5. Scrape MariaDB + append Oracle MySQL 8.0 & 5.7
+            let mut maria_online = scrape_mariadb(&client);
+            if !maria_online.is_empty() {
+                any_online = true;
+                maria_online.push(DownloadItem {
+                    id: "mysql-8.0.36".to_string(),
+                    category: "mysql".to_string(),
+                    name: "MySQL 8.0.36 (Oracle Community)".to_string(),
+                    version: "mysql-8.0.36".to_string(),
+                    description: "Lưu tại: .\\bin\\mysql\\mysql-8.0.36".to_string(),
+                    url: "https://downloads.mysql.com/archives/get/p/23/file/mysql-8.0.36-winx64.zip".to_string(),
+                    installed: false,
+                });
+                maria_online.push(DownloadItem {
+                    id: "mysql-5.7.44".to_string(),
+                    category: "mysql".to_string(),
+                    name: "MySQL 5.7.44 (Oracle Classic)".to_string(),
+                    version: "mysql-5.7.44".to_string(),
+                    description: "Lưu tại: .\\bin\\mysql\\mysql-5.7.44".to_string(),
+                    url: "https://downloads.mysql.com/archives/get/p/23/file/mysql-5.7.44-winx64.zip".to_string(),
+                    installed: false,
+                });
+                combined.extend(maria_online);
+            } else {
+                combined.extend(fallback.iter().filter(|i| i.category == "mysql").cloned());
+            }
+
+            // 6. Scrape phpMyAdmin
+            let pma_online = scrape_pma(&client);
+            if !pma_online.is_empty() {
+                any_online = true;
+                combined.extend(pma_online);
+            } else {
+                combined.extend(fallback.iter().filter(|i| i.category == "phpmyadmin").cloned());
+            }
+
+            // 7. VC++ & Cloudflared
+            combined.extend(fallback.iter().filter(|i| i.category == "vcredist").cloned());
         }
-
-        // 2. Node.js (keep fallback + scrape if needed)
-        combined.extend(fallback.iter().filter(|i| i.category == "nodejs").cloned());
-
-        // 3. Scrape Apache
-        let apache_online = scrape_apache(&client);
-        if !apache_online.is_empty() {
-            any_online = true;
-            combined.extend(apache_online);
-        } else {
-            combined.extend(fallback.iter().filter(|i| i.category == "apache").cloned());
-        }
-
-        // 4. Scrape Nginx
-        let nginx_online = scrape_nginx(&client);
-        if !nginx_online.is_empty() {
-            any_online = true;
-            combined.extend(nginx_online);
-        } else {
-            combined.extend(fallback.iter().filter(|i| i.category == "nginx").cloned());
-        }
-
-        // 5. Scrape MariaDB + append Oracle MySQL 8.0 & 5.7
-        let mut maria_online = scrape_mariadb(&client);
-        if !maria_online.is_empty() {
-            any_online = true;
-            maria_online.push(DownloadItem {
-                id: "mysql-8.0.36".to_string(),
-                category: "mysql".to_string(),
-                name: "MySQL 8.0.36 (Oracle Community)".to_string(),
-                version: "mysql-8.0.36".to_string(),
-                description: "Lưu tại: .\\bin\\mysql\\mysql-8.0.36".to_string(),
-                url: "https://downloads.mysql.com/archives/get/p/23/file/mysql-8.0.36-winx64.zip".to_string(),
-                installed: false,
-            });
-            maria_online.push(DownloadItem {
-                id: "mysql-5.7.44".to_string(),
-                category: "mysql".to_string(),
-                name: "MySQL 5.7.44 (Oracle Classic)".to_string(),
-                version: "mysql-5.7.44".to_string(),
-                description: "Lưu tại: .\\bin\\mysql\\mysql-5.7.44".to_string(),
-                url: "https://downloads.mysql.com/archives/get/p/23/file/mysql-5.7.44-winx64.zip".to_string(),
-                installed: false,
-            });
-            combined.extend(maria_online);
-        } else {
-            combined.extend(fallback.iter().filter(|i| i.category == "mysql").cloned());
-        }
-
-        // 6. Scrape phpMyAdmin
-        let pma_online = scrape_pma(&client);
-        if !pma_online.is_empty() {
-            any_online = true;
-            combined.extend(pma_online);
-        } else {
-            combined.extend(fallback.iter().filter(|i| i.category == "phpmyadmin").cloned());
-        }
-
-        // 7. VC++ & Cloudflared
-        combined.extend(fallback.iter().filter(|i| i.category == "vcredist").cloned());
 
         refresh_installed_flags(&mut combined);
 
@@ -630,6 +770,170 @@ fn scrape_pma(client: &reqwest::blocking::Client) -> Vec<DownloadItem> {
     list
 }
 
+fn find_macos_brew_bin() -> Option<PathBuf> {
+    for candidate in ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"] {
+        let p = PathBuf::from(candidate);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn macos_brew_path_env() -> String {
+    let base_paths = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin";
+    match std::env::var("PATH") {
+        Ok(existing) if !existing.is_empty() => format!("{}:{}", base_paths, existing),
+        _ => base_paths.to_string(),
+    }
+}
+
+fn run_brew_command<F>(brew_bin: &Path, args: &[&str], on_line: &F) -> Result<(), String>
+where
+    F: Fn(&str),
+{
+    let mut child = Command::new(brew_bin)
+        .args(args)
+        .env("PATH", macos_brew_path_env())
+        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+        .env("HOMEBREW_NO_INSTALL_CLEANUP", "1")
+        .env("NONINTERACTIVE", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Không thể khởi chạy Homebrew: {}", e))?;
+
+    let stderr_handle = child.stderr.take().map(|err| {
+        std::thread::spawn(move || {
+            let mut lines = Vec::new();
+            for line in BufReader::new(err).lines().map_while(Result::ok) {
+                lines.push(line);
+                if lines.len() > 15 {
+                    lines.remove(0);
+                }
+            }
+            lines
+        })
+    });
+
+    let mut out_lines = Vec::new();
+    if let Some(out) = child.stdout.take() {
+        for line in BufReader::new(out).lines().map_while(Result::ok) {
+            on_line(&line);
+            out_lines.push(line);
+            if out_lines.len() > 15 {
+                out_lines.remove(0);
+            }
+        }
+    }
+
+    let status = child
+        .wait()
+        .map_err(|e| format!("Lỗi chờ tiến trình Homebrew: {}", e))?;
+    let err_lines = stderr_handle
+        .and_then(|h| h.join().ok())
+        .unwrap_or_default();
+
+    if status.success() {
+        Ok(())
+    } else {
+        let mut combined = err_lines;
+        if combined.is_empty() {
+            combined = out_lines;
+        }
+        let tail = combined.join(" | ");
+        Err(if tail.is_empty() {
+            format!("Homebrew thoát với mã {}", status)
+        } else {
+            tail
+        })
+    }
+}
+
+fn install_via_brew<F>(formula: &str, item: &DownloadItem, base: &Path, emit: &F)
+where
+    F: Fn(u8, &str, bool, &str),
+{
+    let Some(brew_bin) = find_macos_brew_bin() else {
+        emit(
+            0,
+            "Chưa cài Homebrew trên macOS",
+            true,
+            "Không tìm thấy Homebrew (/opt/homebrew/bin/brew hoặc /usr/local/bin/brew). Mở Terminal cài Homebrew trước: /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
+        );
+        return;
+    };
+
+    let parts: Vec<&str> = formula.split('/').collect();
+    if parts.len() == 3 {
+        let tap_name = format!("{}/{}", parts[0], parts[1]);
+        emit(15, &format!("Đang thêm tap Homebrew {}...", tap_name), false, "");
+        if let Err(e) = run_brew_command(&brew_bin, &["tap", &tap_name], &|_| {}) {
+            emit(0, &format!("Lỗi tap {}", tap_name), true, &e);
+            return;
+        }
+    }
+
+    emit(25, &format!("Đang cài {} qua Homebrew (có thể mất vài phút)...", item.name), false, "");
+    let line_count = std::sync::atomic::AtomicU8::new(28);
+    let install_res = run_brew_command(&brew_bin, &["install", formula], &|line| {
+        let cur = line_count.load(std::sync::atomic::Ordering::Relaxed);
+        let next = if cur < 85 { cur + 2 } else { 85 };
+        line_count.store(next, std::sync::atomic::Ordering::Relaxed);
+        let short_line: String = line.chars().take(70).collect();
+        if !short_line.trim().is_empty() {
+            emit(next, &format!("Homebrew: {}", short_line), false, "");
+        }
+    });
+
+    if let Err(e) = install_res {
+        emit(0, &format!("Lỗi cài {} qua Homebrew", item.name), true, &e);
+        return;
+    }
+
+    emit(90, "Đang tạo cấu hình RBWStudio cho dịch vụ...", false, "");
+    let target_dir = base.join("bin").join(&item.category).join(&item.version);
+    let _ = fs::create_dir_all(&target_dir);
+    run_post_install_configure(&item.category, &target_dir);
+
+    emit(100, &format!("Đã cài đặt {} qua Homebrew!", item.name), true, "");
+}
+
+fn extract_tar_gz(archive_path: &Path, target_dir: &Path, strip_top: bool) -> Result<(), String> {
+    let _ = fs::create_dir_all(target_dir);
+    let mut cmd = Command::new("tar");
+    cmd.arg("-xzf").arg(archive_path);
+    if strip_top {
+        cmd.args(["--strip-components", "1"]);
+    }
+    cmd.arg("-C").arg(target_dir);
+    let out = cmd
+        .output()
+        .map_err(|e| format!("Không thể chạy tar giải nén: {}", e))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if err.is_empty() {
+            format!("Lỗi giải nén tar (mã {})", out.status)
+        } else {
+            err
+        });
+    }
+    Ok(())
+}
+
+fn run_post_install_configure(category: &str, target_dir: &Path) {
+    let settings = config::load_app_settings();
+    if category == "php" {
+        services::configure_php(target_dir);
+    } else if category == "mysql" {
+        services::configure_mysql(target_dir, settings.mysql_port);
+    } else if category == "phpmyadmin" {
+        services::configure_phpmyadmin(settings.mysql_port);
+    } else if category == "apache" || category == "nginx" {
+        services::generate_vhosts_configs(&settings);
+    }
+}
+
 pub fn install_store_item(app: AppHandle, item_id: String) {
     std::thread::spawn(move || {
         let items = get_store_items();
@@ -651,9 +955,29 @@ pub fn install_store_item(app: AppHandle, item_id: String) {
             );
         };
 
+        let base = config::get_base_dir();
+
+        if item.id == "nasani-extension" {
+            emit(50, "Đang mở Chrome & thư mục Extension...", false, "");
+            let res = crate::sites::install_or_open_chrome_extension("install");
+            match res {
+                Ok(_) => {
+                    emit(100, "Đã mở Chrome & thư mục Extension để cài đặt!", true, "");
+                }
+                Err(e) => {
+                    emit(0, "Lỗi cài đặt tiện ích Chrome", true, &e);
+                }
+            }
+            return;
+        }
+
+        if let Some(formula) = item.url.strip_prefix("brew://") {
+            install_via_brew(formula, &item, &base, &emit);
+            return;
+        }
+
         emit(5, &format!("Đang kết nối để tải {}...", item.name), false, "");
 
-        let base = config::get_base_dir();
         let dl_dir = base.join("downloads");
         let _ = fs::create_dir_all(&dl_dir);
 
@@ -680,7 +1004,18 @@ pub fn install_store_item(app: AppHandle, item_id: String) {
         }
 
         let mut resp = match req.send() {
-            Ok(r) => r,
+            Ok(r) => {
+                if !r.status().is_success() {
+                    emit(
+                        0,
+                        "Lỗi máy chủ tải gói cài đặt",
+                        true,
+                        &format!("HTTP {}", r.status()),
+                    );
+                    return;
+                }
+                r
+            }
             Err(e) => {
                 emit(0, "Lỗi kết nối tải file", true, &e.to_string());
                 return;
@@ -740,19 +1075,6 @@ pub fn install_store_item(app: AppHandle, item_id: String) {
 
         emit(82, "Đang tự động giải nén và cấu hình...", false, "");
 
-        if item.id == "nasani-extension" {
-            let res = crate::sites::install_or_open_chrome_extension("install");
-            match res {
-                Ok(_) => {
-                    emit(100, "Đã mở Chrome & thư mục Extension để cài đặt!", true, "");
-                }
-                Err(e) => {
-                    emit(0, "Lỗi cài đặt tiện ích Chrome", true, &e);
-                }
-            }
-            return;
-        }
-
         if item.id == "cloudflared-latest" {
             let cf_dir = base.join("bin/cloudflared");
             let _ = fs::create_dir_all(&cf_dir);
@@ -760,12 +1082,22 @@ pub fn install_store_item(app: AppHandle, item_id: String) {
             let target_bin = cf_dir.join("cloudflared.exe");
             #[cfg(not(target_os = "windows"))]
             let target_bin = cf_dir.join("cloudflared");
-            let _ = fs::copy(&archive_path, &target_bin);
+
+            if filename.ends_with(".tgz") || filename.ends_with(".tar.gz") {
+                if let Err(e) = extract_tar_gz(&archive_path, &cf_dir, false) {
+                    emit(0, "Lỗi giải nén Cloudflared", true, &e);
+                    return;
+                }
+            } else if let Err(e) = fs::copy(&archive_path, &target_bin) {
+                emit(0, "Lỗi sao chép Cloudflared", true, &e.to_string());
+                return;
+            }
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 let _ = fs::set_permissions(&target_bin, fs::Permissions::from_mode(0o755));
             }
+            let _ = fs::remove_file(&archive_path);
             emit(100, "Đã cài đặt Cloudflared hoàn tất!", true, "");
             return;
         }
@@ -773,7 +1105,7 @@ pub fn install_store_item(app: AppHandle, item_id: String) {
         if item.id == "vcredist-2022" {
             #[cfg(target_os = "windows")]
             {
-                let _ = std::process::Command::new(&archive_path)
+                let _ = Command::new(&archive_path)
                     .args(["/install", "/passive", "/norestart"])
                     .spawn();
             }
@@ -792,21 +1124,17 @@ pub fn install_store_item(app: AppHandle, item_id: String) {
             cat => base.join("bin").join(cat).join(&item.version),
         };
 
-        if let Err(e) = extract_zip_flattened(&archive_path, &target_dir) {
+        let extract_res = if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
+            extract_tar_gz(&archive_path, &target_dir, true)
+        } else {
+            extract_zip_flattened(&archive_path, &target_dir)
+        };
+        if let Err(e) = extract_res {
             emit(0, "Lỗi giải nén gói cài đặt", true, &e);
             return;
         }
 
-        let settings = config::load_app_settings();
-        if item.category == "php" {
-            services::configure_php(&target_dir);
-        } else if item.category == "mysql" {
-            services::configure_mysql(&target_dir, settings.mysql_port);
-        } else if item.category == "phpmyadmin" {
-            services::configure_phpmyadmin(settings.mysql_port);
-        } else if item.category == "apache" || item.category == "nginx" {
-            services::generate_vhosts_configs(&settings);
-        }
+        run_post_install_configure(&item.category, &target_dir);
 
         let _ = fs::remove_file(&archive_path);
         emit(100, "Đã cài đặt hoàn tất!", true, "");

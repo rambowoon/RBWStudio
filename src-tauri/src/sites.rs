@@ -486,10 +486,17 @@ pub fn toggle_node_app(site_name: &str) -> Result<bool, String> {
         let node_dir = config::get_base_dir().join("bin/nodejs").join(first_node);
         if let Ok(current_path) = std::env::var("PATH") {
             #[cfg(target_os = "windows")]
-            let sep = ";";
+            cmd.env("PATH", format!("{};{}", node_dir.to_string_lossy(), current_path));
             #[cfg(not(target_os = "windows"))]
-            let sep = ":";
-            cmd.env("PATH", format!("{}{}{}", node_dir.to_string_lossy(), sep, current_path));
+            cmd.env(
+                "PATH",
+                format!(
+                    "{}:{}:{}",
+                    node_dir.join("bin").to_string_lossy(),
+                    node_dir.to_string_lossy(),
+                    current_path
+                ),
+            );
         }
     }
 
@@ -717,35 +724,48 @@ fn copy_dir_recursive_simple(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn enable_chrome_developer_mode() -> bool {
+fn resolve_chrome_prefs_path() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
-        let Ok(local_app) = std::env::var("LOCALAPPDATA") else {
-            return false;
-        };
-        let prefs_path = PathBuf::from(local_app).join(r"Google\Chrome\User Data\Default\Preferences");
-        if !prefs_path.is_file() {
-            return false;
-        }
-        let Ok(raw) = fs::read_to_string(&prefs_path) else {
-            return false;
-        };
-        let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&raw) else {
-            return false;
-        };
-        if let Some(root_obj) = val.as_object_mut() {
-            let ext_entry = root_obj
-                .entry("extensions")
+        let local_app = std::env::var("LOCALAPPDATA").ok()?;
+        Some(PathBuf::from(local_app).join(r"Google\Chrome\User Data\Default\Preferences"))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").ok()?;
+        Some(PathBuf::from(home).join("Library/Application Support/Google/Chrome/Default/Preferences"))
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        None
+    }
+}
+
+fn enable_chrome_developer_mode() -> bool {
+    let Some(prefs_path) = resolve_chrome_prefs_path() else {
+        return false;
+    };
+    if !prefs_path.is_file() {
+        return false;
+    }
+    let Ok(raw) = fs::read_to_string(&prefs_path) else {
+        return false;
+    };
+    let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return false;
+    };
+    if let Some(root_obj) = val.as_object_mut() {
+        let ext_entry = root_obj
+            .entry("extensions")
+            .or_insert_with(|| serde_json::json!({}));
+        if let Some(ext_obj) = ext_entry.as_object_mut() {
+            let ui_entry = ext_obj
+                .entry("ui")
                 .or_insert_with(|| serde_json::json!({}));
-            if let Some(ext_obj) = ext_entry.as_object_mut() {
-                let ui_entry = ext_obj
-                    .entry("ui")
-                    .or_insert_with(|| serde_json::json!({}));
-                if let Some(ui_obj) = ui_entry.as_object_mut() {
-                    ui_obj.insert("developer_mode".to_string(), serde_json::Value::Bool(true));
-                    if let Ok(updated) = serde_json::to_string(&val) {
-                        return fs::write(&prefs_path, updated).is_ok();
-                    }
+            if let Some(ui_obj) = ui_entry.as_object_mut() {
+                ui_obj.insert("developer_mode".to_string(), serde_json::Value::Bool(true));
+                if let Ok(updated) = serde_json::to_string(&val) {
+                    return fs::write(&prefs_path, updated).is_ok();
                 }
             }
         }
