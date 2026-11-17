@@ -154,37 +154,37 @@ pub fn get_offline_fallback_items() -> Vec<DownloadItem> {
             DownloadItem {
                 id: "php-8.4-mac".to_string(),
                 category: "php".to_string(),
-                name: "PHP 8.4 (Homebrew)".to_string(),
+                name: "PHP 8.4 (shivammathur/php)".to_string(),
                 version: "brew-php@8.4".to_string(),
-                description: "Cài qua Homebrew (brew install php@8.4)".to_string(),
-                url: "brew://php@8.4".to_string(),
+                description: "Cài qua tap shivammathur/php (php@8.4)".to_string(),
+                url: "brew://shivammathur/php/php@8.4".to_string(),
                 installed: false,
             },
             DownloadItem {
                 id: "php-8.3-mac".to_string(),
                 category: "php".to_string(),
-                name: "PHP 8.3 (Homebrew)".to_string(),
+                name: "PHP 8.3 (shivammathur/php)".to_string(),
                 version: "brew-php@8.3".to_string(),
-                description: "Cài qua Homebrew (brew install php@8.3)".to_string(),
-                url: "brew://php@8.3".to_string(),
+                description: "Cài qua tap shivammathur/php (php@8.3)".to_string(),
+                url: "brew://shivammathur/php/php@8.3".to_string(),
                 installed: false,
             },
             DownloadItem {
                 id: "php-8.2-mac".to_string(),
                 category: "php".to_string(),
-                name: "PHP 8.2 (Homebrew)".to_string(),
+                name: "PHP 8.2 (shivammathur/php)".to_string(),
                 version: "brew-php@8.2".to_string(),
-                description: "Cài qua Homebrew (brew install php@8.2)".to_string(),
-                url: "brew://php@8.2".to_string(),
+                description: "Cài qua tap shivammathur/php (php@8.2)".to_string(),
+                url: "brew://shivammathur/php/php@8.2".to_string(),
                 installed: false,
             },
             DownloadItem {
                 id: "php-8.1-mac".to_string(),
                 category: "php".to_string(),
-                name: "PHP 8.1 (Homebrew)".to_string(),
+                name: "PHP 8.1 (shivammathur/php)".to_string(),
                 version: "brew-php@8.1".to_string(),
-                description: "Cài qua Homebrew (brew install php@8.1)".to_string(),
-                url: "brew://php@8.1".to_string(),
+                description: "Cài qua tap shivammathur/php (php@8.1)".to_string(),
+                url: "brew://shivammathur/php/php@8.1".to_string(),
                 installed: false,
             },
             DownloadItem {
@@ -770,22 +770,33 @@ fn scrape_pma(client: &reqwest::blocking::Client) -> Vec<DownloadItem> {
     list
 }
 
-fn find_macos_brew_bin() -> Option<PathBuf> {
-    for candidate in ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"] {
-        let p = PathBuf::from(candidate);
-        if p.is_file() {
-            return Some(p);
+fn macos_brew_path_env() -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for prefix in services::get_macos_brew_prefixes() {
+        parts.push(prefix.join("bin").to_string_lossy().to_string());
+        parts.push(prefix.join("sbin").to_string_lossy().to_string());
+    }
+    for fallback in [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ] {
+        let s = fallback.to_string();
+        if !parts.contains(&s) {
+            parts.push(s);
         }
     }
-    None
-}
-
-fn macos_brew_path_env() -> String {
-    let base_paths = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin";
-    match std::env::var("PATH") {
-        Ok(existing) if !existing.is_empty() => format!("{}:{}", base_paths, existing),
-        _ => base_paths.to_string(),
+    if let Ok(existing) = std::env::var("PATH") {
+        if !existing.is_empty() {
+            parts.push(existing);
+        }
     }
+    parts.join(":")
 }
 
 fn run_brew_command<F>(brew_bin: &Path, args: &[&str], on_line: &F) -> Result<(), String>
@@ -854,12 +865,12 @@ fn install_via_brew<F>(formula: &str, item: &DownloadItem, base: &Path, emit: &F
 where
     F: Fn(u8, &str, bool, &str),
 {
-    let Some(brew_bin) = find_macos_brew_bin() else {
+    let Some(brew_bin) = services::find_macos_brew_bin() else {
         emit(
             0,
             "Chưa cài Homebrew trên macOS",
             true,
-            "Không tìm thấy Homebrew (/opt/homebrew/bin/brew hoặc /usr/local/bin/brew). Mở Terminal cài Homebrew trước: /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
+            "Không tìm thấy Homebrew (brew) trong hệ thống hoặc PATH. Mở Terminal cài Homebrew trước: /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
         );
         return;
     };

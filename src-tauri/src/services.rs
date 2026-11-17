@@ -89,12 +89,118 @@ pub fn is_port_in_use(port: u16) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-const MACOS_BREW_PREFIXES: [&str; 2] = ["/opt/homebrew", "/usr/local"];
+static MACOS_SHELL_BREW_PREFIX: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "macos")]
+fn push_unique_prefix(list: &mut Vec<PathBuf>, p: PathBuf) {
+    if p.is_dir() && !list.contains(&p) {
+        list.push(p);
+    }
+}
+
+pub fn get_macos_brew_prefixes() -> Vec<PathBuf> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        Vec::new()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut prefixes = Vec::new();
+
+        if let Ok(hp) = std::env::var("HOMEBREW_PREFIX") {
+            let trimmed = hp.trim();
+            if !trimmed.is_empty() {
+                push_unique_prefix(&mut prefixes, PathBuf::from(trimmed));
+            }
+        }
+
+        if let Ok(path_var) = std::env::var("PATH") {
+            for seg in path_var.split(':') {
+                let p = Path::new(seg.trim());
+                if p.join("brew").is_file() {
+                    if let Some(parent) = p.parent() {
+                        push_unique_prefix(&mut prefixes, parent.to_path_buf());
+                    }
+                }
+            }
+        }
+
+        if let Some(home) = dirs::home_dir() {
+            for rc in [".zprofile", ".zshrc", ".bash_profile", ".bashrc", ".profile"] {
+                if let Ok(content) = fs::read_to_string(home.join(rc)) {
+                    for token in content.split_whitespace() {
+                        let cleaned = token
+                            .trim_matches(|c: char| matches!(c, '"' | '\'' | '(' | ')' | '$' | ';'));
+                        if cleaned.ends_with("/bin/brew") {
+                            let brew_p = Path::new(cleaned);
+                            if brew_p.is_file() {
+                                if let Some(prefix) = brew_p.parent().and_then(|b| b.parent()) {
+                                    push_unique_prefix(&mut prefixes, prefix.to_path_buf());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            for rel in ["homebrew", ".homebrew", "brew", "Applications/homebrew"] {
+                push_unique_prefix(&mut prefixes, home.join(rel));
+            }
+        }
+
+        let shell_prefix = MACOS_SHELL_BREW_PREFIX.get_or_init(|| {
+            for shell in ["/bin/zsh", "/bin/bash"] {
+                if let Ok(out) = Command::new(shell)
+                    .args([
+                        "-lc",
+                        "brew --prefix 2>/dev/null || dirname \"$(dirname \"$(command -v brew 2>/dev/null)\")\" 2>/dev/null",
+                    ])
+                    .output()
+                {
+                    if out.status.success() {
+                        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                        if !s.is_empty() && s != "." && s != "/" {
+                            let p = PathBuf::from(s);
+                            if p.is_dir() {
+                                return Some(p);
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        });
+        if let Some(p) = shell_prefix {
+            push_unique_prefix(&mut prefixes, p.clone());
+        }
+
+        for std_path in ["/opt/homebrew", "/usr/local", "/opt/brew"] {
+            push_unique_prefix(&mut prefixes, PathBuf::from(std_path));
+        }
+
+        prefixes
+    }
+}
+
+pub fn find_macos_brew_bin() -> Option<PathBuf> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+    #[cfg(target_os = "macos")]
+    {
+        for prefix in get_macos_brew_prefixes() {
+            let cand = prefix.join("bin/brew");
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+        None
+    }
+}
 
 #[cfg(target_os = "macos")]
 fn find_macos_brew_opt_dir(category: &str, ver: &str) -> Option<PathBuf> {
-    for prefix_str in MACOS_BREW_PREFIXES {
-        let prefix = Path::new(prefix_str);
+    for prefix in get_macos_brew_prefixes() {
         match category {
             "php" => {
                 let pkg = ver.strip_prefix("brew-").unwrap_or(ver);
@@ -131,8 +237,8 @@ fn find_macos_brew_opt_dir(category: &str, ver: &str) -> Option<PathBuf> {
 #[cfg(target_os = "macos")]
 fn find_macos_brew_php_ini(ver: &str) -> Option<PathBuf> {
     let pkg = ver.strip_prefix("brew-").unwrap_or(ver);
-    for prefix_str in MACOS_BREW_PREFIXES {
-        let etc_php = Path::new(prefix_str).join("etc/php");
+    for prefix in get_macos_brew_prefixes() {
+        let etc_php = prefix.join("etc/php");
         if let Some(subver) = pkg.strip_prefix("php@") {
             let candidate = etc_php.join(subver).join("php.ini");
             if candidate.is_file() {
@@ -154,8 +260,7 @@ fn find_macos_brew_php_ini(ver: &str) -> Option<PathBuf> {
 
 #[cfg(target_os = "macos")]
 fn find_macos_apache_modules_dir() -> Option<PathBuf> {
-    for prefix_str in MACOS_BREW_PREFIXES {
-        let prefix = Path::new(prefix_str);
+    for prefix in get_macos_brew_prefixes() {
         for rel in ["opt/httpd/lib/httpd/modules", "lib/httpd/modules"] {
             let cand = prefix.join(rel);
             if cand.is_dir() {
@@ -169,10 +274,7 @@ fn find_macos_apache_modules_dir() -> Option<PathBuf> {
 #[cfg(target_os = "macos")]
 pub fn list_macos_homebrew_binaries(category: &str) -> Vec<String> {
     let mut list = Vec::new();
-    let brew_prefixes = [
-        PathBuf::from("/opt/homebrew"),
-        PathBuf::from("/usr/local"),
-    ];
+    let brew_prefixes = get_macos_brew_prefixes();
 
     match category {
         "php" => {
@@ -254,10 +356,7 @@ pub fn list_macos_homebrew_binaries(category: &str) -> Vec<String> {
 
 #[cfg(target_os = "macos")]
 pub fn find_macos_brew_binary_path(category: &str, ver: &str) -> Option<PathBuf> {
-    let brew_prefixes = [
-        PathBuf::from("/opt/homebrew"),
-        PathBuf::from("/usr/local"),
-    ];
+    let brew_prefixes = get_macos_brew_prefixes();
     match category {
         "php" => {
             let pkg_name = ver.strip_prefix("brew-").unwrap_or(ver);
@@ -361,6 +460,14 @@ pub fn is_cloudflared_installed() -> bool {
     bin.exists()
 }
 
+fn resolve_active_version(configured: &str, installed: &[String]) -> String {
+    if !configured.is_empty() && installed.iter().any(|v| v == configured) {
+        configured.to_string()
+    } else {
+        installed.last().cloned().unwrap_or_default()
+    }
+}
+
 pub fn get_service_status() -> ServiceStatus {
     let mut settings = config::load_app_settings();
     let php_versions = list_installed_versions("php");
@@ -369,18 +476,10 @@ pub fn get_service_status() -> ServiceStatus {
     let mysql_versions = list_installed_versions("mysql");
     let node_versions = list_installed_versions("nodejs");
 
-    if settings.active_php_version.is_empty() && !php_versions.is_empty() {
-        settings.active_php_version = php_versions.last().unwrap().clone();
-    }
-    if settings.active_apache_version.is_empty() && !apache_versions.is_empty() {
-        settings.active_apache_version = apache_versions.last().unwrap().clone();
-    }
-    if settings.active_nginx_version.is_empty() && !nginx_versions.is_empty() {
-        settings.active_nginx_version = nginx_versions.last().unwrap().clone();
-    }
-    if settings.active_mysql_version.is_empty() && !mysql_versions.is_empty() {
-        settings.active_mysql_version = mysql_versions.last().unwrap().clone();
-    }
+    settings.active_php_version = resolve_active_version(&settings.active_php_version, &php_versions);
+    settings.active_apache_version = resolve_active_version(&settings.active_apache_version, &apache_versions);
+    settings.active_nginx_version = resolve_active_version(&settings.active_nginx_version, &nginx_versions);
+    settings.active_mysql_version = resolve_active_version(&settings.active_mysql_version, &mysql_versions);
 
     let port_web = settings.web_port;
     let port_php = settings.php_cgi_port;
@@ -718,8 +817,7 @@ pub fn ensure_mysql_data_initialized(mysql_dir: &Path, ver: &str) {
                 candidates.push(opt.join("scripts/mariadb-install-db"));
                 candidates.push(opt.join("bin/mysql_install_db"));
             }
-            for prefix_str in MACOS_BREW_PREFIXES {
-                let p = Path::new(prefix_str);
+            for p in get_macos_brew_prefixes() {
                 candidates.push(p.join("bin/mariadb-install-db"));
                 candidates.push(p.join("bin/mysql_install_db"));
             }
@@ -1654,17 +1752,55 @@ LogLevel warn
     }
 }
 
+fn spawn_service_and_verify(
+    mut cmd: Command,
+    log_dir: &Path,
+    service_label: &str,
+) -> Result<Child, String> {
+    let _ = fs::create_dir_all(log_dir);
+    let stderr_log = log_dir.join("startup_stderr.log");
+    let stderr_stdio = fs::File::create(&stderr_log)
+        .map(Stdio::from)
+        .unwrap_or_else(|_| Stdio::null());
+
+    cmd.stdout(Stdio::null()).stderr(stderr_stdio);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Không thể khởi chạy {}: {}", service_label, e))?;
+
+    std::thread::sleep(Duration::from_millis(200));
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            let err_txt = fs::read_to_string(&stderr_log).unwrap_or_default();
+            let tail: Vec<&str> = err_txt
+                .lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .collect();
+            let msg = if tail.is_empty() {
+                format!("{} tự thoát ngay sau khi chạy (mã {}).", service_label, status)
+            } else {
+                let start = tail.len().saturating_sub(4);
+                format!(
+                    "{} khởi động thất bại (mã {}): {}",
+                    service_label,
+                    status,
+                    tail[start..].join(" | ")
+                )
+            };
+            Err(msg)
+        }
+        _ => Ok(child),
+    }
+}
+
 pub fn start_php_service(settings: &AppSettings) -> Result<(), String> {
     let base = config::get_base_dir();
     let php_versions = list_installed_versions("php");
     if php_versions.is_empty() {
         return Err("Chưa cài đặt PHP Engine. Vui lòng tải trong mục PHP Engine.".to_string());
     }
-    let active_ver = if settings.active_php_version.is_empty() {
-        php_versions.last().unwrap().clone()
-    } else {
-        settings.active_php_version.clone()
-    };
+    let active_ver = resolve_active_version(&settings.active_php_version, &php_versions);
 
     let mut versions_to_start = vec![(active_ver.clone(), settings.php_cgi_port)];
     let site_php_map = config::load_string_map("sites.json");
@@ -1677,6 +1813,7 @@ pub fn start_php_service(settings: &AppSettings) -> Result<(), String> {
         }
     }
 
+    let mut first_err: Option<String> = None;
     with_pm(|pm| {
         for (ver, port) in versions_to_start {
             if is_port_in_use(port) {
@@ -1699,15 +1836,27 @@ pub fn start_php_service(settings: &AppSettings) -> Result<(), String> {
                         &format!("127.0.0.1:{}", port),
                         "-c",
                         &php_dir.join("php.ini").to_string_lossy(),
-                    ])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null());
-                if let Ok(child) = cmd.spawn() {
-                    pm.php_children.insert(port, child);
+                    ]);
+                match spawn_service_and_verify(cmd, &php_dir.join("logs"), &format!("PHP ({})", ver)) {
+                    Ok(child) => {
+                        pm.php_children.insert(port, child);
+                    }
+                    Err(e) => {
+                        if first_err.is_none() {
+                            first_err = Some(e);
+                        }
+                    }
                 }
+            } else if first_err.is_none() {
+                first_err = Some(format!("Không tìm thấy php-cgi cho phiên bản {}.", ver));
             }
         }
     });
+    if let Some(e) = first_err {
+        if !is_port_in_use(settings.php_cgi_port) {
+            return Err(e);
+        }
+    }
     Ok(())
 }
 
@@ -1739,19 +1888,16 @@ pub fn start_web_service(settings: &AppSettings) -> Result<(), String> {
         if versions.is_empty() {
             return Err("Chưa cài đặt Nginx Server. Vui lòng tải trong mục Nginx Server.".to_string());
         }
-        let ver = if settings.active_nginx_version.is_empty() {
-            versions.last().unwrap()
-        } else {
-            &settings.active_nginx_version
-        };
-        let nginx_dir = base.join("bin/nginx").join(ver);
+        let ver = resolve_active_version(&settings.active_nginx_version, &versions);
+        let nginx_dir = base.join("bin/nginx").join(&ver);
         let _conf_path = nginx_dir.join("conf/nginx.conf");
-        let _ = fs::create_dir_all(nginx_dir.join("logs"));
+        let logs_dir = nginx_dir.join("logs");
+        let _ = fs::create_dir_all(&logs_dir);
         #[allow(unused_mut)]
         let mut exe_opt = find_executable_recursive(&nginx_dir, &["nginx.exe", "nginx"]);
         #[cfg(target_os = "macos")]
         if exe_opt.is_none() {
-            exe_opt = find_macos_brew_binary_path("nginx", ver);
+            exe_opt = find_macos_brew_binary_path("nginx", &ver);
         }
         if let Some(exe) = exe_opt {
             let exe_parent = exe.parent().unwrap_or(&nginx_dir);
@@ -1768,11 +1914,9 @@ pub fn start_web_service(settings: &AppSettings) -> Result<(), String> {
                     "daemon off;",
                 ]);
             }
-            cmd.stdout(Stdio::null()).stderr(Stdio::null());
-            if let Ok(child) = cmd.spawn() {
-                with_pm(|pm| pm.web_child = Some(child));
-                return Ok(());
-            }
+            let child = spawn_service_and_verify(cmd, &logs_dir, "Nginx")?;
+            with_pm(|pm| pm.web_child = Some(child));
+            return Ok(());
         }
         Err("Không tìm thấy thực thi Nginx.".to_string())
     } else {
@@ -1780,24 +1924,21 @@ pub fn start_web_service(settings: &AppSettings) -> Result<(), String> {
         if versions.is_empty() {
             return Err("Chưa cài đặt Apache Server. Vui lòng tải trong mục Apache Server.".to_string());
         }
-        let ver = if settings.active_apache_version.is_empty() {
-            versions.last().unwrap()
-        } else {
-            &settings.active_apache_version
-        };
-        let apache_dir = base.join("bin/apache").join(ver);
+        let ver = resolve_active_version(&settings.active_apache_version, &versions);
+        let apache_dir = base.join("bin/apache").join(&ver);
         let srv_root = if apache_dir.join("Apache24").exists() {
             apache_dir.join("Apache24")
         } else {
             apache_dir.clone()
         };
-        let _ = fs::create_dir_all(srv_root.join("logs"));
+        let logs_dir = srv_root.join("logs");
+        let _ = fs::create_dir_all(&logs_dir);
         let conf_path = srv_root.join("conf/httpd.conf");
         #[allow(unused_mut)]
         let mut exe_opt = find_executable_recursive(&srv_root, &["httpd.exe", "httpd", "apachectl"]);
         #[cfg(target_os = "macos")]
         if exe_opt.is_none() {
-            exe_opt = find_macos_brew_binary_path("apache", ver);
+            exe_opt = find_macos_brew_binary_path("apache", &ver);
         }
         if let Some(exe) = exe_opt {
             let exe_parent = exe.parent().unwrap_or(&srv_root);
@@ -1810,11 +1951,9 @@ pub fn start_web_service(settings: &AppSettings) -> Result<(), String> {
             ]);
             #[cfg(target_os = "macos")]
             cmd.arg("-DFOREGROUND");
-            cmd.stdout(Stdio::null()).stderr(Stdio::null());
-            if let Ok(child) = cmd.spawn() {
-                with_pm(|pm| pm.web_child = Some(child));
-                return Ok(());
-            }
+            let child = spawn_service_and_verify(cmd, &logs_dir, "Apache httpd")?;
+            with_pm(|pm| pm.web_child = Some(child));
+            return Ok(());
         }
         Err("Không tìm thấy thực thi Apache httpd.".to_string())
     }
@@ -1838,12 +1977,8 @@ pub fn start_mysql_service(settings: &AppSettings) -> Result<(), String> {
     if versions.is_empty() {
         return Err("Chưa cài đặt MySQL/MariaDB. Vui lòng tải trong mục Cơ sở dữ liệu.".to_string());
     }
-    let ver = if settings.active_mysql_version.is_empty() {
-        versions.last().unwrap()
-    } else {
-        &settings.active_mysql_version
-    };
-    let mysql_dir = base.join("bin/mysql").join(ver);
+    let ver = resolve_active_version(&settings.active_mysql_version, &versions);
+    let mysql_dir = base.join("bin/mysql").join(&ver);
     configure_mysql(&mysql_dir, settings.mysql_port);
     configure_phpmyadmin(settings.mysql_port);
 
@@ -1852,7 +1987,7 @@ pub fn start_mysql_service(settings: &AppSettings) -> Result<(), String> {
     let mut exe_opt = find_executable_recursive(&mysql_dir, &["mysqld.exe", "mariadbd.exe", "mysqld", "mariadbd"]);
     #[cfg(target_os = "macos")]
     if exe_opt.is_none() {
-        exe_opt = find_macos_brew_binary_path("mysql", ver);
+        exe_opt = find_macos_brew_binary_path("mysql", &ver);
     }
     if let Some(exe) = exe_opt {
         let exe_parent = exe.parent().unwrap_or(&mysql_dir);
@@ -1861,11 +1996,9 @@ pub fn start_mysql_service(settings: &AppSettings) -> Result<(), String> {
             .arg(format!("--defaults-file={}", my_ini_path.to_string_lossy()));
         #[cfg(target_os = "windows")]
         cmd.arg("--standalone");
-        cmd.stdout(Stdio::null()).stderr(Stdio::null());
-        if let Ok(child) = cmd.spawn() {
-            with_pm(|pm| pm.mysql_child = Some(child));
-            return Ok(());
-        }
+        let child = spawn_service_and_verify(cmd, &mysql_dir.join("logs"), "MySQL/MariaDB")?;
+        with_pm(|pm| pm.mysql_child = Some(child));
+        return Ok(());
     }
     Err("Không tìm thấy thực thi MySQL/MariaDB.".to_string())
 }

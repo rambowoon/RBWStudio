@@ -452,8 +452,7 @@ fn build_scanned_project(item: &str, path: &Path, cat: &str, sizes_cache: &HashM
     } else {
         String::new()
     };
-    let is_config_php = path.join("libraries").join("config.php").is_file()
-        || path.join("config").join("config.php").is_file();
+    let is_config_php = path.join("libraries").join("config.php").is_file();
     let size = get_cached_dir_size(path, sizes_cache);
     let size_formatted = size.map(|s| format_bytes(s, 1));
     let rel_path = if cat.is_empty() {
@@ -1605,6 +1604,23 @@ pub struct ProjectDbEnv {
     pub prefix: String,
 }
 
+fn extract_php_cfg_val(content: &str, key: &str) -> Option<String> {
+    let arr_re = Regex::new(&format!(
+        r#"(?i)['"]{}['"]\s*=>\s*['"]([^'"]*)['"]"#,
+        regex::escape(key)
+    ))
+    .ok()?;
+    if let Some(caps) = arr_re.captures(content) {
+        return Some(caps[1].to_string());
+    }
+    let var_re = Regex::new(&format!(
+        r#"(?i)\$config\['database'\]\['{}'\]\s*=\s*['"]([^'"]*)['"]\s*;"#,
+        regex::escape(key)
+    ))
+    .ok()?;
+    var_re.captures(content).map(|caps| caps[1].to_string())
+}
+
 pub fn parse_project_db_env(project_path: &Path) -> ProjectDbEnv {
     let mut env = ProjectDbEnv {
         host: "127.0.0.1".to_string(),
@@ -1652,6 +1668,41 @@ pub fn parse_project_db_env(project_path: &Path) -> ProjectDbEnv {
             }
         }
     }
+
+    if env.name.is_empty() {
+        for rel in [
+            project_path.join("libraries").join("config.php"),
+            project_path.join("config").join("config.php"),
+        ] {
+            if let Ok(content) = fs::read_to_string(&rel) {
+                if let Some(dbname) = extract_php_cfg_val(&content, "dbname") {
+                    if !dbname.is_empty() {
+                        env.name = dbname;
+                        if let Some(h) = extract_php_cfg_val(&content, "host") {
+                            if !h.is_empty() {
+                                env.host = if h == "localhost" { "127.0.0.1".to_string() } else { h };
+                            }
+                        }
+                        if let Some(u) = extract_php_cfg_val(&content, "username") {
+                            if !u.is_empty() {
+                                env.user = u;
+                            }
+                        }
+                        if let Some(p) = extract_php_cfg_val(&content, "password") {
+                            env.pass = p;
+                        }
+                        if let Some(pfx) = extract_php_cfg_val(&content, "prefix") {
+                            if !pfx.is_empty() {
+                                env.prefix = pfx;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     env
 }
 
@@ -5883,44 +5934,119 @@ pub fn handle_auto_login_admin(project_name: &str, category: &str) -> Value {
     })
 }
 
-pub fn handle_change_database_type(project_name: &str, category: &str, db_type: &str) -> Value {
-    let proj = match find_project(project_name, Some(category)) {
+pub fn handle_change_database_type(
+    project_name: &str,
+    category: &str,
+    module: &str,
+    old_type: &str,
+    new_type: &str,
+) -> Value {
+    let old_t = old_type.trim();
+    let new_t = new_type.trim();
+    if old_t.is_empty() || new_t.is_empty() {
+        return json!({ "status": "error", "message": "Missing old_type or new_type" });
+    }
+
+    let cat_opt = if category.is_empty() { None } else { Some(category) };
+    let proj = match find_project(project_name, cat_opt) {
         Some(p) => p,
-        None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
+        None => return json!({ "status": "error", "message": "Project not found locally." }),
     };
+
+    if let Err(e) = ensure_mysql_running() {
+        return json!({ "status": "error", "message": e });
+    }
+
     let p_root = Path::new(&proj.path);
     let db = parse_project_db_env(p_root);
-    if db.name.is_empty() {
-        return json!({ "status": "error", "message": "Dự án chưa cấu hình DB_NAME trong .env" });
-    }
-    let data_dir = get_manager_data_root().join("data");
-    let sql_file = if db_type == "noithat" {
-        data_dir.join("db_noithat.sql")
-    } else {
-        data_dir.join("db_basic.sql")
-    };
-    if !sql_file.is_file() {
+    if db.name.trim().is_empty() {
         return json!({
             "status": "error",
-            "message": format!("Không tìm thấy file SQL mẫu ({})", sql_file.display())
+            "message": "Không tìm thấy DB_DATABASE trong .env hoặc config.php"
         });
     }
-    let sql_content = match fs::read_to_string(&sql_file) {
-        Ok(c) => c,
-        Err(e) => return json!({ "status": "error", "message": e.to_string() }),
+
+    let schema = match inspect_db_schema(&db) {
+        Ok(s) => s,
+        Err(e) => {
+            return json!({
+                "status": "error",
+                "message": format!("Lỗi kết nối DB local: {}", e.trim())
+            });
+        }
     };
-    let _ = run_mysql_query(
-        &db,
-        &format!("CREATE DATABASE IF NOT EXISTS `{}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;", db.name),
-        false,
-    );
-    match run_mysql_query(&db, &sql_content, true) {
-        Ok(_) => json!({
-            "status": "success",
-            "message": format!("Đã nạp dữ liệu mẫu ({}) vào database '{}' thành công!", db_type, db.name)
-        }),
-        Err(e) => json!({ "status": "error", "message": format!("Lỗi import SQL: {}", e) }),
+
+    let mut tables: Vec<&str> = Vec::new();
+    if module == "product" || module == "all" {
+        tables.extend([
+            "table_product_list",
+            "table_product_cat",
+            "table_product_item",
+            "table_product_sub",
+            "table_product",
+        ]);
     }
+    if module == "news" || module == "all" {
+        tables.extend(["table_news_list", "table_news_cat", "table_news"]);
+    }
+    for common in ["table_gallery", "table_seo", "table_slug"] {
+        if !tables.contains(&common) {
+            tables.push(common);
+        }
+    }
+
+    let mut total_affected: u64 = 0;
+    let mut details = Map::new();
+    let new_esc = sql_escape(new_t);
+    let old_esc = sql_escape(old_t);
+
+    for table in tables {
+        let Some(cols) = schema.get(table) else {
+            continue;
+        };
+        if !cols.iter().any(|c| c == "type") {
+            continue;
+        }
+        let sql = if table == "table_gallery" && cols.iter().any(|c| c == "type_parent") {
+            format!(
+                "UPDATE `{}` SET `type` = '{}', `type_parent` = '{}' WHERE `type` = '{}'; SELECT ROW_COUNT();",
+                table, new_esc, new_esc, old_esc
+            )
+        } else {
+            format!(
+                "UPDATE `{}` SET `type` = '{}' WHERE `type` = '{}'; SELECT ROW_COUNT();",
+                table, new_esc, old_esc
+            )
+        };
+
+        match run_mysql_query(&db, &sql, true) {
+            Ok(out) => {
+                let affected = out
+                    .lines()
+                    .last()
+                    .and_then(|s| s.trim().parse::<u64>().ok())
+                    .unwrap_or(0);
+                total_affected += affected;
+                details.insert(table.to_string(), json!(affected));
+            }
+            Err(e) => {
+                details.insert(table.to_string(), json!(format!("Error: {}", e.trim())));
+            }
+        }
+    }
+
+    add_project_history(
+        project_name,
+        category,
+        "Đổi Type DB (Local)",
+        &format!("Từ {} -> {} ({})", old_t, new_t, module),
+    );
+
+    json!({
+        "status": "success",
+        "message": format!("Đã cập nhật {} dòng tại Local Database.", total_affected),
+        "details": Value::Object(details)
+    })
 }
 
 fn read_legacy_demo_config() -> Option<Value> {
@@ -10945,11 +11071,21 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
         "getProjectConfig" | "getConfig" => {
             let mut cfg = get_project_config_entry(&project, &category);
             let nasani_info = match_nasani_project_info(&project, &get_nasani_projects_list());
+            let proj_opt = find_project(
+                &project,
+                if category.is_empty() { None } else { Some(&category) },
+            );
+            let is_cfg_php = proj_opt
+                .as_ref()
+                .map(|p| Path::new(&p.path).join("libraries").join("config.php").is_file())
+                .unwrap_or(false);
             if !cfg.is_object() {
                 cfg = json!({});
             }
             if let Some(obj) = cfg.as_object_mut() {
                 obj.insert("nasani_info".to_string(), nasani_info);
+                obj.insert("is_config_php".to_string(), Value::Bool(is_cfg_php));
+                obj.insert("has_config_php".to_string(), Value::Bool(is_cfg_php));
             }
             let history = get_project_history_entries(&project, &category);
             json!({
@@ -11180,8 +11316,13 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
         "clearProjectCache" | "fmClearCompiledCache" => handle_clear_project_cache(&project, &category),
         "autoLoginAdmin" => handle_auto_login_admin(&project, &category),
         "changeDatabaseType" => {
-            let db_type = get_param("db_type");
-            handle_change_database_type(&project, &category, &db_type)
+            let mut module = get_param("module");
+            if module.is_empty() {
+                module = "product".to_string();
+            }
+            let old_type = get_param("old_type");
+            let new_type = get_param("new_type");
+            handle_change_database_type(&project, &category, &module, &old_type, &new_type)
         }
         "setupLocalSource" => {
             let db_name = get_param("db_name");

@@ -1845,11 +1845,10 @@ const UI = {
 						<span class="pd-btn-icon">▶</span>
 						<span class="pd-btn-text">Mở bằng Antigravity</span>
 					</button>
-					${!isConfigPhp ? `
 					<button type="button" class="pd-action-btn" onclick="UI.showChangeTypeModal('${safeName}', '${safeCat}')">
 						<span class="pd-btn-icon">🔄</span>
 						<span class="pd-btn-text">Đổi Type DB</span>
-					</button>` : ""}
+					</button>
 					${!isConfigPhp ? `
 					<button type="button" class="pd-action-btn" onclick="App.integrateAMP('${safeName}','${safeCat}')">
 						<span class="pd-btn-icon">⚡</span>
