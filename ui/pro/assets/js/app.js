@@ -2,9 +2,42 @@ const App = {
 	projects: [],
 	currentCategory: null,
 	globalData: null,
+	lowSpecMode: false,
+	windowHidden: false,
 	projectSortType: localStorage.getItem("rbw_project_sort") || "date_desc",
 	projectSearchQuery: "",
 	projectViewMode: localStorage.getItem("rbw_project_view") || "card",
+
+	setWindowVisibility(visible) {
+		this.windowHidden = !visible || document.hidden;
+		document.body.classList.toggle("window-hidden", this.windowHidden);
+		if (typeof UI !== "undefined") {
+			if (this.windowHidden) {
+				if (UI.stopDeadlineTicker) UI.stopDeadlineTicker();
+			} else {
+				if (UI.startDeadlineTicker) UI.startDeadlineTicker();
+			}
+		}
+	},
+
+	setLowSpecMode(enabled) {
+		this.lowSpecMode = !!enabled;
+		document.body.classList.toggle("low-spec-mode", this.lowSpecMode);
+		const storageCard = document.querySelector(".stat-card-storage");
+		if (storageCard) {
+			storageCard.style.display = this.lowSpecMode ? "none" : "";
+		}
+		const detailSize = document.getElementById("detail-project-size");
+		if (detailSize && this.lowSpecMode) {
+			detailSize.style.display = "none";
+		}
+		document.querySelectorAll(".item-card-size, .pd-stat-box-size").forEach((el) => {
+			if (this.lowSpecMode) el.style.display = "none";
+		});
+		if (typeof UI !== "undefined" && UI.startDeadlineTicker && !this.windowHidden && !document.hidden) {
+			UI.startDeadlineTicker();
+		}
+	},
 
 	async init() {
 		this.bindEvents();
@@ -30,6 +63,7 @@ const App = {
 					Array.isArray(gData.data) && gData.data.length === 0
 						? {}
 						: gData.data;
+				this.setLowSpecMode(!!(this.globalData && this.globalData.low_spec_mode));
 			}
 		} catch (e) {
 			console.error("Error loading global config:", e);
@@ -37,6 +71,9 @@ const App = {
 
 		// 1. Tải danh mục vào sidebar (mặc định ban đầu lọc theo tháng)
 		const data = await Api.getCategories(true);
+		if (typeof data.low_spec_mode === "boolean") {
+			this.setLowSpecMode(data.low_spec_mode);
+		}
 		if (data.status === "success" && data.data.length > 0) {
 			// Mặc định chọn tháng mới nhất
 			this.currentCategory = data.data[0];
@@ -68,12 +105,24 @@ const App = {
 		window.addEventListener("message", (e) => {
 			if (e.data && e.data.type === "RBW_TRIGGER_DEPLOY_MODAL") {
 				const pName = e.data.projectName || "";
+				fetch("api.php?action=checkPendingStudioDeploy").catch(() => {});
 				this.showDeployProjectModal(pName);
+			} else if (e.data && e.data.type === "RBW_SET_LOW_SPEC_MODE") {
+				this.setLowSpecMode(!!e.data.enabled);
+				if (this.currentCategory !== null) {
+					this.loadProjects(this.currentCategory);
+				}
+			} else if (e.data && e.data.type === "RBW_WINDOW_VISIBILITY") {
+				this.setWindowVisibility(!!e.data.visible);
 			}
 		});
 
+		document.addEventListener("visibilitychange", () => {
+			this.setWindowVisibility(!document.hidden);
+		});
+
 		// Lắng nghe hàng đợi triển khai từ Chrome Extension (khi user bấm "Triển khai" trên projects.nasani.vn)
-		setInterval(async () => {
+		const checkPendingDeploy = async () => {
 			try {
 				const r = await fetch("api.php?action=checkPendingStudioDeploy");
 				const d = await r.json();
@@ -87,7 +136,13 @@ const App = {
 					this.showDeployProjectModal(d.projectName);
 				}
 			} catch (_) {}
+		};
+		setInterval(() => {
+			if (!this.lowSpecMode && !this.windowHidden && !document.hidden) checkPendingDeploy();
 		}, 3000);
+		window.addEventListener("focus", () => {
+			if (this.lowSpecMode) checkPendingDeploy();
+		});
 	},
 
 	async showCategories() {
@@ -244,105 +299,8 @@ const App = {
 			UI.resetProjectSubTabs(name);
 		}
 
-		const applyDetailConfigToUI = (rawCfg, historyOverride) => {
-			const config = Object.assign(
-				{},
-				projItem
-					? {
-							php_version: projItem.php_version,
-							php_display: projItem.php_display,
-							is_custom_php: !!(
-								projItem.php_is_custom || projItem.is_custom_php
-							),
-							size_formatted: projItem.size_formatted,
-							is_config_php: projItem.is_config_php,
-							has_config_php: projItem.has_config_php,
-							nasani_info: projItem.nasani_info,
-						}
-					: {},
-				rawCfg || {},
-			);
-			if (Array.isArray(historyOverride) && !config.history) {
-				config.history = historyOverride;
-			}
-			this.currentProjectConfig = config;
-			if (projItem) {
-				projItem.config = config;
-			}
-
-			const hasDemo = !!(config.deployed && config.deployed.demo);
-			const hasProd = !!(config.deployed && config.deployed.production);
-			const statusEl = document.getElementById("detail-project-status");
-			if (statusEl) {
-				statusEl.style.display = "inline-flex";
-				if (hasProd) {
-					statusEl.innerText = "● PRODUCTION";
-					statusEl.className = "badge-env badge-env-prod";
-					statusEl.style.background = "";
-					statusEl.style.color = "";
-					statusEl.title = "Trạng thái: Production đang chạy";
-				} else if (hasDemo) {
-					statusEl.innerText = "● DEMO";
-					statusEl.className = "badge-env badge-env-demo";
-					statusEl.style.background = "";
-					statusEl.style.color = "";
-					statusEl.title = "Trạng thái: Demo đang chạy";
-				} else {
-					statusEl.innerText = "○ CHƯA DEPLOY";
-					statusEl.className = "badge-env";
-					statusEl.style.background = "var(--surface-2)";
-					statusEl.style.color = "var(--text-muted)";
-					statusEl.title = "Trạng thái: Chưa deploy";
-				}
-			}
-
-			// Hiển thị phiên bản PHP của dự án trên Header
-			const phpHeaderEl = document.getElementById("detail-project-php");
-			if (phpHeaderEl) {
-				const isCustom = !!config.is_custom_php;
-				const pDisplay =
-					config.php_display ||
-					(config.php_version
-						? config.php_version.replace(/^php-?/i, "PHP ")
-						: "PHP");
-				const pTitle = isCustom
-					? `Phiên bản PHP riêng: ${config.php_version} (Cấu hình riêng trong sites.json)`
-					: `Phiên bản PHP mặc định hệ thống: ${config.php_version || "Hệ thống"}`;
-
-				const vNum = parseFloat(
-					(config.php_version || "").replace(/[^0-9.]/g, ""),
-				);
-				let vClass = "php-v-default";
-				if (!isNaN(vNum)) {
-					if (vNum >= 8.4) vClass = "php-v84";
-					else if (vNum >= 8.3 && vNum < 8.4) vClass = "php-v83";
-					else if (vNum < 8.0) vClass = "php-v74";
-					else vClass = "php-v8x";
-				}
-
-				phpHeaderEl.className = `badge-php ${vClass} ${isCustom ? "is-custom" : ""}`;
-				phpHeaderEl.innerHTML = `${isCustom ? '<span class="badge-php-dot"></span>' : ""}${pDisplay}`;
-				phpHeaderEl.title = pTitle;
-				phpHeaderEl.style.display = "inline-flex";
-			}
-
-			// Hiển thị dung lượng dự án trên Header
-			const sizeHeaderEl = document.getElementById("detail-project-size");
-			if (sizeHeaderEl) {
-				const sizeStr =
-					config.size_formatted ||
-					(projItem ? projItem.size_formatted : "");
-				if (sizeStr) {
-					sizeHeaderEl.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align:-1px; margin-right:3px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>${sizeStr}`;
-					sizeHeaderEl.title = `Dung lượng mã nguồn dự án: ${sizeStr}`;
-					sizeHeaderEl.style.display = "inline-flex";
-				} else {
-					sizeHeaderEl.style.display = "none";
-				}
-			}
-
-			UI.fillProjectDetailForm(name, config, effectiveCat);
-		};
+		const applyDetailConfigToUI = (rawCfg, historyOverride) =>
+			this.applyProjectDetailConfigToUI(name, effectiveCat, rawCfg, historyOverride);
 
 		// 1. Render ngay lập tức bằng dữ liệu dự án hiện có (không để lưu lại DOM của dự án trước)
 		applyDetailConfigToUI(projItem && projItem.config ? projItem.config : {});
@@ -353,9 +311,24 @@ const App = {
 			) ||
 			document.querySelector(".project-master-tabs .project-tab-btn") ||
 			document.querySelector("#sidebar-nav-project .project-side-tab");
-		UI.switchProjectTab(firstTabBtn, "d_tab-config");
+		UI._suppressConfigRefresh = true;
+		try {
+			UI.switchProjectTab(firstTabBtn, "d_tab-config");
+		} finally {
+			UI._suppressConfigRefresh = false;
+		}
 
 		// 2. Đồng bộ dữ liệu mới nhất từ SQLite backend
+		await this.refreshProjectDetailConfig(name, effectiveCat);
+	},
+
+	async refreshProjectDetailConfig(targetName, targetCategory) {
+		const name = targetName || this.currentProjectName || this.currentProject || "";
+		if (!name) return;
+		const effectiveCat =
+			targetCategory !== undefined && targetCategory !== null
+				? targetCategory
+				: this.currentCategory || "";
 		try {
 			const data = await Api.getProjectConfig(name, effectiveCat);
 			if (
@@ -363,9 +336,117 @@ const App = {
 				data.status === "success" &&
 				this.currentProjectName === name
 			) {
-				applyDetailConfigToUI(data.data || {}, data.history);
+				this.applyProjectDetailConfigToUI(
+					name,
+					effectiveCat,
+					data.data || {},
+					data.history,
+				);
 			}
 		} catch (_) {}
+	},
+
+	applyProjectDetailConfigToUI(name, effectiveCat, rawCfg, historyOverride) {
+		const projItem =
+			(this.projects && this.projects.find((p) => p.name === name)) || null;
+		const config = Object.assign(
+			{},
+			projItem
+				? {
+						php_version: projItem.php_version,
+						php_display: projItem.php_display,
+						is_custom_php: !!(
+							projItem.php_is_custom || projItem.is_custom_php
+						),
+						size_formatted: projItem.size_formatted,
+						is_config_php: projItem.is_config_php,
+						has_config_php: projItem.has_config_php,
+						nasani_info: projItem.nasani_info,
+					}
+				: {},
+			rawCfg || {},
+		);
+		if (Array.isArray(historyOverride) && !config.history) {
+			config.history = historyOverride;
+		}
+		this.currentProjectConfig = config;
+		if (projItem) {
+			projItem.config = config;
+		}
+
+		const hasDemo = !!(config.deployed && config.deployed.demo);
+		const hasProd = !!(config.deployed && config.deployed.production);
+		const statusEl = document.getElementById("detail-project-status");
+		if (statusEl) {
+			statusEl.style.display = "inline-flex";
+			if (hasProd) {
+				statusEl.innerText = "● PRODUCTION";
+				statusEl.className = "badge-env badge-env-prod";
+				statusEl.style.background = "";
+				statusEl.style.color = "";
+				statusEl.title = "Trạng thái: Production đang chạy";
+			} else if (hasDemo) {
+				statusEl.innerText = "● DEMO";
+				statusEl.className = "badge-env badge-env-demo";
+				statusEl.style.background = "";
+				statusEl.style.color = "";
+				statusEl.title = "Trạng thái: Demo đang chạy";
+			} else {
+				statusEl.innerText = "○ CHƯA DEPLOY";
+				statusEl.className = "badge-env";
+				statusEl.style.background = "var(--surface-2)";
+				statusEl.style.color = "var(--text-muted)";
+				statusEl.title = "Trạng thái: Chưa deploy";
+			}
+		}
+
+		// Hiển thị phiên bản PHP của dự án trên Header
+		const phpHeaderEl = document.getElementById("detail-project-php");
+		if (phpHeaderEl) {
+			const isCustom = !!config.is_custom_php;
+			const pDisplay =
+				config.php_display ||
+				(config.php_version
+					? config.php_version.replace(/^php-?/i, "PHP ")
+					: "PHP");
+			const pTitle = isCustom
+				? `Phiên bản PHP riêng: ${config.php_version} (Cấu hình riêng trong sites.json)`
+				: `Phiên bản PHP mặc định hệ thống: ${config.php_version || "Hệ thống"}`;
+
+			const vNum = parseFloat(
+				(config.php_version || "").replace(/[^0-9.]/g, ""),
+			);
+			let vClass = "php-v-default";
+			if (!isNaN(vNum)) {
+				if (vNum >= 8.4) vClass = "php-v84";
+				else if (vNum >= 8.3 && vNum < 8.4) vClass = "php-v83";
+				else if (vNum < 8.0) vClass = "php-v74";
+				else vClass = "php-v8x";
+			}
+
+			phpHeaderEl.className = `badge-php ${vClass} ${isCustom ? "is-custom" : ""}`;
+			phpHeaderEl.innerHTML = `${isCustom ? '<span class="badge-php-dot"></span>' : ""}${pDisplay}`;
+			phpHeaderEl.title = pTitle;
+			phpHeaderEl.style.display = "inline-flex";
+		}
+
+		// Hiển thị dung lượng dự án trên Header
+		const sizeHeaderEl = document.getElementById("detail-project-size");
+		if (sizeHeaderEl) {
+			const sizeStr =
+				!this.lowSpecMode &&
+				(config.size_formatted ||
+					(projItem ? projItem.size_formatted : ""));
+			if (sizeStr) {
+				sizeHeaderEl.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align:-1px; margin-right:3px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>${sizeStr}`;
+				sizeHeaderEl.title = `Dung lượng mã nguồn dự án: ${sizeStr}`;
+				sizeHeaderEl.style.display = "inline-flex";
+			} else {
+				sizeHeaderEl.style.display = "none";
+			}
+		}
+
+		UI.fillProjectDetailForm(name, config, effectiveCat);
 	},
 
 	showCacheClearer() {
@@ -426,23 +507,34 @@ const App = {
 				Api.getProjects(category),
 			]);
 			if (catData.status === "success") {
+				if (typeof catData.low_spec_mode === "boolean") {
+					this.setLowSpecMode(catData.low_spec_mode);
+				}
 				UI.renderCategories(catData.data, catData.stats || {});
 			}
 
 			if (data.status === "success") {
+				if (typeof data.low_spec_mode === "boolean") {
+					this.setLowSpecMode(data.low_spec_mode);
+				}
 				this.projects = data.data || [];
-				this.currentCategoryTotalSize =
-					data.category_total_size_formatted || null;
+				this.currentCategoryTotalSize = this.lowSpecMode
+					? null
+					: data.category_total_size_formatted || null;
 				UI.renderProjects(
 					this.getProcessedProjects(),
 					category,
-					data.category_total_size_formatted,
+					this.currentCategoryTotalSize,
 				);
 				this._applyViewModeUI(this.projectViewMode);
-				this.updateStats(data.category_total_size_formatted);
+				this.updateStats(this.currentCategoryTotalSize);
 
 				// Cập nhật live kích thước vào subtitle của sidebar item tương ứng
-				if (category && data.category_total_size_formatted) {
+				if (
+					!this.lowSpecMode &&
+					category &&
+					data.category_total_size_formatted
+				) {
 					const catSub = document.querySelector(
 						`.category-item[data-category="${category}"] .category-item-subtitle`,
 					);
@@ -469,11 +561,13 @@ const App = {
 						});
 
 					// Kiểm tra xem có dự án nào chưa có size không để tính ngầm
-					const missingAny = this.projects.some(
-						(p) => !p.size || p.size === null,
-					);
-					if (missingAny) {
-						this.fetchSizesInBackground(category);
+					if (!this.lowSpecMode) {
+						const missingAny = this.projects.some(
+							(p) => !p.size || p.size === null,
+						);
+						if (missingAny) {
+							this.fetchSizesInBackground(category);
+						}
 					}
 				} else {
 					// Xóa active ở cột tháng
@@ -488,6 +582,7 @@ const App = {
 	},
 
 	async fetchSizesInBackground(category) {
+		if (this.lowSpecMode) return;
 		try {
 			const res = await Api.calculateCategorySizes(category);
 			if (res && res.status === "success") {
@@ -686,7 +781,11 @@ const App = {
 		if (elTotal) elTotal.innerText = total;
 		if (elConfigured) elConfigured.innerText = configured;
 		if (elDemo) elDemo.innerText = demo;
-		if (elStorage) {
+		const storageCard = document.querySelector(".stat-card-storage");
+		if (storageCard) {
+			storageCard.style.display = this.lowSpecMode ? "none" : "";
+		}
+		if (elStorage && !this.lowSpecMode) {
 			const displaySize =
 				categoryTotalSizeFormatted || UI.formatBytes(totalBytes);
 			elStorage.innerText =

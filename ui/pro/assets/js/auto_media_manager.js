@@ -20,7 +20,7 @@ const AutoMediaManager = {
 		wrap.addEventListener('click', async (e) => {
 			const btn = e.target.closest('[data-main-key]');
 			if (!btn) return;
-			await this.loadImages(btn.dataset.mainKey);
+			await this.loadImages(btn.dataset.mainKey, true);
 		});
 
 		// Run button

@@ -145,6 +145,18 @@ var FileManager = {
 		this.loadCurrentPath();
 	},
 
+	getTreeChevronSvg(isOpen) {
+		return isOpen
+			? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>'
+			: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+	},
+
+	getTreeFolderSvg(isOpen, size = 15) {
+		return isOpen
+			? `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="rgba(245, 158, 11, 0.22)" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>`
+			: `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="rgba(245, 158, 11, 0.16)" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+	},
+
 	loadTree(forceRefresh = false) {
 		if (forceRefresh) {
 			this.treeCache = {};
@@ -159,25 +171,25 @@ var FileManager = {
                     cursor: pointer; transition: all 0.15s ease; color: var(--text-secondary, #94a3b8);
                     font-family: var(--mono, monospace); font-size: 12px; user-select: none;
                 }
-                .fm-tree-node:hover { background: rgba(255,255,255,0.06); color: #fff; }
+                .fm-tree-node:hover { background: rgba(255,255,255,0.06); color: #f8fafc; }
                 .fm-tree-node.active {
                     background: rgba(0, 213, 146, 0.12); color: var(--primary, #00d2d3);
                     font-weight: 600; border-left: 2px solid var(--primary, #00d2d3);
                 }
                 .fm-tree-toggle {
                     width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center;
-                    font-size: 9px; color: #64748b; cursor: pointer; transition: transform 0.15s ease;
+                    color: #64748b; cursor: pointer; transition: transform 0.15s ease, color 0.15s ease; flex-shrink: 0;
                 }
-                .fm-tree-toggle:hover { color: #fff; }
-                .fm-tree-icon { font-size: 13px; line-height: 1; }
+                .fm-tree-toggle:hover { color: #e2e8f0; }
+                .fm-tree-icon { display: inline-flex; align-items: center; justify-content: center; line-height: 1; flex-shrink: 0; }
                 .fm-tree-label {
                     flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
             </style>
             <div class="fm-tree-item" id="tree-item-root">
                 <div class="fm-tree-node ${this.currentPath === "/" ? "active" : ""}" data-path="/" onclick="FileManager.selectTreeNode('/', this)">
-                    <span class="fm-tree-toggle" onclick="FileManager.toggleTreeNode('/', this, event)">▼</span>
-                    <span class="fm-tree-icon">📂</span>
+                    <span class="fm-tree-toggle" onclick="FileManager.toggleTreeNode('/', this, event)">${this.getTreeChevronSvg(true)}</span>
+                    <span class="fm-tree-icon">${this.getTreeFolderSvg(true)}</span>
                     <span class="fm-tree-label">root (/)</span>
                 </div>
                 <div id="fm-tree-children-root" class="fm-tree-children" style="padding-left: 12px;">
@@ -257,7 +269,7 @@ var FileManager = {
 					const toggle = parentItem.querySelector(".fm-tree-toggle");
 					if (toggle) toggle.style.visibility = "hidden";
 					const icon = parentItem.querySelector(".fm-tree-icon");
-					if (icon) icon.innerText = "📁";
+					if (icon) icon.innerHTML = this.getTreeFolderSvg(false);
 				}
 			}
 			return;
@@ -295,8 +307,8 @@ var FileManager = {
 			html += `
                 <div class="fm-tree-item" id="${safeId}">
                     <div class="fm-tree-node ${isActive ? "active" : ""}" data-path="${this.escapeHtml(fullPath)}" onclick="FileManager.selectTreeNode('${this.escapeHtml(fullPath)}', this)">
-                        <span class="fm-tree-toggle" ${toggleVisibility} onclick="${toggleAction}">▶</span>
-                        <span class="fm-tree-icon">📁</span>
+                        <span class="fm-tree-toggle" ${toggleVisibility} onclick="${toggleAction}">${this.getTreeChevronSvg(false)}</span>
+                        <span class="fm-tree-icon">${this.getTreeFolderSvg(false)}</span>
                         <span class="fm-tree-label" title="${this.escapeHtml(dirName)}">${this.escapeHtml(dirName)}</span>
                     </div>
                     <div id="fm-tree-children-${safeId}" class="fm-tree-children" style="padding-left: 12px; display: none;"></div>
@@ -322,10 +334,10 @@ var FileManager = {
 		const isHidden = childrenWrap.style.display === "none";
 		if (isHidden) {
 			childrenWrap.style.display = "block";
-			el.innerText = "▼";
+			el.innerHTML = this.getTreeChevronSvg(true);
 			const icon = el.nextElementSibling;
 			if (icon && icon.classList.contains("fm-tree-icon"))
-				icon.innerText = "📂";
+				icon.innerHTML = this.getTreeFolderSvg(true);
 
 			if (!childrenWrap.dataset.loaded) {
 				childrenWrap.innerHTML = `<div style="padding: 4px 8px; color: var(--text-muted, #888); font-size: 11px;">Đang tải...</div>`;
@@ -334,7 +346,7 @@ var FileManager = {
 					if (dirs.length === 0) {
 						el.style.visibility = "hidden";
 						if (icon && icon.classList.contains("fm-tree-icon"))
-							icon.innerText = "📁";
+							icon.innerHTML = this.getTreeFolderSvg(false);
 						childrenWrap.innerHTML = "";
 						childrenWrap.style.display = "none";
 					} else {
@@ -344,10 +356,10 @@ var FileManager = {
 			}
 		} else {
 			childrenWrap.style.display = "none";
-			el.innerText = "▶";
+			el.innerHTML = this.getTreeChevronSvg(false);
 			const icon = el.nextElementSibling;
 			if (icon && icon.classList.contains("fm-tree-icon"))
-				icon.innerText = "📁";
+				icon.innerHTML = this.getTreeFolderSvg(false);
 		}
 	},
 
@@ -536,7 +548,7 @@ var FileManager = {
 	getFileMeta(filename, isDir) {
 		if (isDir) {
 			return {
-				badge: '<span style="font-size: 1.25rem;">📁</span>',
+				badge: `<span class="fm-dir-badge-icon" style="display:inline-flex; align-items:center; justify-content:center;">${this.getTreeFolderSvg(false, 18)}</span>`,
 				nameColor: "var(--primary, #00d2d3)",
 				isDir: true,
 			};
@@ -546,7 +558,7 @@ var FileManager = {
 		const ext = lower.split(".").pop();
 
 		const makeBadge = (label, bg, color, border) => `
-            <span style="display:inline-flex; align-items:center; justify-content:center; width:34px; height:22px; border-radius:5px; background:${bg}; color:${color}; border:1px solid ${border}; font-size:10px; font-weight:800; font-family:var(--mono, monospace); letter-spacing:0.5px;">${label}</span>
+            <span class="fm-file-badge fm-badge-${label.toLowerCase()}" style="display:inline-flex; align-items:center; justify-content:center; width:34px; height:22px; border-radius:5px; background:${bg}; color:${color}; border:1px solid ${border}; font-size:10px; font-weight:800; font-family:var(--mono, monospace); letter-spacing:0.5px;">${label}</span>
         `;
 
 		if (lower.endsWith(".blade.php") || ext === "php") {
@@ -831,24 +843,27 @@ var FileManager = {
 			const isSelected = this.selectedItems.has(path);
 
 			let actions = "";
-			const btnStyle =
-				"padding: 4px 10px; font-size: 11.5px; border-radius: 6px; font-weight: 500; transition: all 0.2s ease; border: 1px solid transparent; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.03);";
+			const svgOpen = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>`;
+			const svgView = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+			const svgEdit = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+			const svgIde = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`;
+			const svgDel = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
 
 			if (f.is_dir) {
 				actions = `
-                    <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.navigateTo('${path}')" title="Mở" style="${btnStyle} color: #74b9ff;" onmouseover="this.style.background='rgba(116,185,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">📂 Mở</button>
-                    <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.deleteItem('${path}', true)" title="Xóa" style="${btnStyle} color: #ff7675;" onmouseover="this.style.background='rgba(255,118,117,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">🗑️ Xóa</button>
+                    <button class="btn btn-ghost btn-sm fm-action-btn fm-act-open" onclick="event.stopPropagation(); FileManager.navigateTo('${path}')" title="Mở">${svgOpen}<span>Mở</span></button>
+                    <button class="btn btn-ghost btn-sm fm-action-btn fm-act-del" onclick="event.stopPropagation(); FileManager.deleteItem('${path}', true)" title="Xóa">${svgDel}<span>Xóa</span></button>
                 `;
 			} else {
 				if (this.isImage(f.name) && fileUrl) {
 					icon = `<img src="${fileUrl}" style="width:32px; height:32px; object-fit:cover; border-radius:5px; border:1px solid rgba(255,255,255,0.15); cursor:pointer; vertical-align:middle; display:inline-block; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='none'" onclick="event.stopPropagation(); FileManager.previewImage('${fileUrl}', '${this.escapeHtml(f.name)}')" onerror="this.outerHTML='${meta.badge}'">`;
-					actions += `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.previewImage('${fileUrl}', '${this.escapeHtml(f.name)}')" title="Xem ảnh" style="${btnStyle} color: #00cec9;" onmouseover="this.style.background='rgba(0,206,201,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">👁️ Xem</button>`;
+					actions += `<button class="btn btn-ghost btn-sm fm-action-btn fm-act-view" onclick="event.stopPropagation(); FileManager.previewImage('${fileUrl}', '${this.escapeHtml(f.name)}')" title="Xem ảnh">${svgView}<span>Xem</span></button>`;
 				}
 				if (this.isEditable(f.name)) {
-					actions += `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.editFile('${path}')" title="Sửa nhanh" style="${btnStyle} color: #a29bfe;" onmouseover="this.style.background='rgba(162,155,254,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">📝 Sửa</button>`;
-					actions += `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.openInEditor('${path}')" title="Mở trong Antigravity IDE" style="${btnStyle} color: #ffeaa7;" onmouseover="this.style.background='rgba(255,234,167,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">⚡ IDE</button>`;
+					actions += `<button class="btn btn-ghost btn-sm fm-action-btn fm-act-edit" onclick="event.stopPropagation(); FileManager.editFile('${path}')" title="Sửa nhanh">${svgEdit}<span>Sửa</span></button>`;
+					actions += `<button class="btn btn-ghost btn-sm fm-action-btn fm-act-ide" onclick="event.stopPropagation(); FileManager.openInEditor('${path}')" title="Mở trong Antigravity IDE">${svgIde}<span>IDE</span></button>`;
 				}
-				actions += `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); FileManager.deleteItem('${path}', false)" title="Xóa" style="${btnStyle} color: #ff7675;" onmouseover="this.style.background='rgba(255,118,117,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">🗑️ Xóa</button>`;
+				actions += `<button class="btn btn-ghost btn-sm fm-action-btn fm-act-del" onclick="event.stopPropagation(); FileManager.deleteItem('${path}', false)" title="Xóa">${svgDel}<span>Xóa</span></button>`;
 			}
 
 			html += `
@@ -859,19 +874,17 @@ var FileManager = {
                     data-fm-index="${idx}"
                     onclick="FileManager.onRowClick(event, '${path}', ${f.is_dir ? "true" : "false"}, '${this.escapeHtml(f.name)}', ${idx})"
                     oncontextmenu="FileManager.onRowContextMenu(event, '${path}', ${f.is_dir ? "true" : "false"}, '${this.escapeHtml(f.name)}', ${idx}); return false;"
-                    style="border-bottom: 1px solid rgba(255,255,255,0.04); transition: all 0.15s ease; cursor: default;" 
-                    onmouseover="if(!this.classList.contains('fm-row-selected')) this.style.backgroundColor='rgba(255,255,255,0.03)';" 
-                    onmouseout="if(!this.classList.contains('fm-row-selected')) this.style.backgroundColor='transparent';">
+                    style="border-bottom: 1px solid rgba(255,255,255,0.04); transition: background-color 0.15s ease; cursor: default;">
                     
                     <td style="padding: 10px 14px; width: 36px; text-align: center; vertical-align: middle;">
                         <input type="checkbox" class="fm-item-checkbox" data-path="${path}" ${isSelected ? "checked" : ""} onclick="FileManager.onItemCheckboxClick(event, '${path}', ${f.is_dir ? "true" : "false"}, '${this.escapeHtml(f.name)}')">
                     </td>
                     <td style="padding: 10px 12px; width: 36px; text-align: center; vertical-align: middle;">${icon}</td>
                     <td style="padding: 10px 14px; font-weight: 500; vertical-align: middle; font-family: var(--mono, monospace); font-size: 13px;">
-                        ${f.is_dir ? `<a href="javascript:void(0)" onclick="event.stopPropagation(); FileManager.navigateTo('${path}')" style="color:${meta.nameColor}; text-decoration:none; font-weight:600; transition: opacity 0.15s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">${f.name}</a>` : `<span style="color:${meta.nameColor};">${f.name}</span>`}
+                        ${f.is_dir ? `<a class="fm-file-name fm-dir-link" href="javascript:void(0)" onclick="event.stopPropagation(); FileManager.navigateTo('${path}')" style="color:${meta.nameColor}; text-decoration:none; font-weight:600; transition: opacity 0.15s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">${f.name}</a>` : `<span class="fm-file-name" style="color:${meta.nameColor};">${f.name}</span>`}
                     </td>
-                    <td style="padding: 10px 14px; color:#94a3b8; font-size: 0.8rem; vertical-align: middle; font-family: var(--mono, monospace);">${size}</td>
-                    <td style="padding: 10px 14px; color:#94a3b8; font-size: 0.8rem; vertical-align: middle; font-family: var(--mono, monospace);">${displayDate}</td>
+                    <td class="fm-file-size" style="padding: 10px 14px; color:#94a3b8; font-size: 0.8rem; vertical-align: middle; font-family: var(--mono, monospace);">${size}</td>
+                    <td class="fm-file-date" style="padding: 10px 14px; color:#94a3b8; font-size: 0.8rem; vertical-align: middle; font-family: var(--mono, monospace);">${displayDate}</td>
                     <td style="padding: 10px 14px; text-align: right; white-space: nowrap; vertical-align: middle;">
                         <div style="display: inline-flex; gap: 6px; justify-content: flex-end; align-items: center;">
                             ${actions}
@@ -2300,6 +2313,8 @@ const SyncCenter = {
 			this.resetToDefaultEnv();
 		} else if (!this.currentEnv) {
 			this.resetToDefaultEnv();
+		} else if (this.lastData) {
+			this.scan();
 		}
 	},
 
@@ -2582,7 +2597,8 @@ const SyncCenter = {
 			return {
 				key: "admin",
 				label: "ADMIN",
-				icon: "🛡️",
+				scopeClass: "sc-scope-tag-admin",
+				icon: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
 				bg: "rgba(239, 68, 68, 0.15)",
 				color: "#f87171",
 				border: "rgba(239, 68, 68, 0.4)",
@@ -2599,7 +2615,8 @@ const SyncCenter = {
 			return {
 				key: "web",
 				label: "WEB / CLIENT",
-				icon: "🌐",
+				scopeClass: "sc-scope-tag-web",
+				icon: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
 				bg: "rgba(14, 165, 233, 0.15)",
 				color: "#38bdf8",
 				border: "rgba(14, 165, 233, 0.4)",
@@ -2614,7 +2631,8 @@ const SyncCenter = {
 			return {
 				key: "model_other",
 				label: "MODEL",
-				icon: "📦",
+				scopeClass: "sc-scope-tag-model",
+				icon: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
 				bg: "rgba(168, 85, 247, 0.15)",
 				color: "#c084fc",
 				border: "rgba(168, 85, 247, 0.4)",
@@ -2628,7 +2646,8 @@ const SyncCenter = {
 			return {
 				key: "model_other",
 				label: "ROUTER/CFG",
-				icon: "⚙️",
+				scopeClass: "sc-scope-tag-router",
+				icon: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
 				bg: "rgba(16, 185, 129, 0.15)",
 				color: "#34d399",
 				border: "rgba(16, 185, 129, 0.4)",
@@ -2637,7 +2656,8 @@ const SyncCenter = {
 		return {
 			key: "model_other",
 			label: "HỆ THỐNG",
-			icon: "📁",
+			scopeClass: "sc-scope-tag-sys",
+			icon: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
 			bg: "rgba(148, 163, 184, 0.15)",
 			color: "#94a3b8",
 			border: "rgba(148, 163, 184, 0.25)",
@@ -2859,7 +2879,7 @@ const SyncCenter = {
 
 	formatTime(ts) {
 		if (!ts)
-			return '<span style="color:#64748b; font-size:11.5px; font-style:italic;">Chưa có</span>';
+			return '<span class="sc-time-empty" style="color:#64748b; font-size:11.5px; font-style:italic;">Chưa có</span>';
 		const d = new Date(ts * 1000);
 		const day = String(d.getDate()).padStart(2, "0");
 		const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -2867,30 +2887,30 @@ const SyncCenter = {
 		const hours = String(d.getHours()).padStart(2, "0");
 		const minutes = String(d.getMinutes()).padStart(2, "0");
 		const seconds = String(d.getSeconds()).padStart(2, "0");
-		return `${day}/${month}/${year} <span style="color:#94a3b8; font-size:11px;">${hours}:${minutes}:${seconds}</span>`;
+		return `${day}/${month}/${year} <span class="sc-time-hms" style="color:#64748b; font-size:11px; opacity:0.85;">${hours}:${minutes}:${seconds}</span>`;
 	},
 
 	getFileIcon(path) {
 		const ext = path.split(".").pop().toLowerCase();
 		if (["php", "blade.php"].includes(ext) || path.endsWith(".blade.php")) {
-			return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(99,102,241,0.15); color:#818cf8; font-size:10px; font-weight:700; font-family:monospace;">PHP</span>`;
+			return `<span class="sc-file-badge fm-badge-php" style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:22px; border-radius:5px; background:rgba(99,102,241,0.15); color:#818cf8; font-size:10px; font-weight:700; font-family:monospace;">PHP</span>`;
 		}
 		if (["js", "ts", "jsx", "tsx"].includes(ext)) {
-			return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(245,158,11,0.15); color:#fbbf24; font-size:10px; font-weight:700; font-family:monospace;">JS</span>`;
+			return `<span class="sc-file-badge fm-badge-js" style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:22px; border-radius:5px; background:rgba(245,158,11,0.15); color:#fbbf24; font-size:10px; font-weight:700; font-family:monospace;">JS</span>`;
 		}
 		if (["css", "scss", "sass", "less"].includes(ext)) {
-			return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(14,165,233,0.15); color:#38bdf8; font-size:10px; font-weight:700; font-family:monospace;">CSS</span>`;
+			return `<span class="sc-file-badge fm-badge-css" style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:22px; border-radius:5px; background:rgba(14,165,233,0.15); color:#38bdf8; font-size:10px; font-weight:700; font-family:monospace;">CSS</span>`;
 		}
 		if (
 			["json", "lock", "env", "config"].includes(ext) ||
 			path.includes(".env")
 		) {
-			return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(16,185,129,0.15); color:#34d399; font-size:10px; font-weight:700; font-family:monospace;">CFG</span>`;
+			return `<span class="sc-file-badge fm-badge-env" style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:22px; border-radius:5px; background:rgba(16,185,129,0.15); color:#34d399; font-size:10px; font-weight:700; font-family:monospace;">CFG</span>`;
 		}
 		if (["md", "txt", "sql"].includes(ext)) {
-			return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(168,85,247,0.15); color:#c084fc; font-size:10px; font-weight:700; font-family:monospace;">DOC</span>`;
+			return `<span class="sc-file-badge fm-badge-md" style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:22px; border-radius:5px; background:rgba(168,85,247,0.15); color:#c084fc; font-size:10px; font-weight:700; font-family:monospace;">DOC</span>`;
 		}
-		return `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; background:rgba(255,255,255,0.08); color:#94a3b8; font-size:10px; font-weight:700;">FILE</span>`;
+		return `<span class="sc-file-badge fm-badge-file" style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:22px; border-radius:5px; background:rgba(255,255,255,0.08); color:#94a3b8; font-size:10px; font-weight:700;">FILE</span>`;
 	},
 
 	renderDbSyncCard(dbDiff) {
@@ -2899,15 +2919,17 @@ const SyncCenter = {
 
 		if (!dbDiff.available) {
 			return `
-                <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                <div class="sc-db-sync-card sc-db-sync-unavail" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 20px;">🗄️</span>
+                        <span style="width:32px; height:32px; border-radius:8px; background:rgba(148,163,184,0.12); color:#94a3b8; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                        </span>
                         <div>
-                            <div style="font-weight: 600; font-size: 13.5px; color: #cbd5e1;">Cơ sở dữ liệu (SQL Schema)</div>
-                            <div style="font-size: 12px; color: #94a3b8;">${this.escapeHtml(dbDiff.error || "Không phát hiện cấu hình Database hợp lệ để đối soát.")}</div>
+                            <div class="sc-db-title" style="font-weight: 600; font-size: 13.5px; color: #cbd5e1;">Cơ sở dữ liệu (SQL Schema)</div>
+                            <div class="sc-db-sub" style="font-size: 12px; color: #94a3b8;">${this.escapeHtml(dbDiff.error || "Không phát hiện cấu hình Database hợp lệ để đối soát.")}</div>
                         </div>
                     </div>
-                    <span class="sc-tag" style="background: rgba(255,255,255,0.05); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1);">Chưa kết nối DB</span>
+                    <span class="sc-tag sc-db-unavail-badge" style="background: rgba(255,255,255,0.05); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1);">Chưa kết nối DB</span>
                 </div>
             `;
 		}
@@ -2926,15 +2948,17 @@ const SyncCenter = {
 
 		if (!hasDiff) {
 			return `
-                <div style="background: rgba(16,185,129,0.04); border: 1px solid rgba(16,185,129,0.2); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                <div class="sc-db-sync-card sc-db-sync-ok" style="background: rgba(16,185,129,0.04); border: 1px solid rgba(16,185,129,0.2); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
                     <div style="display: flex; align-items: center; gap: 12px;">
-                        <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(16,185,129,0.12); color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 18px;">✓</div>
+                        <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(16,185,129,0.12); color: #10b981; display: flex; align-items: center; justify-content: center;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        </div>
                         <div>
-                            <div style="font-weight: 700; font-size: 13.5px; color: #34d399; display: flex; align-items: center; gap: 8px;">
+                            <div class="sc-db-ok-title" style="font-weight: 700; font-size: 13.5px; color: #34d399; display: flex; align-items: center; gap: 8px;">
                                 <span>Cấu trúc Database (SQL Schema) đã đồng bộ 100%</span>
-                                <span style="font-size: 11px; font-weight: 500; color: #94a3b8;">(Local ⟷ ${envLabel})</span>
+                                <span style="font-size: 11px; font-weight: 500; color: #64748b;">(Local ⟷ ${envLabel})</span>
                             </div>
-                            <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">
+                            <div style="font-size: 12px; color: #64748b; margin-top: 2px;">
                                 Tất cả bảng và cột dữ liệu đều khớp hoàn hảo. Không có câu lệnh DDL nào cần áp dụng.
                             </div>
                         </div>
@@ -2945,23 +2969,26 @@ const SyncCenter = {
 		}
 
 		let html = `
-            <div style="background: linear-gradient(180deg, rgba(20, 26, 38, 0.95), rgba(13, 17, 26, 0.95)); border: 1px solid rgba(0, 210, 211, 0.25); border-radius: 14px; padding: 16px 20px; box-shadow: 0 8px 30px rgba(0,0,0,0.35);">
-                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+            <div class="sc-db-sync-card sc-db-sync-diff" style="background: linear-gradient(180deg, rgba(20, 26, 38, 0.95), rgba(13, 17, 26, 0.95)); border: 1px solid rgba(0, 210, 211, 0.25); border-radius: 14px; padding: 16px 20px; box-shadow: 0 8px 30px rgba(0,0,0,0.35);">
+                <div class="sc-db-card-head" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.08);">
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <div style="width: 36px; height: 36px; border-radius: 9px; background: rgba(0,210,211,0.15); color: #00d2d3; display: flex; align-items: center; justify-content: center; font-size: 18px;">🗄️</div>
+                        <div style="width: 36px; height: 36px; border-radius: 9px; background: rgba(0,210,211,0.15); color: #00d2d3; display: flex; align-items: center; justify-content: center;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                        </div>
                         <div>
-                            <div style="font-weight: 700; font-size: 14.5px; color: #fff; display: flex; align-items: center; gap: 8px;">
+                            <div class="sc-db-title" style="font-weight: 700; font-size: 14.5px; color: #fff; display: flex; align-items: center; gap: 8px;">
                                 <span>Đồng bộ Cấu trúc Database (SQL Schema Diff)</span>
                                 <span class="sc-tag sc-tag-cyan" style="font-size: 11px;">Chỉ cấu trúc • Tuyệt đối không đè dữ liệu</span>
                             </div>
-                            <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">
-                                Phát hiện khác biệt cấu trúc giữa Local và ${envLabel}. Hệ thống sẽ <b style="color: #38bdf8;">tự động backup .sql</b> trước khi áp dụng câu lệnh.
+                            <div class="sc-db-sub" style="font-size: 12px; color: #94a3b8; margin-top: 2px;">
+                                Phát hiện khác biệt cấu trúc giữa Local và ${envLabel}. Hệ thống sẽ <b style="color: #0284c7;">tự động backup .sql</b> trước khi áp dụng câu lệnh.
                             </div>
                         </div>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 11.5px; color: #a1a1aa; background: rgba(255,255,255,0.04); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
-                            🛡️ Auto-Backup: <b style="color: #34d399;">BẬT</b>
+                        <span class="sc-db-autobackup-pill" style="font-size: 11.5px; color: #a1a1aa; background: rgba(255,255,255,0.04); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); display: inline-flex; align-items: center; gap: 5px;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                            Auto-Backup: <b style="color: #10b981;">BẬT</b>
                         </span>
                     </div>
                 </div>
@@ -3341,7 +3368,7 @@ const SyncCenter = {
                 ${this.renderDbSyncCard(dbDiff)}
 
                 <!-- Header Toolbar: Direction Filters & Search -->
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; background: rgba(255,255,255,0.02); padding: 10px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                <div class="sc-filter-toolbar" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; background: rgba(255,255,255,0.02); padding: 10px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
                     <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                         <button class="sc-pill-btn pill-all ${this.currentFilter === "all" ? "active" : ""}" onclick="SyncCenter.setFilter('all')">
                             Tất cả hướng <span class="sc-badge-count">${total}</span>
@@ -3371,7 +3398,7 @@ const SyncCenter = {
                             <input type="checkbox" id="sc-check-cleardata-toolbar" ${this.includeClearData ? "checked" : ""} onchange="SyncCenter.toggleClearData(this.checked)" style="accent-color: var(--primary, #00d2d3); width: 14px; height: 14px; cursor: pointer; margin: 0;">
                             <span>Đồng bộ ClearData</span>
                         </label>
-                        <input type="text" class="sc-search-box" placeholder="🔍 Lọc file theo tên..." oninput="SyncCenter.setSearch(this.value)" value="${this.escapeHtml(this.searchQuery)}">
+                        <input type="text" class="sc-search-box" placeholder="Lọc file theo tên..." oninput="SyncCenter.setSearch(this.value)" value="${this.escapeHtml(this.searchQuery)}">
                         <button class="btn btn-primary" onclick="SyncCenter.executeAll()" style="height: 36px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; font-weight: 700; padding: 0 16px; border-radius: 8px; box-shadow: 0 4px 14px var(--primary-glow, rgba(0,210,211,0.25)); font-size: 13px;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                             <span id="sc-btn-execute-text">THỰC THI (${this.selectedPaths.size} FILE)</span>
@@ -3380,28 +3407,33 @@ const SyncCenter = {
                 </div>
 
                 <!-- Scope & Security Toolbar (Row 2): Segregation between Admin, Web, and Duplicates -->
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; background: rgba(13, 17, 24, 0.85); padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.07);">
+                <div class="sc-scope-toolbar" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; background: rgba(13, 17, 24, 0.85); padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.07);">
                     <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                        <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-right: 4px; display: inline-flex; align-items: center; gap: 4px;">
-                            <span>🛡️ PHÂN VÙNG:</span>
+                        <span class="sc-scope-heading" style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-right: 4px; display: inline-flex; align-items: center; gap: 5px;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                            <span>PHÂN VÙNG:</span>
                         </span>
                         <button class="sc-scope-btn ${this.currentScope === "all" ? "active" : ""}" id="sc-scope-btn-all" onclick="SyncCenter.setScope('all')">
-                            Toàn bộ <span class="sc-badge-count">${total}</span>
+                            <span>Toàn bộ</span> <span class="sc-badge-count">${total}</span>
                         </button>
                         <button class="sc-scope-btn sc-scope-admin ${this.currentScope === "admin" ? "active" : ""}" id="sc-scope-btn-admin" onclick="SyncCenter.setScope('admin')" title="Chỉ hiển thị các file thuộc khu vực Quản trị Admin">
-                            🛡️ Chỉ Admin <span class="sc-badge-count">${adminCount}</span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                            <span>Chỉ Admin</span> <span class="sc-badge-count">${adminCount}</span>
                         </button>
                         <button class="sc-scope-btn sc-scope-web ${this.currentScope === "web" ? "active" : ""}" id="sc-scope-btn-web" onclick="SyncCenter.setScope('web')" title="Chỉ hiển thị các file thuộc giao diện Khách Web / Client">
-                            🌐 Chỉ Web/Client <span class="sc-badge-count">${webCount}</span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                            <span>Chỉ Web/Client</span> <span class="sc-badge-count">${webCount}</span>
                         </button>
                         <button class="sc-scope-btn sc-scope-model ${this.currentScope === "model_other" ? "active" : ""}" id="sc-scope-btn-model_other" onclick="SyncCenter.setScope('model_other')">
-                            📦 Model / Khác <span class="sc-badge-count">${modelOtherCount}</span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                            <span>Model / Khác</span> <span class="sc-badge-count">${modelOtherCount}</span>
                         </button>
                         ${
 							duplicateStats.duplicateItemCount > 0
 								? `
                             <button class="sc-scope-btn sc-scope-dup ${this.currentScope === "duplicates" ? "active" : ""}" id="sc-scope-btn-duplicates" onclick="SyncCenter.setScope('duplicates')" title="Cảnh báo: Có ${duplicateStats.duplicateItemCount} file trùng tên nhau ở các thư mục khác nhau! Hãy kiểm tra để tránh sync nhầm.">
-                                ⚠️ File trùng tên <span class="sc-badge-count" style="background:rgba(245,158,11,0.25); color:#fbbf24;">${duplicateStats.duplicateItemCount}</span>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                <span>File trùng tên</span> <span class="sc-badge-count sc-dup-count" style="background:rgba(245,158,11,0.25); color:#fbbf24;">${duplicateStats.duplicateItemCount}</span>
                             </button>
                         `
 								: ""
@@ -3411,17 +3443,21 @@ const SyncCenter = {
                     <!-- Quick Selection Helpers -->
                     <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                         <span style="font-size: 11.5px; color: #64748b; margin-right: 2px;">Chọn nhanh:</span>
-                        <button type="button" class="sc-quick-sel-btn" onclick="SyncCenter.selectScopeOnly('admin')" title="Chỉ tích chọn file Admin, tự động bỏ chọn file Web và các mục khác để an toàn">
-                            🛡️ Chỉ chọn Admin
+                        <button type="button" class="sc-quick-sel-btn sc-quick-admin" onclick="SyncCenter.selectScopeOnly('admin')" title="Chỉ tích chọn file Admin, tự động bỏ chọn file Web và các mục khác để an toàn">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                            <span>Chỉ chọn Admin</span>
                         </button>
-                        <button type="button" class="sc-quick-sel-btn" onclick="SyncCenter.selectScopeOnly('web')" title="Chỉ tích chọn file Web, tự động bỏ chọn file Admin và các mục khác">
-                            🌐 Chỉ chọn Web
+                        <button type="button" class="sc-quick-sel-btn sc-quick-web" onclick="SyncCenter.selectScopeOnly('web')" title="Chỉ tích chọn file Web, tự động bỏ chọn file Admin và các mục khác">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                            <span>Chỉ chọn Web</span>
                         </button>
-                        <button type="button" class="sc-quick-sel-btn" onclick="SyncCenter.selectScopeOnly('all')" title="Tích chọn toàn bộ các file">
-                            ✓ Tất cả
+                        <button type="button" class="sc-quick-sel-btn sc-quick-all" onclick="SyncCenter.selectScopeOnly('all')" title="Tích chọn toàn bộ các file">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                            <span>Tất cả</span>
                         </button>
                         <button type="button" class="sc-quick-sel-btn sc-quick-sel-clear" onclick="SyncCenter.deselectAll()" title="Bỏ tích chọn toàn bộ để chọn lại thủ công">
-                            ✕ Bỏ chọn
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            <span>Bỏ chọn</span>
                         </button>
                     </div>
                 </div>
@@ -3502,18 +3538,18 @@ const SyncCenter = {
                     <td style="text-align: center;">
                         <input type="checkbox" class="sc-custom-cb sync-cb" value="${path}" ${isChecked ? "checked" : ""} onchange="SyncCenter.togglePathSelect('${path}', this.checked)">
                     </td>
-                    <td style="white-space: nowrap;">
-                        <span class="sc-tag" style="background: ${scope.bg}; color: ${scope.color}; border: 1px solid ${scope.border}; font-weight: 700; font-size: 11px;">
-                            ${scope.icon} ${scope.label}
+					<td style="white-space: nowrap;">
+                        <span class="sc-tag sc-scope-tag ${scope.scopeClass || ""}" style="background: ${scope.bg}; color: ${scope.color}; border: 1px solid ${scope.border}; font-weight: 700; font-size: 11px;">
+                            ${scope.icon} <span>${scope.label}</span>
                         </span>
                     </td>
                     <td>
                         <div style="display: flex; align-items: center; gap: 10px; cursor: pointer;" onclick="SyncCenter.openDiff('${path}')" title="Nhấn để xem Diff so sánh nội dung">
                             ${icon}
                             <div style="font-family: var(--mono, monospace); font-size: 12.5px; line-height: 1.4; word-break: break-all;">
-                                <span style="color: #94a3b8; font-size: 12px; font-weight: 500;">${this.escapeHtml(dirName)}</span><span style="color: #ffffff; font-weight: 700; font-size: 13px; text-decoration: underline; text-decoration-color: rgba(255,255,255,0.3);">${this.escapeHtml(fileName)}</span>
-                                ${isDuplicate ? `<span class="sc-tag" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4); font-weight: 700; font-size: 10.5px; margin-left: 6px;" title="Cảnh báo: Tên file '${this.escapeHtml(fileName)}' xuất hiện ở ${dupList.length} thư mục khác nhau! Hãy chú ý Scope Admin vs Web.">⚠️ Trùng tên (${dupList.length} vị trí)</span>` : ""}
-                                ${isClearData ? '<span class="sc-tag" style="background: rgba(239,68,68,0.18); color: #f87171; border: 1px solid rgba(239,68,68,0.35); font-weight: 700; font-size: 10.5px; margin-left: 6px; padding: 1px 6px;">⚠️ ClearData (' + (item.path.toLowerCase().includes("routes") ? "Router" : "Controller") + ")</span>" : ""}
+                                <span class="sc-dir-name" style="color: #94a3b8; font-size: 12px; font-weight: 500;">${this.escapeHtml(dirName)}</span><span class="sc-file-name" style="color: #ffffff; font-weight: 700; font-size: 13px; text-decoration: underline; text-decoration-color: rgba(255,255,255,0.3);">${this.escapeHtml(fileName)}</span>
+                                ${isDuplicate ? `<span class="sc-tag sc-dup-tag" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4); font-weight: 700; font-size: 10.5px; margin-left: 6px;" title="Cảnh báo: Tên file '${this.escapeHtml(fileName)}' xuất hiện ở ${dupList.length} thư mục khác nhau! Hãy chú ý Scope Admin vs Web.">Trùng tên (${dupList.length} vị trí)</span>` : ""}
+                                ${isClearData ? '<span class="sc-tag sc-cleardata-tag" style="background: rgba(239,68,68,0.18); color: #f87171; border: 1px solid rgba(239,68,68,0.35); font-weight: 700; font-size: 10.5px; margin-left: 6px; padding: 1px 6px;">ClearData (' + (item.path.toLowerCase().includes("routes") ? "Router" : "Controller") + ")</span>" : ""}
                             </div>
                         </div>
                     </td>
@@ -3525,10 +3561,10 @@ const SyncCenter = {
                             ${item.reason}
                         </span>
                     </td>
-                    <td style="white-space: nowrap; font-family: var(--mono, monospace); font-size: 12px; color: ${item.local_mtime ? "#34d399" : "#64748b"};">
+                    <td class="${item.local_mtime ? "sc-mtime-local" : "sc-mtime-empty"}" style="white-space: nowrap; font-family: var(--mono, monospace); font-size: 12px; color: ${item.local_mtime ? "#34d399" : "#64748b"};">
                         ${this.formatTime(item.local_mtime)}
                     </td>
-                    <td style="white-space: nowrap; font-family: var(--mono, monospace); font-size: 12px; color: ${item.remote_mtime ? "#c084fc" : "#64748b"};">
+                    <td class="${item.remote_mtime ? "sc-mtime-remote" : "sc-mtime-empty"}" style="white-space: nowrap; font-family: var(--mono, monospace); font-size: 12px; color: ${item.remote_mtime ? "#c084fc" : "#64748b"};">
                         ${this.formatTime(item.remote_mtime)}
                     </td>
                     <td style="white-space: nowrap;">
@@ -4475,22 +4511,24 @@ const SyncCenter = {
 
 		container.innerHTML = `
             <!-- Toolbar & Filter -->
-            <div style="padding: 4px 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 18px;">
+            <div class="sc-backup-toolbar" style="padding: 4px 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 18px;">
                 <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
                     <!-- Environment Filter Pills -->
-                    <div style="display: inline-flex; background: rgba(255,255,255,0.04); padding: 3px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.08); gap: 2px;">
+                    <div class="sc-backup-env-bar" style="display: inline-flex; background: rgba(255,255,255,0.04); padding: 3px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.08); gap: 2px;">
                         <button class="sc-pill-btn ${this.backupEnvFilter === "all" ? "active" : ""}" style="height:28px; padding:0 10px; font-size:11.5px; border-radius:6px;" onclick="SyncCenter.setBackupEnvFilter('all')">
-                            Tất cả MT <span class="sc-badge-count">${total}</span>
+                            <span>Tất cả MT</span> <span class="sc-badge-count">${total}</span>
                         </button>
-                        <button class="sc-pill-btn ${this.backupEnvFilter === "demo" ? "active" : ""}" style="height:28px; padding:0 10px; font-size:11.5px; border-radius:6px; color:#38bdf8;" onclick="SyncCenter.setBackupEnvFilter('demo')">
-                            🌐 Demo <span class="sc-badge-count">${countDemo}</span>
+                        <button class="sc-pill-btn pill-bk-demo ${this.backupEnvFilter === "demo" ? "active" : ""}" style="height:28px; padding:0 10px; font-size:11.5px; border-radius:6px; color:#38bdf8;" onclick="SyncCenter.setBackupEnvFilter('demo')">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                            <span>Demo</span> <span class="sc-badge-count">${countDemo}</span>
                         </button>
-                        <button class="sc-pill-btn ${this.backupEnvFilter === "prod" ? "active" : ""}" style="height:28px; padding:0 10px; font-size:11.5px; border-radius:6px; color:#fbbf24;" onclick="SyncCenter.setBackupEnvFilter('prod')">
-                            🚀 Production <span class="sc-badge-count">${countProd}</span>
+                        <button class="sc-pill-btn pill-bk-prod ${this.backupEnvFilter === "prod" ? "active" : ""}" style="height:28px; padding:0 10px; font-size:11.5px; border-radius:6px; color:#fbbf24;" onclick="SyncCenter.setBackupEnvFilter('prod')">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/></svg>
+                            <span>Production</span> <span class="sc-badge-count">${countProd}</span>
                         </button>
                     </div>
 
-                    <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
+                    <div class="sc-backup-divider" style="width: 1px; height: 24px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
 
                     <!-- Type Filter Pills -->
                     <div style="display: inline-flex; gap: 6px; flex-wrap: wrap;">
@@ -4498,23 +4536,27 @@ const SyncCenter = {
                             Tất cả loại
                         </button>
                         <button class="sc-pill-btn sc-pill-type pill-up ${this.backupFilter === "remote_before_upload" ? "active" : ""}" id="sc-bk-pill-remote_before_upload" style="height:32px; padding:0 10px; font-size:11.5px;" onclick="SyncCenter.setBackupFilter('remote_before_upload')">
-                            🛡️ Trước khi Upload <span class="sc-badge-count">${countUpload}</span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                            <span>Trước khi Upload</span> <span class="sc-badge-count">${countUpload}</span>
                         </button>
                         <button class="sc-pill-btn sc-pill-type pill-down ${this.backupFilter === "local_before_download" ? "active" : ""}" id="sc-bk-pill-local_before_download" style="height:32px; padding:0 10px; font-size:11.5px;" onclick="SyncCenter.setBackupFilter('local_before_download')">
-                            💻 Trước khi Download <span class="sc-badge-count">${countDownload}</span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                            <span>Trước khi Download</span> <span class="sc-badge-count">${countDownload}</span>
                         </button>
                         <button class="sc-pill-btn sc-pill-type pill-conflict ${this.backupFilter === "remote_before_edit" ? "active" : ""}" id="sc-bk-pill-remote_before_edit" style="height:32px; padding:0 10px; font-size:11.5px;" onclick="SyncCenter.setBackupFilter('remote_before_edit')">
-                            ✎ Trước Sửa Web <span class="sc-badge-count">${countEdit}</span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            <span>Trước Sửa Web</span> <span class="sc-badge-count">${countEdit}</span>
                         </button>
                     </div>
                 </div>
 
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                    <button class="btn btn-danger btn-sm" id="sc-btn-delete-backups" onclick="SyncCenter.deleteSelectedBackups()" style="display:none; height:34px; padding:0 12px; font-weight:700; background:#ef4444; color:#fff; border:none; border-radius:8px;">
-                        🗑️ Xóa đã chọn (<span id="sc-bk-selected-count">0</span>)
+                    <button class="btn btn-danger btn-sm" id="sc-btn-delete-backups" onclick="SyncCenter.deleteSelectedBackups()" style="display:none; height:34px; padding:0 12px; font-weight:700; background:#ef4444; color:#fff; border:none; border-radius:8px; align-items:center; gap:6px;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        <span>Xóa đã chọn (<span id="sc-bk-selected-count">0</span>)</span>
                     </button>
                     <div style="min-width: 240px;">
-                        <input type="text" placeholder="🔍 Tìm theo đường dẫn file hoặc ngày..." style="width:100%; height:34px; padding:0 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.25); color:#fff; font-size:12.5px; outline:none; box-sizing:border-box;" oninput="SyncCenter.setBackupSearch(this.value)">
+                        <input type="text" class="sc-search-box sc-backup-search" placeholder="Tìm theo đường dẫn file hoặc ngày..." style="width:100%; height:34px; padding:0 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.25); color:#fff; font-size:12.5px; outline:none; box-sizing:border-box;" oninput="SyncCenter.setBackupSearch(this.value)">
                     </div>
                 </div>
             </div>
@@ -4570,37 +4612,37 @@ const SyncCenter = {
 
 			let envBadge = "";
 			if (env === "prod") {
-				envBadge = `<span class="sc-tag" style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-weight:700;">🚀 Prod</span>`;
+				envBadge = `<span class="sc-tag sc-tag-amber" style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-weight:700;">Prod</span>`;
 			} else {
-				envBadge = `<span class="sc-tag sc-tag-cyan" style="font-weight:700;">🌐 Demo</span>`;
+				envBadge = `<span class="sc-tag sc-tag-cyan" style="font-weight:700;">Demo</span>`;
 			}
 
 			let typeLabel = "";
 			let typeTagClass = "";
 			if (item.type === "remote_before_upload") {
-				typeLabel = `${env === "prod" ? "🚀 Prod" : "🛡️ Demo"} (Trước Upload)`;
+				typeLabel = `${env === "prod" ? "Prod" : "Demo"} (Trước Upload)`;
 				typeTagClass = "sc-tag-emerald";
 			} else if (item.type === "local_before_download") {
-				typeLabel = "💻 Local (Trước Download)";
+				typeLabel = "Local (Trước Download)";
 				typeTagClass = "sc-tag-purple";
 			} else if (item.type === "remote_before_edit") {
-				typeLabel = `${env === "prod" ? "🚀 Prod" : "✎ Demo"} (Trước Sửa Web)`;
+				typeLabel = `${env === "prod" ? "Prod" : "Demo"} (Trước Sửa Web)`;
 				typeTagClass = "sc-tag-cyan";
 			} else {
-				typeLabel = "⏪ Bản lưu trước Restore";
+				typeLabel = "Bản lưu trước Restore";
 				typeTagClass = "sc-tag-indigo";
 			}
 
 			const restoreRemoteBtn =
 				env === "prod"
 					? `
-                <button class="btn btn-ghost btn-sm" style="height:30px; padding:0 10px; font-size:11.5px; font-weight:700; color:#fbbf24; border-color:rgba(245,158,11,0.35);" onclick="SyncCenter.restoreBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}', 'remote', 'prod')" title="Khôi phục ghi đè lại lên Production Hosting">
-                    🚀 Lên Prod
+                <button class="btn btn-ghost btn-sm fm-action-btn fm-act-edit" style="height:30px; padding:0 10px; font-size:11.5px; font-weight:700;" onclick="SyncCenter.restoreBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}', 'remote', 'prod')" title="Khôi phục ghi đè lại lên Production Hosting">
+                    ↑ Lên Prod
                 </button>
             `
 					: `
-                <button class="btn btn-ghost btn-sm" style="height:30px; padding:0 10px; font-size:11.5px; font-weight:700; color:#34d399; border-color:rgba(16,185,129,0.3);" onclick="SyncCenter.restoreBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}', 'remote', 'demo')" title="Khôi phục ghi đè lại lên Demo Hosting">
-                    ⏫ Lên Demo
+                <button class="btn btn-ghost btn-sm fm-action-btn fm-act-open" style="height:30px; padding:0 10px; font-size:11.5px; font-weight:700;" onclick="SyncCenter.restoreBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}', 'remote', 'demo')" title="Khôi phục ghi đè lại lên Demo Hosting">
+                    ↑ Lên Demo
                 </button>
             `;
 
@@ -4610,7 +4652,7 @@ const SyncCenter = {
                         <input type="checkbox" class="sc-custom-cb sc-bk-cb" value="${this.escapeHtml(backupFile)}" onchange="SyncCenter.updateBackupSelectedCount()">
                     </td>
                     <td style="white-space: nowrap; font-family: var(--mono, monospace); font-size: 12px; color: #94a3b8;">
-                        <span style="color: #f8fafc; font-weight: 600;">${this.escapeHtml(item.time || "")}</span> 
+                        <span class="sc-backup-time" style="color: #f8fafc; font-weight: 600;">${this.escapeHtml(item.time || "")}</span> 
                         <span style="color: #64748b; font-size: 11px;">${this.escapeHtml(item.date || "")}</span>
                     </td>
                     <td style="white-space: nowrap;">
@@ -4619,7 +4661,7 @@ const SyncCenter = {
                     <td>
                         <div style="display: flex; align-items: center; gap: 8px;">
                             ${icon}
-                            <span style="font-family: var(--mono, monospace); font-size: 12.5px; color: #f8fafc; font-weight: 600; word-break: break-all;">
+                            <span class="sc-backup-path" style="font-family: var(--mono, monospace); font-size: 12.5px; color: #f8fafc; font-weight: 600; word-break: break-all;">
                                 ${this.escapeHtml(path)}
                             </span>
                         </div>
@@ -4627,7 +4669,7 @@ const SyncCenter = {
                     <td style="white-space: nowrap;">
                         <span class="sc-tag ${typeTagClass}">${typeLabel}</span>
                     </td>
-                    <td style="white-space: nowrap; font-family: var(--mono, monospace); font-size: 12px; color: #94a3b8;">
+                    <td style="white-space: nowrap; font-family: var(--mono, monospace); font-size: 12px; color: #64748b;">
                         ${this.formatBytes(item.size)}
                     </td>
                     <td style="text-align: right; white-space: nowrap;">
@@ -4636,12 +4678,12 @@ const SyncCenter = {
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                 <span>Xem</span>
                             </button>
-                            <button class="btn btn-ghost btn-sm" style="height:30px; padding:0 10px; font-size:11.5px; font-weight:700; color:#c084fc; border-color:rgba(168,85,247,0.3);" onclick="SyncCenter.restoreBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}', 'local', '${env}')" title="Khôi phục ghi đè lại file Local">
-                                ⏪ Về Local
+                            <button class="btn btn-ghost btn-sm fm-action-btn fm-act-ide" style="height:30px; padding:0 10px; font-size:11.5px; font-weight:700;" onclick="SyncCenter.restoreBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}', 'local', '${env}')" title="Khôi phục ghi đè lại file Local">
+                                ↓ Về Local
                             </button>
                             ${restoreRemoteBtn}
-                            <button class="btn btn-ghost btn-sm" style="height:30px; width:30px; padding:0; color:#f87171; border-color:rgba(248,113,113,0.25);" onclick="SyncCenter.deleteSingleBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}')" title="Xóa bản sao lưu này">
-                                🗑️
+                            <button class="btn btn-ghost btn-sm fm-action-btn fm-act-del" style="height:30px; width:30px; padding:0; justify-content:center;" onclick="SyncCenter.deleteSingleBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}')" title="Xóa bản sao lưu này">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                             </button>
                         </div>
                     </td>

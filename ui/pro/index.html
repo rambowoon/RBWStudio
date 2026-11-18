@@ -38,8 +38,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css?v=1.0.8">
-    <link rel="stylesheet" href="assets/css/theme-sync.css?v=1.1.2">
+    <link rel="stylesheet" href="assets/css/style.css?v=1.0.9">
+    <link rel="stylesheet" href="assets/css/theme-sync.css?v=1.1.5">
 </head>
 
 <body>
@@ -145,7 +145,7 @@
                         </svg>
                         <span class="btn-text">Check Demo / Prod</span>
                     </button>
-                    <button class="btn btn-primary btn-header-deploy" onclick="App.showDeployProjectModal()" title="Triển khai dự án lên Server Demo">
+                    <button class="btn btn-primary btn-header-deploy" onclick="App.showDeployProjectModal()" title="Triển khai dự án mới">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M12 5v14M5 12h14" />
                         </svg>
@@ -348,17 +348,44 @@
                 <!-- VIEW: PROJECT DETAIL (FULL PAGE) -->
                 <div id="view-project-detail" class="view-section" style="display:none; padding-top: 6px">
                     <div class="project-master-tabs tabs">
-                        <button class="btn btn-ghost project-tab-btn tab active" data-tab="d_tab-config" onclick="UI.switchProjectTab(this, 'd_tab-config')" title="Cấu hình &amp; Triển khai dự án (Local / Demo / Prod)">⚙️ Cấu hình &amp; Deploy</button>
-                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-schema" onclick="UI.switchProjectTab(this, 'd_tab-schema')" title="Visual Schema Builder — Cấu hình Type &amp; Module">▤ Schema</button>
-                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-fonts" onclick="UI.switchProjectTab(this, 'd_tab-fonts')" title="Quản lý &amp; Nhúng Fonts chữ (Local &amp; Google Fonts)">🖋️ Fonts</button>
+                        <button class="btn btn-ghost project-tab-btn tab active" data-tab="d_tab-config" onclick="UI.switchProjectTab(this, 'd_tab-config')" title="Cấu hình &amp; Triển khai dự án (Local / Demo / Prod)">
+                            <svg class="tab-svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                            <span>Cấu hình &amp; Deploy</span>
+                        </button>
+                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-schema" onclick="UI.switchProjectTab(this, 'd_tab-schema')" title="Visual Schema Builder — Cấu hình Type &amp; Module">
+                            <svg class="tab-svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+                            <span>Schema</span>
+                        </button>
+                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-fonts" onclick="UI.switchProjectTab(this, 'd_tab-fonts')" title="Quản lý &amp; Nhúng Fonts chữ (Local &amp; Google Fonts)">
+                            <svg class="tab-svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+                            <span>Fonts</span>
+                        </button>
                         <span class="project-tabs-divider" aria-hidden="true"></span>
-                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-webp" onclick="UI.switchProjectTab(this, 'd_tab-webp')" title="Convert &amp; Tối ưu ảnh sang định dạng WebP">🖼️ WebP</button>
-                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-trim" onclick="UI.switchProjectTab(this, 'd_tab-trim')" title="Cắt viền thừa (Trim) ảnh hàng loạt">✂️ Trim ảnh</button>
-                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-auto-media" onclick="UI.switchProjectTab(this, 'd_tab-auto-media')" title="Tự động gắn (Map) ảnh vào dữ liệu">🤖 Map ảnh</button>
-                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-seed" onclick="UI.switchProjectTab(this, 'd_tab-seed')" title="Tạo dữ liệu mẫu (Seed Data) tự động">🌱 Data mẫu</button>
+                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-webp" onclick="UI.switchProjectTab(this, 'd_tab-webp')" title="Convert &amp; Tối ưu ảnh sang định dạng WebP">
+                            <svg class="tab-svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                            <span>WebP</span>
+                        </button>
+                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-trim" onclick="UI.switchProjectTab(this, 'd_tab-trim')" title="Cắt viền thừa (Trim) ảnh hàng loạt">
+                            <svg class="tab-svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+                            <span>Trim ảnh</span>
+                        </button>
+                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-auto-media" onclick="UI.switchProjectTab(this, 'd_tab-auto-media')" title="Tự động gắn (Map) ảnh vào dữ liệu">
+                            <svg class="tab-svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                            <span>Map ảnh</span>
+                        </button>
+                        <button class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-seed" onclick="UI.switchProjectTab(this, 'd_tab-seed')" title="Tạo dữ liệu mẫu (Seed Data) tự động">
+                            <svg class="tab-svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                            <span>Data mẫu</span>
+                        </button>
                         <span class="project-tabs-divider" aria-hidden="true"></span>
-                        <button id="tab-btn-filemanager" class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-filemanager" onclick="UI.switchProjectTab(this, 'd_tab-filemanager'); typeof FileManager !== 'undefined' && FileManager.init()" title="Quản lý File trực tiếp trên Hosting">📁 File Host</button>
-                        <button id="tab-btn-synccenter" class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-synccenter" onclick="UI.switchProjectTab(this, 'd_tab-synccenter'); typeof SyncCenter !== 'undefined' && SyncCenter.init()" title="Sync Center — Đồng bộ Code &amp; Database hai chiều">🔄 Đồng bộ</button>
+                        <button id="tab-btn-filemanager" class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-filemanager" onclick="UI.switchProjectTab(this, 'd_tab-filemanager')" title="Quản lý File trực tiếp trên Hosting">
+                            <svg class="tab-svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                            <span>File Host</span>
+                        </button>
+                        <button id="tab-btn-synccenter" class="btn btn-ghost project-tab-btn tab" data-tab="d_tab-synccenter" onclick="UI.switchProjectTab(this, 'd_tab-synccenter')" title="Sync Center — Đồng bộ Code &amp; Database hai chiều">
+                            <svg class="tab-svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                            <span>Đồng bộ</span>
+                        </button>
                     </div>
 
                     <!-- TAB: CONFIG & DEPLOY -->
@@ -712,11 +739,13 @@
                                         <div style="display: flex; align-items: center; gap: 8px">
                                             <h3 class="card-title-sm" style="font-size: 14px; font-weight: 800; letter-spacing: 0.03em; margin: 0">TRUNG TÂM ĐỒNG BỘ 2 CHIỀU (SYNC CENTER)</h3>
                                             <div class="sc-env-switcher" style="display: inline-flex; border: 1px solid var(--border); border-radius: 8px; padding: 2px; margin-left: 6px">
-                                                <button type="button" class="sc-env-btn sc-env-demo active" onclick="SyncCenter.setEnv('demo')" id="sc-env-btn-demo" style="height: 26px; padding: 0 10px; font-size: 11.5px; font-weight: 700; border-radius: 6px; border: none; background: var(--primary, #00d2d3); color: #000; cursor: pointer; transition: all 0.2s">
-                                                    🌐 Demo
+                                                <button type="button" class="sc-env-btn sc-env-demo active" onclick="SyncCenter.setEnv('demo')" id="sc-env-btn-demo" style="height: 26px; padding: 0 10px; font-size: 11.5px; font-weight: 700; border-radius: 6px; border: none; background: var(--primary, #00d2d3); color: #000; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 5px">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                                                    <span>Demo</span>
                                                 </button>
-                                                <button type="button" class="sc-env-btn sc-env-prod" onclick="SyncCenter.setEnv('prod')" id="sc-env-btn-prod" style="height: 26px; padding: 0 10px; font-size: 11.5px; font-weight: 700; border-radius: 6px; border: none; background: transparent; cursor: pointer; transition: all 0.2s">
-                                                    🚀 Production
+                                                <button type="button" class="sc-env-btn sc-env-prod" onclick="SyncCenter.setEnv('prod')" id="sc-env-btn-prod" style="height: 26px; padding: 0 10px; font-size: 11.5px; font-weight: 700; border-radius: 6px; border: none; background: transparent; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 5px">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/></svg>
+                                                    <span>Production</span>
                                                 </button>
                                             </div>
                                         </div>
@@ -729,14 +758,16 @@
                                         <span style="text-transform: none; letter-spacing: normal">Đồng bộ ClearData</span>
                                     </label>
                                     <button class="btn btn-ghost btn-sm" onclick="SyncCenter.openBackupHistory()" style="height: 38px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px; font-weight: 600; padding: 0 14px; border-radius: 8px; border-color: var(--border); margin: 0; text-transform: none">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                                        </svg> 📦 Lịch sử Backup
+                                        </svg>
+                                        <span>Lịch sử Backup</span>
                                     </button>
                                     <button class="btn btn-ghost btn-sm" id="sc-btn-clear-cache" onclick="SyncCenter.clearCompiledCache()" style="height: 38px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px; font-weight: 600; padding: 0 14px; border-radius: 8px; border-color: var(--border); margin: 0; text-transform: none" title="Xoá sạch toàn bộ cache views compiled (.bladec) trên Local và Remote">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                             <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />
-                                        </svg> 🧹 Xoá Cache Compiled
+                                        </svg>
+                                        <span>Xoá Cache Compiled</span>
                                     </button>
                                     <button class="btn btn-outline btn-sm" id="sc-btn-scan" onclick="SyncCenter.scan()" style="height: 38px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px; font-weight: 600; padding: 0 14px; border-radius: 8px; border-color: var(--border); margin: 0; text-transform: none">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -774,8 +805,9 @@
                                     <button class="btn btn-ghost btn-sm" onclick="UI.switchProjectTab(document.getElementById('tab-btn-synccenter'), 'd_tab-synccenter')" style="display: flex; align-items: center; gap: 6px; font-weight: 600; padding: 7px 14px; border-radius: 8px; border-color: var(--border)">
                                         ← Quay lại Sync Center
                                     </button>
-                                    <button class="btn btn-ghost btn-sm" onclick="SyncCenter.openBackupHistoryTab()" style="display: flex; align-items: center; gap: 6px; font-weight: 600; padding: 7px 14px; border-radius: 8px; border-color: var(--border)">
-                                        🔄 Tải lại
+                                    <button class="btn btn-ghost btn-sm" onclick="SyncCenter.openBackupHistoryTab()" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; padding: 7px 14px; border-radius: 8px; border-color: var(--border)">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                                        <span>Tải lại</span>
                                     </button>
                                 </div>
                             </div>
@@ -795,11 +827,13 @@
                                         <div style="display: flex; align-items: center; gap: 8px">
                                             <h3 class="card-title-sm" style="font-size: 14px; font-weight: 800; letter-spacing: 0.03em; margin: 0">QUẢN LÝ FILE TRÊN HOSTING (FTP)</h3>
                                             <div class="fm-env-switcher" style="display: inline-flex; border: 1px solid var(--border); border-radius: 8px; padding: 2px; margin-left: 6px">
-                                                <button type="button" class="fm-env-btn fm-env-demo active" onclick="FileManager.setEnv('demo')" id="fm-env-btn-demo" style="height: 26px; padding: 0 10px; font-size: 11.5px; font-weight: 700; border-radius: 6px; border: none; background: var(--primary, #00d2d3); color: #000; cursor: pointer; transition: all 0.2s">
-                                                    🌐 Demo
+                                                <button type="button" class="fm-env-btn fm-env-demo active" onclick="FileManager.setEnv('demo')" id="fm-env-btn-demo" style="height: 26px; padding: 0 10px; font-size: 11.5px; font-weight: 700; border-radius: 6px; border: none; background: var(--primary, #00d2d3); color: #000; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 5px">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                                                    <span>Demo</span>
                                                 </button>
-                                                <button type="button" class="fm-env-btn fm-env-prod" onclick="FileManager.setEnv('prod')" id="fm-env-btn-prod" style="height: 26px; padding: 0 10px; font-size: 11.5px; font-weight: 700; border-radius: 6px; border: none; background: transparent; cursor: pointer; transition: all 0.2s">
-                                                    🚀 Production
+                                                <button type="button" class="fm-env-btn fm-env-prod" onclick="FileManager.setEnv('prod')" id="fm-env-btn-prod" style="height: 26px; padding: 0 10px; font-size: 11.5px; font-weight: 700; border-radius: 6px; border: none; background: transparent; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 5px">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/></svg>
+                                                    <span>Production</span>
                                                 </button>
                                             </div>
                                         </div>
@@ -807,9 +841,18 @@
                                     </div>
                                 </div>
                                 <div class="flex-align-center-gap10">
-                                    <button class="btn btn-primary" onclick="FileManager.showUploadModal()">☁️ Tải lên</button>
-                                    <button class="btn btn-secondary" onclick="FileManager.showCreateDirModal()">📁 Tạo thư mục</button>
-                                    <button class="btn btn-ghost" onclick="FileManager.loadCurrentPath(); FileManager.loadTree();">🔄 Làm mới</button>
+                                    <button class="btn btn-primary" onclick="FileManager.showUploadModal()" style="display: inline-flex; align-items: center; gap: 6px">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                        <span>Tải lên</span>
+                                    </button>
+                                    <button class="btn btn-secondary" onclick="FileManager.showCreateDirModal()" style="display: inline-flex; align-items: center; gap: 6px">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+                                        <span>Tạo thư mục</span>
+                                    </button>
+                                    <button class="btn btn-ghost" onclick="FileManager.loadCurrentPath(); FileManager.loadTree();" style="display: inline-flex; align-items: center; gap: 6px">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                                        <span>Làm mới</span>
+                                    </button>
                                 </div>
                             </div>
 
@@ -817,13 +860,20 @@
                             <div class="fm-layout-split" style="display: flex; gap: 16px; min-height: 520px">
                                 <!-- Left Sidebar: Directory Tree -->
                                 <div class="fm-tree-sidebar" style="width: 250px; min-width: 210px; max-width: 300px; border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden">
-                                    <div style="padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between">
+                                    <div class="fm-tree-header" style="padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between">
                                         <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px">
                                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                                             </svg> CÂY THƯ MỤC
                                         </span>
-                                        <button class="btn btn-ghost btn-sm" onclick="FileManager.loadTree(true); FileManager.loadCurrentPath();" style="padding: 2px 6px; font-size: 11px" title="Tải lại cây thư mục">🔄</button>
+                                        <button type="button" class="fm-tree-reload-btn" onclick="FileManager.loadTree(true); FileManager.loadCurrentPath();" title="Tải lại cây thư mục">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                                                <path d="M3 3v5h5" />
+                                                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                                                <path d="M16 16h5v5" />
+                                            </svg>
+                                        </button>
                                     </div>
                                     <div id="fm-tree-container" style="flex: 1; overflow-y: auto; padding: 10px 8px; font-size: 13px">
                                         <div style="color: var(--text-muted, #888); text-align: center; padding: 20px 0; font-size: 12px">Đang tải cây thư mục...</div>
@@ -850,10 +900,12 @@
                                         </div>
                                         <div style="display: flex; align-items: center; gap: 8px">
                                             <button type="button" class="btn btn-sm" onclick="FileManager.deleteSelectedItems()" style="background: rgba(255, 118, 117, 0.15); border: 1px solid var(--border); color: #ff7675; font-weight: 600; padding: 5px 14px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer">
-                                                🗑️ Xóa các mục đã chọn
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                                <span>Xóa các mục đã chọn</span>
                                             </button>
-                                            <button type="button" class="btn btn-ghost btn-sm" onclick="FileManager.clearSelection()" style="padding: 5px 10px; font-size: 12px; cursor: pointer">
-                                                ✕ Bỏ chọn
+                                            <button type="button" class="btn btn-ghost btn-sm" onclick="FileManager.clearSelection()" style="padding: 5px 10px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                                <span>Bỏ chọn</span>
                                             </button>
                                         </div>
                                     </div>
@@ -957,18 +1009,18 @@
                             <div class="seed-layout">
                                 <!-- LEFT: sub-types -->
                                 <div class="seed-left">
-                                    <div class="seed-panel-header" style="display:flex;align-items:center;justify-content:space-between;">
-                                        <div style="display:flex;align-items:center;gap:6px;">
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <div class="seed-panel-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                                        <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;">
                                                 <path d="M4 6h16M4 12h16M4 18h7" />
                                             </svg>
-                                            Chọn sub-type cần tạo
+                                            <span>Chọn Type cần tạo</span>
                                         </div>
-                                        <button type="button" class="am-toolbar-btn" id="btn-seed-refresh-types" title="Làm mới danh sách Type từ cấu hình" style="padding:2px 8px;font-size:11px;">
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                                        <button type="button" class="am-toolbar-btn" id="btn-seed-refresh-types" title="Làm mới danh sách Type từ cấu hình" style="padding:4px 10px;font-size:11.5px;white-space:nowrap;flex-shrink:0;">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
                                             </svg>
-                                            Quét lại
+                                            <span>Quét</span>
                                         </button>
                                     </div>
                                     <div id="seed-sub-types" class="seed-sub-types">
@@ -1877,7 +1929,7 @@ Pass: password123..." style="height:200px"></textarea>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <script src="assets/js/tauri_bridge.js?v=2.0.6"></script>
     <script src="assets/js/api.js?v=2.0.3"></script>
-    <script src="assets/js/ui.js?v=2.0.3"></script>
+    <script src="assets/js/ui.js?v=2.0.5"></script>
     <script src="assets/js/app.js?v=2.0.3"></script>
     <script src="assets/js/converter.js?v=2.0.3"></script>
     <script src="assets/js/ai_checker.js?v=2.0.3"></script>
@@ -1903,7 +1955,7 @@ Pass: password123..." style="height:200px"></textarea>
     <script src="assets/js/image_trim_manager.js?v=2.0.3"></script>
     <script src="assets/js/auto_media_manager.js?v=2.0.3"></script>
     <script src="assets/js/seed_manager.js?v=2.0.3"></script>
-    <script src="assets/js/file_manager.js?v=2.0.3"></script>
+    <script src="assets/js/file_manager.js?v=2.0.5"></script>
     <script src="assets/js/cache_clearer.js?v=2.0.3"></script>
     <!-- Change Type Database Modal -->
     <div id="change-type-modal" class="modal-overlay">

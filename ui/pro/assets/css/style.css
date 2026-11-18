@@ -597,7 +597,7 @@ header {
     height: 65px;
     padding: 0 28px;
     background: var(--header-bg);
-    backdrop-filter: blur(20px);
+    backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
@@ -663,8 +663,7 @@ header {
 }
 
 .stat-card {
-    background: rgba(13, 17, 25, 0.6);
-    backdrop-filter: blur(12px);
+    background: rgba(13, 17, 25, 0.88);
     border: 1px solid rgba(255, 255, 255, 0.07);
     border-radius: 12px;
     padding: 12px 18px;
@@ -1136,7 +1135,6 @@ header {
 /* Card item */
 .item-card {
     background: var(--card-grad);
-    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 20px;
@@ -6799,8 +6797,7 @@ input:checked+.sb-slider:before {
     height: 7px;
     border-radius: 50%;
     background: currentColor;
-    box-shadow: 0 0 8px currentColor;
-    animation: pulseDot 2s infinite ease-in-out;
+    animation: pulseDot 3s infinite ease-in-out;
 }
 
 @keyframes pulseDot {
@@ -6808,12 +6805,10 @@ input:checked+.sb-slider:before {
     0%,
     100% {
         opacity: 1;
-        transform: scale(1);
     }
 
     50% {
-        opacity: 0.55;
-        transform: scale(0.8);
+        opacity: 0.45;
     }
 }
 
@@ -6998,7 +6993,7 @@ input:checked+.sb-slider:before {
     background: rgba(245, 158, 11, 0.12);
     border: 1px solid rgba(245, 158, 11, 0.35);
     color: #fbbf24;
-    animation: dlPulseAmber 2.5s infinite;
+    animation: dlPulseAmber 2.5s infinite ease-in-out;
 }
 
 /* 2.5. Cáº£nh bÃ¡o kháº©n cáº¥p (<= 10 phÃºt) - Chá»›p Ä‘á» */
@@ -7007,8 +7002,8 @@ input:checked+.sb-slider:before {
     border: 1px solid #f87171;
     color: #ffffff !important;
     font-weight: 700;
-    animation: dlFlashRed 0.75s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 0 14px rgba(239, 68, 68, 0.7);
+    animation: dlFlashRed 0.9s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.55);
 }
 
 .item-card:has(.dl-critical-10m) {
@@ -7021,7 +7016,7 @@ input:checked+.sb-slider:before {
     background: rgba(239, 68, 68, 0.15);
     border: 1px solid rgba(239, 68, 68, 0.4);
     color: #f87171;
-    animation: dlPulseRed 2s infinite;
+    animation: dlPulseRed 2.5s infinite ease-in-out;
 }
 
 /* 4. ÄÃ£ hoÃ n thÃ nh */
@@ -7045,18 +7040,13 @@ input:checked+.sb-slider:before {
 
 @keyframes dlFlashRed {
     0% {
-        background: rgba(239, 68, 68, 0.35);
-        border-color: rgba(239, 68, 68, 0.6);
-        box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
-        color: #fecaca;
+        opacity: 0.72;
+        transform: scale(1);
     }
 
     100% {
-        background: #dc2626;
-        border-color: #fca5a5;
-        box-shadow: 0 0 18px 5px rgba(239, 68, 68, 0.95);
-        color: #ffffff;
-        transform: scale(1.03);
+        opacity: 1;
+        transform: scale(1.02);
     }
 }
 
@@ -7064,11 +7054,11 @@ input:checked+.sb-slider:before {
 
     0%,
     100% {
-        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+        opacity: 1;
     }
 
     50% {
-        box-shadow: 0 0 8px 1px rgba(245, 158, 11, 0.35);
+        opacity: 0.65;
     }
 }
 
@@ -7076,11 +7066,11 @@ input:checked+.sb-slider:before {
 
     0%,
     100% {
-        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+        opacity: 1;
     }
 
     50% {
-        box-shadow: 0 0 10px 2px rgba(239, 68, 68, 0.4);
+        opacity: 0.65;
     }
 }
 
@@ -7750,4 +7740,25 @@ input:checked+.sb-slider:before {
     font-family: var(--mono, monospace);
     white-space: nowrap;
     flex-shrink: 0;
+}
+
+/* ===== WINDOW HIDDEN & LOW SPEC CPU/GPU OPTIMIZATIONS ===== */
+body.window-hidden *,
+body.window-hidden *::before,
+body.window-hidden *::after {
+    animation-play-state: paused !important;
+    transition: none !important;
+}
+
+body.low-spec-mode *,
+body.low-spec-mode *::before,
+body.low-spec-mode *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+body.low-spec-mode .system-php-header-dot,
+body.low-spec-mode .card-dl-badge.dl-urgent,
+body.low-spec-mode .card-dl-badge.dl-overdue {
+    animation: none !important;
 }

@@ -158,7 +158,9 @@ const UI = {
 
 			const stat = stats && stats[cat] ? stats[cat] : null;
 			const sizeStr =
-				stat && stat.size_formatted ? stat.size_formatted : "";
+				!App.lowSpecMode && stat && stat.size_formatted
+					? stat.size_formatted
+					: "";
 			if (sizeStr) {
 				displaySubtitle = `${displaySubtitle} • ${sizeStr}`;
 			}
@@ -373,7 +375,7 @@ const UI = {
                         </div>
                         <div class="item-card-main flex-1-minw0">
                             <div class="item-card-title">${p.name}</div>
-                            <div class="item-card-size" ${p.size_formatted ? "" : 'style="display:none;"'} title="Dung lượng dự án: ${p.size_formatted || ""}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg><span>${p.size_formatted || ""}</span></div>
+                            <div class="item-card-size" ${!App.lowSpecMode && p.size_formatted ? "" : 'style="display:none;"'} title="Dung lượng dự án: ${p.size_formatted || ""}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg><span>${!App.lowSpecMode ? p.size_formatted || "" : ""}</span></div>
                         </div>
                     </div>
                     ${deadlineRowHtml}
@@ -498,53 +500,77 @@ const UI = {
 		};
 	},
 
+	stopDeadlineTicker() {
+		if (this.deadlineTickerTimer) {
+			clearTimeout(this.deadlineTickerTimer);
+			clearInterval(this.deadlineTickerTimer);
+			this.deadlineTickerTimer = null;
+		}
+	},
+
 	startDeadlineTicker() {
-		if (this.deadlineTickerTimer) clearInterval(this.deadlineTickerTimer);
+		this.stopDeadlineTicker();
+		if ((typeof App !== "undefined" && App.windowHidden) || document.hidden) {
+			return;
+		}
 		const badges = document.querySelectorAll(
 			".card-dl-badge[data-deadline]",
 		);
 		if (!badges.length) return;
-		this.deadlineTickerTimer = setInterval(() => {
-			document
-				.querySelectorAll(".card-dl-badge[data-deadline]")
-				.forEach((badge) => {
-					const dl = badge.getAttribute("data-deadline");
-					const sd = badge.getAttribute("data-shortdate");
-					if (!dl) return;
-					const res = this.formatRemainingTime(dl, sd);
-					const expectedClass = `card-dl-badge ${res.className}`;
-					if (badge.className !== expectedClass) {
-						badge.className = expectedClass;
-					}
-					const iconEl = badge.querySelector(".dl-icon");
-					const textEl = badge.querySelector(".dl-text");
-					if (iconEl && iconEl.textContent !== res.icon)
-						iconEl.textContent = res.icon;
-					if (textEl && textEl.textContent !== res.text)
-						textEl.textContent = res.text;
 
-					// Tự động kích hoạt mở báo cáo khi còn <= 5 phút (<= 300s)
-					if (
-						res.diffMs !== undefined &&
-						res.diffMs > 0 &&
-						res.diffMs <= 5 * 60 * 1000
-					) {
-						const contractCode =
-							badge.getAttribute("data-contract-code");
-						const pName = badge.getAttribute("data-project-name");
-						const pCat = badge.getAttribute("data-project-cat");
-						const dUrl = badge.getAttribute("data-demo-url");
-						if (contractCode) {
-							this.checkAndTriggerAutoReport(
-								contractCode,
-								pName,
-								pCat,
-								dUrl,
-							);
-						}
-					}
-				});
-		}, 1000);
+		let hasCriticalSoon = false;
+		badges.forEach((badge) => {
+			const dl = badge.getAttribute("data-deadline");
+			const sd = badge.getAttribute("data-shortdate");
+			if (!dl) return;
+			const res = this.formatRemainingTime(dl, sd);
+			const expectedClass = `card-dl-badge ${res.className}`;
+			if (badge.className !== expectedClass) {
+				badge.className = expectedClass;
+			}
+			const iconEl = badge.querySelector(".dl-icon");
+			const textEl = badge.querySelector(".dl-text");
+			if (iconEl && iconEl.textContent !== res.icon)
+				iconEl.textContent = res.icon;
+			if (textEl && textEl.textContent !== res.text)
+				textEl.textContent = res.text;
+
+			if (
+				res.diffMs !== undefined &&
+				res.diffMs > 0 &&
+				res.diffMs <= 10 * 60 * 1000
+			) {
+				hasCriticalSoon = true;
+			}
+
+			// Tự động kích hoạt mở báo cáo khi còn <= 5 phút (<= 300s)
+			if (
+				res.diffMs !== undefined &&
+				res.diffMs > 0 &&
+				res.diffMs <= 5 * 60 * 1000
+			) {
+				const contractCode =
+					badge.getAttribute("data-contract-code");
+				const pName = badge.getAttribute("data-project-name");
+				const pCat = badge.getAttribute("data-project-cat");
+				const dUrl = badge.getAttribute("data-demo-url");
+				if (contractCode) {
+					this.checkAndTriggerAutoReport(
+						contractCode,
+						pName,
+						pCat,
+						dUrl,
+					);
+				}
+			}
+		});
+
+		const nextDelay = hasCriticalSoon
+			? 1000
+			: (typeof App !== "undefined" && App.lowSpecMode)
+				? 60000
+				: 30000;
+		this.deadlineTickerTimer = setTimeout(() => this.startDeadlineTicker(), nextDelay);
 	},
 
 	getProjectDemoInfo(projectName, category) {
@@ -1392,8 +1418,25 @@ const UI = {
 	_lastRenderedProject: null,
 
 	resetProjectSubTabs(name) {
-		if (this._lastRenderedProject === name) return;
+		this._prefetchKey = null;
+		if (typeof WebpManager !== "undefined") WebpManager._cache = {};
+		if (typeof ImageTrimManager !== "undefined") ImageTrimManager._cache = {};
+		if (typeof AutoMediaManager !== "undefined") AutoMediaManager._cache = {};
+		if (typeof SeedManager !== "undefined") {
+			SeedManager._typesCache = {};
+			SeedManager._folderCache = {};
+			SeedManager._renderedFolderKey = "";
+		}
+		if (typeof window.__rbwClearImageCache === "function") {
+			window.__rbwClearImageCache();
+		}
+
+		const sameProject = this._lastRenderedProject === name;
 		this._lastRenderedProject = name;
+		if (sameProject) {
+			this.prefetchProjectMedia(name);
+			return;
+		}
 
 		if (typeof SchemaBuilder !== "undefined") {
 			SchemaBuilder.currentProject = name;
@@ -1405,6 +1448,10 @@ const UI = {
 			if (sbPrev) sbPrev.textContent = "";
 		}
 		if (typeof FontManager !== "undefined") {
+			const fInput = document.getElementById("project-font-search-input");
+			if (fInput) fInput.value = "";
+			const fResults = document.getElementById("project-font-results");
+			if (fResults) fResults.innerHTML = "";
 			const fPrev = document.getElementById("fonts-css-preview");
 			if (fPrev) fPrev.innerText = "/* Đang tải... */";
 			const fList = document.getElementById("installed-fonts-list");
@@ -1719,9 +1766,9 @@ const UI = {
 							<span class="pd-stat-label">Thư mục</span>
 							<span class="pd-stat-value">${App.currentCategory || "—"}</span>
 						</div>
-						<div class="pd-stat-box">
+						<div class="pd-stat-box pd-stat-box-size" ${App.lowSpecMode ? 'style="display:none;"' : ""}>
 							<span class="pd-stat-label">Dung lượng</span>
-							<span class="pd-stat-value">${(config && config.size_formatted) || p.size_formatted || "—"}</span>
+							<span class="pd-stat-value">${!App.lowSpecMode ? ((config && config.size_formatted) || p.size_formatted || "—") : "—"}</span>
 						</div>
 						<div class="pd-stat-box">
 							<span class="pd-stat-label">PHP Version</span>
@@ -1815,47 +1862,68 @@ const UI = {
 			(project && (project.is_config_php || project.has_config_php))
 		);
 
+		const svgIcon = (paths, size = 15) =>
+			`<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;flex-shrink:0;">${paths}</svg>`;
+		const icCheckBadge = svgIcon('<polyline points="20 6 9 17 4 12"/>', 11);
+		const icWarnBadge = svgIcon('<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>', 11);
+		const icHome = svgIcon('<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>', 17);
+		const icLink = svgIcon('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>', 15);
+		const icLinkHero = svgIcon('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>', 17);
+		const icGlobeHero = svgIcon('<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>', 17);
+		const icGearHero = svgIcon('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>', 17);
+		const icGear = svgIcon('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>', 15);
+		const icCheck = svgIcon('<polyline points="20 6 9 17 4 12"/>', 15);
+		const icWrench = svgIcon('<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>', 15);
+		const icKey = svgIcon('<path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/>', 15);
+		const icCode = svgIcon('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>', 15);
+		const icRefresh = svgIcon('<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>', 15);
+		const icTrash = svgIcon('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>', 15);
+		const icUpload = svgIcon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>', 15);
+		const icDb = svgIcon('<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>', 15);
+		const icZap = svgIcon('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>', 15);
+		const icDownload = svgIcon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>', 15);
+		const icLock = svgIcon('<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>', 15);
+		const icUnlock = svgIcon('<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>', 15);
+		const icShield = svgIcon('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>', 15);
+		const icSliders = svgIcon('<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>', 15);
+		const icArrow = svgIcon('<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>', 15);
+
 		container.innerHTML = `
 			<div class="pd-env-card">
 				<div class="pd-env-header">
 					<div class="pd-env-title-row">
 						<span class="pd-env-title">MÔI TRƯỜNG LOCAL (DEV)</span>
-						<span class="pd-badge pd-badge-local">✔ Sẵn sàng</span>
+						<span class="pd-badge pd-badge-local">${icCheckBadge}<span>Sẵn sàng</span></span>
 					</div>
 				</div>
 
 				<div class="pd-hero-btn pd-hero-local" onclick="${localUrl ? `window.open('${localUrl}', '_blank')` : ""}">
-					<div class="pd-hero-icon">⌂</div>
+					<div class="pd-hero-icon">${icHome}</div>
 					<div class="pd-hero-text">
 						<div class="pd-hero-title">Mở Website (Local)</div>
 					</div>
-					<div class="pd-hero-arrow">→</div>
+					<div class="pd-hero-arrow">${icArrow}</div>
 				</div>
 
 				<div class="pd-actions-stack">
 					<button type="button" class="pd-action-btn ${isConfiguredLocal ? "is-disabled" : ""}" onclick="${isConfiguredLocal ? "UI.notify('Dự án này đã được cấu hình Source Local!', 'info')" : `App.setupLocalSource('${safeName}', '${safeCat}')`}">
-						<span class="pd-btn-icon">${isConfiguredLocal ? "✓" : "🔧"}</span>
+						<span class="pd-btn-icon">${isConfiguredLocal ? icCheck : icWrench}</span>
 						<span class="pd-btn-text">${isConfiguredLocal ? "Đã cấu hình Source" : "Cấu hình Source Local"}</span>
 					</button>
 					<button type="button" class="pd-action-btn" onclick="App.autoLoginAdmin('${safeName}', '${safeCat}', 'local')" title="Tự động đăng nhập thẳng vào trang quản trị Admin Local">
-						<span class="pd-btn-icon">🔑</span>
+						<span class="pd-btn-icon">${icKey}</span>
 						<span class="pd-btn-text">Đăng nhập Admin (Local)</span>
 					</button>
 					<button type="button" class="pd-action-btn" onclick="App.openAntigravity('${safeName}')">
-						<span class="pd-btn-icon">▶</span>
+						<span class="pd-btn-icon">${icCode}</span>
 						<span class="pd-btn-text">Mở bằng Antigravity</span>
 					</button>
 					<button type="button" class="pd-action-btn" onclick="UI.showChangeTypeModal('${safeName}', '${safeCat}')">
-						<span class="pd-btn-icon">🔄</span>
+						<span class="pd-btn-icon">${icRefresh}</span>
 						<span class="pd-btn-text">Đổi Type DB</span>
 					</button>
-					${!isConfigPhp ? `
-					<button type="button" class="pd-action-btn" onclick="App.integrateAMP('${safeName}','${safeCat}')">
-						<span class="pd-btn-icon">⚡</span>
-						<span class="pd-btn-text">Tích hợp AMP</span>
-					</button>` : ""}
 					<button type="button" class="pd-action-btn" onclick="App.clearProjectCache('${safeName}','${safeCat}')">
-						<span class="pd-btn-icon">🗑</span>
+						<span class="pd-btn-icon">${icTrash}</span>
 						<span class="pd-btn-text">Xóa cache trình duyệt</span>
 					</button>
 				</div>
@@ -1865,52 +1933,52 @@ const UI = {
 				<div class="pd-env-header">
 					<div class="pd-env-title-row">
 						<span class="pd-env-title">MÔI TRƯỜNG DEMO</span>
-						<span class="pd-badge ${hasDemo ? "pd-badge-demo" : "pd-badge-neutral"}">${hasDemo ? "✔ Đã deploy" : "Chưa deploy"}</span>
+						<span class="pd-badge ${hasDemo ? "pd-badge-demo" : "pd-badge-neutral"}">${hasDemo ? `${icCheckBadge}<span>Đã deploy</span>` : "<span>Chưa deploy</span>"}</span>
 					</div>
 				</div>
 
 				<div class="pd-hero-btn ${hasDemo ? "pd-hero-demo" : "pd-hero-disabled"}" onclick="${hasDemo && demoUrl ? `window.open('${getUrl(demoUrl, isDemoSsl)}', '_blank')` : ""}">
-					<div class="pd-hero-icon">🔗</div>
+					<div class="pd-hero-icon">${icLinkHero}</div>
 					<div class="pd-hero-text">
 						<div class="pd-hero-title">${hasDemo ? "Mở Website (Demo)" : "Chưa Deploy Demo"}</div>
 					</div>
-					<div class="pd-hero-arrow">→</div>
+					<div class="pd-hero-arrow">${icArrow}</div>
 				</div>
 
 				<div class="pd-actions-stack">
 					<button type="button" class="pd-action-btn ${hasDemo ? "" : "is-disabled"}" onclick="${hasDemo ? `App.autoLoginAdmin('${safeName}', '${safeCat}', 'demo')` : `UI.notify('Dự án chưa được Deploy Demo! Vui lòng Deploy Demo trước khi đăng nhập.', 'warning')`}" title="${hasDemo ? "Tự động đăng nhập thẳng vào trang quản trị Admin trên Hosting Demo" : "Chưa Deploy Demo — Cần Deploy Demo trước"}">
-						<span class="pd-btn-icon">🔑</span>
+						<span class="pd-btn-icon">${icKey}</span>
 						<span class="pd-btn-text">Đăng nhập Admin (Demo)</span>
 					</button>
 					<button type="button" class="pd-action-btn ${isLockedDemo ? "is-disabled" : ""}" onclick="${isLockedDemo ? "UI.notify('Dự án đang bị KHÓA!', 'error')" : `App.deployDemo('${safeName}','${safeCat}')`}">
-						<span class="pd-btn-icon">▶</span>
+						<span class="pd-btn-icon">${icUpload}</span>
 						<span class="pd-btn-text">Deploy Demo</span>
 					</button>
 					<button type="button" class="pd-action-btn ${isLockedDemo ? "is-disabled" : ""}" onclick="${isLockedDemo ? "UI.notify('Dự án đang bị KHÓA!', 'error')" : `App.deployDbDemo('${safeName}','${safeCat}')`}">
-						<span class="pd-btn-icon">▤</span>
+						<span class="pd-btn-icon">${icDb}</span>
 						<span class="pd-btn-text">Deploy DB Demo</span>
 					</button>
 					${hasDemo ? `
 					<button type="button" class="pd-action-btn" onclick="App.pushTools('${safeName}', '${safeCat}')">
-						<span class="pd-btn-icon">⚡</span>
+						<span class="pd-btn-icon">${icZap}</span>
 						<span class="pd-btn-text">Sync Tools</span>
 					</button>` : ""}
 					${hasDemo && !isConfigPhp ? `
 					<button type="button" class="pd-action-btn" onclick="App.downloadPackage('${safeName}','${safeCat}')">
-						<span class="pd-btn-icon">⭳</span>
+						<span class="pd-btn-icon">${icDownload}</span>
 						<span class="pd-btn-text">Download Package</span>
 					</button>` : ""}
 					${hasDemo ? `
 					<button type="button" class="pd-action-btn is-danger" onclick="App.cleanupTools('${safeName}','${safeCat}', 'demo')">
-						<span class="pd-btn-icon">✎</span>
+						<span class="pd-btn-icon">${icTrash}</span>
 						<span class="pd-btn-text">Dọn dẹp Demo</span>
 					</button>` : ""}
 					<button type="button" class="pd-action-btn" onclick="App.toggleActionLock('${safeName}','demo', '${safeCat}')">
-						<span class="pd-btn-icon">🔒</span>
+						<span class="pd-btn-icon">${isLockedDemo ? icUnlock : icLock}</span>
 						<span class="pd-btn-text">${isLockedDemo ? "Mở khóa Demo" : "Khóa Demo"}</span>
 					</button>
 					<button type="button" class="pd-action-btn" onclick="App.showSetDemoAccountModal('${safeName}', '${safeCat}')" title="Gán hoặc chỉnh sửa thông tin kết nối Demo đã có sẵn trên hosting">
-						<span class="pd-btn-icon">🔗</span>
+						<span class="pd-btn-icon">${icLink}</span>
 						<span class="pd-btn-text">${hasDemo ? "Sửa kết nối Demo" : "Set tài khoản Demo"}</span>
 						${!hasDemo ? `<span class="pd-pill-next">Tiếp theo</span>` : ""}
 					</button>
@@ -1921,49 +1989,49 @@ const UI = {
 				<div class="pd-env-header">
 					<div class="pd-env-title-row">
 						<span class="pd-env-title">MÔI TRƯỜNG PRODUCTION</span>
-						<span class="pd-badge ${isConfiguredProd ? "pd-badge-prod" : "pd-badge-warning"}">${isConfiguredProd ? "✔ Sẵn sàng" : "⚠ Thiếu cấu hình"}</span>
+						<span class="pd-badge ${isConfiguredProd ? "pd-badge-prod" : "pd-badge-warning"}">${isConfiguredProd ? `${icCheckBadge}<span>Sẵn sàng</span>` : `${icWarnBadge}<span>Thiếu cấu hình</span>`}</span>
 					</div>
 				</div>
 
 				${!isConfiguredProd ? `
 				<div class="pd-hero-btn pd-hero-config" onclick="UI.showModal('${prefix ? "detail-config-modal" : "config-modal"}')">
-					<div class="pd-hero-icon">⚙</div>
+					<div class="pd-hero-icon">${icGearHero}</div>
 					<div class="pd-hero-text">
 						<div class="pd-hero-title">Cấu hình Hosting</div>
 					</div>
-					<div class="pd-hero-arrow">→</div>
+					<div class="pd-hero-arrow">${icArrow}</div>
 				</div>
 				` : `
 				<div class="pd-hero-btn pd-hero-prod" onclick="${prodUrl ? `window.open('${getUrl(prodUrl, isProdSsl)}', '_blank')` : "UI.notify('Chưa cấu hình Domain Production!', 'warning')"}">
-					<div class="pd-hero-icon">🌐</div>
+					<div class="pd-hero-icon">${icGlobeHero}</div>
 					<div class="pd-hero-text">
 						<div class="pd-hero-title">Mở Website (Prod)</div>
 					</div>
-					<div class="pd-hero-arrow">→</div>
+					<div class="pd-hero-arrow">${icArrow}</div>
 				</div>
 				<div class="pd-actions-stack">
 					<button type="button" class="pd-action-btn ${hasProd ? "" : "is-disabled"}" onclick="${hasProd ? `App.autoLoginAdmin('${safeName}', '${safeCat}', 'prod')` : `UI.notify('Dự án chưa được Publish Production! Vui lòng Publish Production trước khi đăng nhập.', 'warning')`}" title="${hasProd ? "Tự động đăng nhập thẳng vào trang quản trị Admin trên Production" : "Chưa Publish Production — Cần Publish Production trước"}">
-						<span class="pd-btn-icon">🔑</span>
+						<span class="pd-btn-icon">${icKey}</span>
 						<span class="pd-btn-text">Đăng nhập Admin (Prod)</span>
 					</button>
 					<button type="button" class="pd-action-btn" onclick="UI.showModal('${prefix ? "detail-config-modal" : "config-modal"}')">
-						<span class="pd-btn-icon">⚙</span>
+						<span class="pd-btn-icon">${icGear}</span>
 						<span class="pd-btn-text">Cấu hình Hosting</span>
 					</button>
 					<button type="button" class="pd-action-btn" onclick="App.installSSL('${safeName}', '${safeCat}')">
-						<span class="pd-btn-icon">🔒</span>
+						<span class="pd-btn-icon">${icShield}</span>
 						<span class="pd-btn-text">Install SSL</span>
 					</button>
 					<button type="button" class="pd-action-btn" onclick="App.showChangePhpVersionModal('${safeName}', '${safeCat}')">
-						<span class="pd-btn-icon">🌐</span>
+						<span class="pd-btn-icon">${icSliders}</span>
 						<span class="pd-btn-text">Đổi PHP Version</span>
 					</button>
 					<button type="button" class="pd-action-btn is-danger" onclick="App.cleanupTools('${safeName}','${safeCat}', 'production')">
-						<span class="pd-btn-icon">✎</span>
+						<span class="pd-btn-icon">${icTrash}</span>
 						<span class="pd-btn-text">Dọn dẹp Production</span>
 					</button>
 					<button type="button" class="pd-action-btn is-danger" onclick="App.toggleActionLock('${safeName}','production', '${safeCat}')">
-						<span class="pd-btn-icon">🔒</span>
+						<span class="pd-btn-icon">${isLockedProd ? icUnlock : icLock}</span>
 						<span class="pd-btn-text">${isLockedProd ? "Mở khóa Production" : "Khóa Production"}</span>
 					</button>
 				</div>
@@ -2000,14 +2068,15 @@ const UI = {
 					<div class="pd-card-header-title">THÔNG TIN TRIỂN KHAI</div>
 					<div class="pd-empty-deploy-row">
 						<div class="pd-empty-deploy-left">
-							<div class="pd-empty-deploy-icon">🚀</div>
+							<div class="pd-empty-deploy-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
 							<div>
 								<div class="pd-empty-deploy-title">Chưa Triển Khai</div>
 								<div class="pd-empty-deploy-sub">Dự án này chưa được deploy lên môi trường Demo hoặc Production.</div>
 							</div>
 						</div>
-						<button type="button" class="pd-btn-set-demo" onclick="App.showSetDemoAccountModal(App.currentProjectName, App.currentCategory)">
-							<span>🔗</span> Set tài khoản Demo
+						<button type="button" class="pd-btn-set-demo" onclick="App.showSetDemoAccountModal(App.currentProjectName, App.currentCategory)" style="display:inline-flex;align-items:center;gap:6px;">
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+							<span>Set tài khoản Demo</span>
 						</button>
 					</div>
 				</div>
@@ -2024,8 +2093,8 @@ const UI = {
 							? `
 					<div class="deploy-box" style="margin:0; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:14px 16px;">
 						<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-							<div class="tag" style="margin:0; font-weight:800; color:#5FF0BE;">⚡ DEMO</div>
-							<a href="javascript:void(0)" onclick="App.showSetDemoAccountModal(App.currentProjectName, App.currentCategory)" style="font-size:11px; color:#60a5fa; text-decoration:none;" title="Chỉnh sửa thông tin kết nối Demo">✏️ Sửa</a>
+							<div class="tag" style="margin:0; font-weight:800; color:#10b981; display:inline-flex; align-items:center; gap:5px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg><span>DEMO</span></div>
+							<a href="javascript:void(0)" onclick="App.showSetDemoAccountModal(App.currentProjectName, App.currentCategory)" style="font-size:11px; color:#3b82f6; text-decoration:none; display:inline-flex; align-items:center; gap:4px; font-weight:600;" title="Chỉnh sửa thông tin kết nối Demo"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg><span>Sửa</span></a>
 						</div>
 						${deployed.demo.server_name ? `<div class="kv"><span class="k">Server</span><span class="v">${deployed.demo.server_name}</span></div>` : ""}
 						${deployed.demo.matched_folder ? `<div class="kv"><span class="k">Folder</span><span class="v" title="${deployed.demo.matched_folder}">${deployed.demo.matched_folder}</span></div>` : ""}
@@ -2050,7 +2119,7 @@ const UI = {
 						hasProd
 							? `
 					<div class="deploy-box prod-box" style="margin:0; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:14px 16px;">
-						<div class="tag" style="margin:0 0 8px 0; font-weight:800; color:#c084fc;">🚀 PRODUCTION</div>
+						<div class="tag" style="margin:0 0 8px 0; font-weight:800; color:#a855f7; display:inline-flex; align-items:center; gap:5px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/></svg><span>PRODUCTION</span></div>
 						<div class="kv"><span class="k">DB</span><span class="v">${deployed.production.db_name}</span></div>
 						<div class="kv"><span class="k">Email</span><span class="v">${deployed.production.email_user || "—"}</span></div>
 						<div class="kv">
@@ -2901,36 +2970,40 @@ const UI = {
 			pathEl.innerText = `${App.currentCategory || "Dự án"} / ${tabTitles[tabId]}`;
 		}
 
-		// Hook for specific tabs
-		if (tabId === "d_tab-schema") {
-			const projectName =
-				document.getElementById("d_current-project")?.value ||
-				document.getElementById("detail-project-name")?.innerText ||
-				"";
+		const projectName =
+			document.getElementById("d_current-project")?.value ||
+			document.getElementById("detail-project-name")?.innerText?.trim() ||
+			(typeof App !== "undefined" && App.currentProject ? App.currentProject : "") ||
+			"";
+
+		// Hook for specific tabs: luôn tải dữ liệu mới từ ổ đĩa/backend khi người dùng chuyển tab
+		if (tabId === "d_tab-config") {
+			if (!this._suppressConfigRefresh && typeof App !== "undefined" && App.refreshProjectDetailConfig) {
+				App.refreshProjectDetailConfig();
+			}
+		} else if (tabId === "d_tab-schema") {
 			if (typeof SchemaBuilder !== "undefined")
 				SchemaBuilder.init(projectName);
 		} else if (tabId === "d_tab-fonts") {
-			FontManager.loadCssPreview();
+			if (typeof FontManager !== "undefined") {
+				FontManager.loadCssPreview();
+				FontManager.search(true);
+			}
 		} else if (tabId === "d_tab-webp") {
-			WebpManager.loadImages();
+			if (typeof WebpManager !== "undefined") WebpManager.loadImages(true);
 		} else if (tabId === "d_tab-trim") {
-			ImageTrimManager.init();
+			if (typeof ImageTrimManager !== "undefined") ImageTrimManager.init(true);
 		} else if (tabId === "d_tab-auto-media") {
-			const projectName =
-				document.getElementById("d_current-project")?.value ||
-				document.getElementById("detail-project-name")?.innerText?.trim() ||
-				"";
-			AutoMediaManager.init(projectName);
+			if (typeof AutoMediaManager !== "undefined") AutoMediaManager.init(projectName, true);
 		} else if (tabId === "d_tab-seed") {
-			const projectName =
-				document.getElementById("d_current-project")?.value ||
-				document.getElementById("detail-project-name")?.innerText?.trim() ||
-				(typeof App !== "undefined" && App.currentProject ? App.currentProject : "") ||
-				"";
 			if (typeof SeedManager !== "undefined") {
 				SeedManager._typesCache = {};
-				SeedManager.init(projectName);
+				SeedManager._folderCache = {};
+				SeedManager._renderedFolderKey = "";
+				SeedManager.init(projectName, true);
 			}
+		} else if (tabId === "d_tab-filemanager") {
+			if (typeof FileManager !== "undefined") FileManager.init();
 		} else if (tabId === "d_tab-synccenter") {
 			if (typeof SyncCenter !== "undefined") SyncCenter.init();
 		} else if (tabId === "d_tab-backups") {

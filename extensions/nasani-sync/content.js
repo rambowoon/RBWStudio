@@ -397,7 +397,7 @@
             return;
         }
 
-        showToastMessage(`🚀 Đang chuyển sang RBWManager để triển khai: ${formattedName}...`, 'info');
+        showToastMessage(`🚀 Đang mở RBWStudio để triển khai: ${formattedName}...`, 'info');
 
         try {
             chrome.runtime.sendMessage({

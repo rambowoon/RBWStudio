@@ -168,6 +168,20 @@ const ImageTrimManager = {
 		}
 	},
 
+	_invalidateSiblingCaches() {
+		const cat = (typeof App !== 'undefined' && App.currentCategory) ? App.currentCategory : '';
+		const proj = document.getElementById('d_current-project')?.value || '';
+		if (proj) delete this._cache[`${proj}::${cat}`];
+		else this._cache = {};
+		if (typeof WebpManager !== 'undefined') WebpManager._cache = {};
+		if (typeof AutoMediaManager !== 'undefined') AutoMediaManager._cache = {};
+		if (typeof SeedManager !== 'undefined') {
+			SeedManager._folderCache = {};
+			SeedManager._renderedFolderKey = '';
+		}
+		if (typeof window.__rbwClearImageCache === 'function') window.__rbwClearImageCache();
+	},
+
 	async trimSelected() {
 		const projectName = document.getElementById('d_current-project')?.value || '';
 		const category = App.currentCategory || '';
@@ -204,9 +218,7 @@ const ImageTrimManager = {
 
 			if (result.status === 'success') {
 				UI.notify(result.message, 'success');
-				if (typeof WebpManager !== 'undefined') WebpManager._cache = {};
-				if (typeof AutoMediaManager !== 'undefined') AutoMediaManager._cache = {};
-				if (typeof SeedManager !== 'undefined') SeedManager._folderCache = {};
+				this._invalidateSiblingCaches();
 				const detailText = (result.details || []).slice(0, 8).map((item) =>
 					`${this.escapeHtml(item.file)}: ${item.oldWidth}x${item.oldHeight} -> ${item.newWidth}x${item.newHeight}`
 				).join('<br>');
@@ -254,6 +266,7 @@ const ImageTrimManager = {
 			const result = await res.json();
 			if (result.status === 'success') {
 				UI.notify(result.message, 'success');
+				this._invalidateSiblingCaches();
 				await this.loadImages(true);
 			} else {
 				UI.notify(result.message || 'Lỗi khi hoàn tác trim', 'error');
@@ -291,6 +304,7 @@ const ImageTrimManager = {
 			const result = await res.json();
 			if (result.status === 'success') {
 				UI.notify(result.message, 'success');
+				this._invalidateSiblingCaches();
 				await this.loadImages(true);
 			} else {
 				UI.notify(result.message || 'Lỗi khi hoàn tác trim', 'error');

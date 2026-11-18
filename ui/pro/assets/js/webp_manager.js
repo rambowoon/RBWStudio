@@ -71,7 +71,11 @@ const WebpManager = {
 		this._cache = {};
 		if (typeof ImageTrimManager !== 'undefined') ImageTrimManager._cache = {};
 		if (typeof AutoMediaManager !== 'undefined') AutoMediaManager._cache = {};
-		if (typeof SeedManager !== 'undefined') SeedManager._folderCache = {};
+		if (typeof SeedManager !== 'undefined') {
+			SeedManager._folderCache = {};
+			SeedManager._renderedFolderKey = '';
+		}
+		if (typeof window.__rbwClearImageCache === 'function') window.__rbwClearImageCache();
 	},
 
 	formatTimeLeft(seconds) {
@@ -101,6 +105,9 @@ const WebpManager = {
 
 		listContainer.innerHTML = '';
 		let anyBackup = false;
+		const hasFavicon = this.images.some((item) =>
+			(item.name || '').toLowerCase().includes('favicon')
+		);
 
 		this.images.forEach((img, idx) => {
 			const row = document.createElement('tr');
@@ -136,12 +143,15 @@ const WebpManager = {
 			let actionsHtml = '';
 			const safeName = img.name.replace(/'/g, "\\'");
 			if (isWebp) {
+				const buttons = [];
+				if (isExactLogo && !hasFavicon) {
+					buttons.push(`<button class="btn btn-sm btn-primary" onclick="WebpManager.convertSingle('${safeName}', this)" style="padding: 4px 10px; font-size: 0.7rem; border-radius: 4px;">🎯 Tạo Favicon</button>`);
+				}
 				if (img.hasBackup) {
-					actionsHtml = `
-						<div style="display:flex; justify-content:center;">
-							<button class="btn btn-sm" onclick="WebpManager.undoSingle('${safeName}', this)" style="padding: 4px 10px; font-size: 0.7rem; color: #f59e0b; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 4px;">↩️ Hoàn tác</button>
-						</div>
-					`;
+					buttons.push(`<button class="btn btn-sm" onclick="WebpManager.undoSingle('${safeName}', this)" style="padding: 4px 10px; font-size: 0.7rem; color: #f59e0b; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 4px;">↩️ Hoàn tác</button>`);
+				}
+				if (buttons.length > 0) {
+					actionsHtml = `<div style="display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">${buttons.join('')}</div>`;
 				} else {
 					actionsHtml = `
 						<div style="display:flex; justify-content:center; color: var(--muted); font-size: 0.7rem; font-style: italic;">

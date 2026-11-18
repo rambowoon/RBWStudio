@@ -776,6 +776,11 @@ fn enable_chrome_developer_mode() -> bool {
 pub fn install_or_open_chrome_extension(mode: &str) -> Result<serde_json::Value, String> {
     let base = config::get_base_dir();
     let ext_dir = base.join("extensions").join("nasani-sync");
+    let updated_files = if mode != "open_folder" {
+        config::sync_embedded_extension_assets().unwrap_or(0)
+    } else {
+        0
+    };
     if !ext_dir.join("manifest.json").is_file() {
         let src_dir = base.join("www").join("RBWManager").join("extensions").join("nasani-sync");
         if src_dir.is_dir() {
@@ -863,7 +868,8 @@ pub fn install_or_open_chrome_extension(mode: &str) -> Result<serde_json::Value,
         "status": "success",
         "path": ext_str,
         "chrome_found": chrome_exe.is_some(),
-        "dev_mode_enabled": dev_mode_enabled
+        "dev_mode_enabled": dev_mode_enabled,
+        "updated_files": updated_files
     }))
 }
 

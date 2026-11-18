@@ -931,31 +931,149 @@ fn restart_app(app: AppHandle) {
     });
 }
 
-#[tauri::command]
-fn window_close_or_hide(app: AppHandle) {
-    let settings = config::load_app_settings();
-    if let Some(win) = app.get_webview_window("main") {
-        if settings.minimize_to_tray {
-            let _ = win.hide();
-        } else {
-            let _ = win.hide();
-            std::thread::spawn(move || {
-                let _ = services::stop_web_service();
-                let _ = services::stop_php_service();
-                let _ = services::stop_mysql_service();
-                app.exit(0);
-            });
-        }
+fn hide_main_window_to_tray(app: &AppHandle) {
+    let _ = app.emit("window-visibility", serde_json::json!({ "visible": false }));
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
     }
 }
 
 #[tauri::command]
-fn show_main_window(app: AppHandle) {
+fn window_close_or_hide(app: AppHandle) {
+    let settings = config::load_app_settings();
+    if settings.minimize_to_tray {
+        hide_main_window_to_tray(&app);
+    } else {
+        hide_main_window_to_tray(&app);
+        std::thread::spawn(move || {
+            let _ = services::stop_web_service();
+            let _ = services::stop_php_service();
+            let _ = services::stop_mysql_service();
+            app.exit(0);
+        });
+    }
+}
+
+fn bring_main_window_to_front(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
+        let _ = w.set_always_on_top(true);
         let _ = w.set_focus();
+        let _ = w.set_always_on_top(false);
     }
+    let _ = app.emit("window-visibility", serde_json::json!({ "visible": true }));
+}
+
+#[tauri::command]
+fn show_main_window(app: AppHandle) {
+    bring_main_window_to_front(&app);
+}
+
+fn start_studio_bridge_server(app: AppHandle) {
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let listener = match TcpListener::bind("127.0.0.1:47821") {
+            Ok(l) => l,
+            Err(_) => return,
+        };
+
+        for stream in listener.incoming().flatten() {
+            let app_handle = app.clone();
+            std::thread::spawn(move || {
+                let mut stream = stream;
+                let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                let mut buf = [0u8; 8192];
+                let n = match stream.read(&mut buf) {
+                    Ok(n) if n > 0 => n,
+                    _ => return,
+                };
+                let req_str = String::from_utf8_lossy(&buf[..n]);
+                let first_line = req_str.lines().next().unwrap_or("");
+                let mut parts = first_line.split_whitespace();
+                let method = parts.next().unwrap_or("");
+                let target = parts.next().unwrap_or("/");
+
+                let send_http = |s: &mut std::net::TcpStream, status: &str, body: &str| {
+                    let resp = format!(
+                        "HTTP/1.1 {}\r\nContent-Type: application/json; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        status,
+                        body.len(),
+                        body
+                    );
+                    let _ = s.write_all(resp.as_bytes());
+                    let _ = s.flush();
+                };
+
+                if method.eq_ignore_ascii_case("OPTIONS") {
+                    send_http(&mut stream, "204 No Content", "");
+                    return;
+                }
+
+                let (path, query_str) = target.split_once('?').unwrap_or((target, ""));
+                if path == "/ping" {
+                    send_http(&mut stream, "200 OK", r#"{"status":"ok","app":"RBWStudio"}"#);
+                    return;
+                }
+
+                if path == "/deploy" {
+                    let mut project_name = String::new();
+                    for pair in query_str.split('&') {
+                        if let Some((k, v)) = pair.split_once('=') {
+                            if k == "projectName" {
+                                project_name = rbw_pro_backend::urlencoding_decode(v).trim().to_string();
+                                break;
+                            }
+                        }
+                    }
+                    if project_name.is_empty() {
+                        if let Some((_, body_part)) = req_str.split_once("\r\n\r\n") {
+                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(body_part.trim()) {
+                                if let Some(pn) = val.get("projectName").and_then(|v| v.as_str()) {
+                                    project_name = pn.trim().to_string();
+                                }
+                            }
+                        }
+                    }
+
+                    let ts = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let pending_path = rbw_pro_backend::get_manager_data_root()
+                        .join("data")
+                        .join("pending_studio_deploy.json");
+                    if !project_name.is_empty() {
+                        let payload = serde_json::json!({
+                            "projectName": project_name,
+                            "timestamp": ts
+                        });
+                        let _ = std::fs::write(&pending_path, payload.to_string());
+                    }
+
+                    bring_main_window_to_front(&app_handle);
+                    let _ = app_handle.emit(
+                        "studio-open-deploy",
+                        serde_json::json!({ "projectName": project_name }),
+                    );
+
+                    let resp_body = serde_json::json!({
+                        "status": "success",
+                        "app": "RBWStudio",
+                        "projectName": project_name
+                    })
+                    .to_string();
+                    send_http(&mut stream, "200 OK", &resp_body);
+                    return;
+                }
+
+                send_http(&mut stream, "404 Not Found", r#"{"status":"error","message":"Not found"}"#);
+            });
+        }
+    });
 }
 
 #[tauri::command]
@@ -1285,11 +1403,7 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     builder = builder
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.unminimize();
-                    let _ = w.set_focus();
-                }
+                bring_main_window_to_front(app);
             }
             "start_all" => {
                 std::thread::spawn(|| {
@@ -1431,11 +1545,7 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(tray_win) = app.get_webview_window("tray") {
                             let _ = tray_win.hide();
                         }
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.unminimize();
-                            let _ = w.set_focus();
-                        }
+                        bring_main_window_to_front(app);
                     }
                 }
                 _ => {}
@@ -1495,11 +1605,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.show();
-                let _ = win.unminimize();
-                let _ = win.set_focus();
-            }
+            bring_main_window_to_front(app);
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -1507,6 +1613,7 @@ fn main() {
         .setup(|app| {
             let _ = setup_tray(app.handle());
             color_picker::start_hotkey_listener(app.handle().clone());
+            start_studio_bridge_server(app.handle().clone());
 
             let args: Vec<String> = std::env::args().collect();
             let is_autostart = args.iter().any(|a| {
@@ -1537,7 +1644,7 @@ fn main() {
                         let _ = app.handle().set_activation_policy(tauri::ActivationPolicy::Regular);
                     }
                 } else {
-                    let _ = w.hide();
+                    hide_main_window_to_tray(app.handle());
                 }
             }
 
@@ -1549,22 +1656,32 @@ fn main() {
                     let _ = window.hide();
                 }
             } else if window.label() == "main" {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    let settings = config::load_app_settings();
-                    if settings.minimize_to_tray {
-                        api.prevent_close();
-                        let _ = window.hide();
-                    } else {
-                        api.prevent_close();
-                        let _ = window.hide();
-                        let app_handle = window.app_handle().clone();
-                        std::thread::spawn(move || {
-                            let _ = services::stop_web_service();
-                            let _ = services::stop_php_service();
-                            let _ = services::stop_mysql_service();
-                            app_handle.exit(0);
-                        });
+                match event {
+                    WindowEvent::CloseRequested { api, .. } => {
+                        let settings = config::load_app_settings();
+                        if settings.minimize_to_tray {
+                            api.prevent_close();
+                            hide_main_window_to_tray(window.app_handle());
+                        } else {
+                            api.prevent_close();
+                            hide_main_window_to_tray(window.app_handle());
+                            let app_handle = window.app_handle().clone();
+                            std::thread::spawn(move || {
+                                let _ = services::stop_web_service();
+                                let _ = services::stop_php_service();
+                                let _ = services::stop_mysql_service();
+                                app_handle.exit(0);
+                            });
+                        }
                     }
+                    WindowEvent::Resized(_) => {
+                        let is_vis = window.is_visible().unwrap_or(false)
+                            && !window.is_minimized().unwrap_or(false);
+                        let _ = window
+                            .app_handle()
+                            .emit("window-visibility", serde_json::json!({ "visible": is_vis }));
+                    }
+                    _ => {}
                 }
             }
         })

@@ -99,7 +99,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindRealtimeListeners();
 
   await loadInitialAppState();
-  setInterval(pollServiceAndMailStatus, 4000);
+  setInterval(() => pollServiceAndMailStatus(false), 4000);
 });
 
 function showToast(msg, type = "info") {
@@ -203,8 +203,12 @@ function bindNavigation() {
         tauriInvoke("resize_main_window", { proMode: isProTab }).catch(() => {});
       }
 
+      if (tabKey === "services" && appState.settings?.lowSpecMode) pollServiceAndMailStatus(true);
       if (tabKey === "sites") refreshSitesList();
-      if (tabKey === "mail") refreshEmailsList();
+      if (tabKey === "mail") {
+        if (appState.settings?.lowSpecMode) pollServiceAndMailStatus(true);
+        refreshEmailsList();
+      }
       if (tabKey === "store") refreshStoreItems();
       if (tabKey === "pro") refreshProSuite();
       if (tabKey === "about") checkUpdateInfo();
@@ -263,8 +267,8 @@ async function loadInitialAppState() {
 }
 
 let isPolling = false;
-async function pollServiceAndMailStatus() {
-  if (isPolling || document.hidden) return;
+async function pollServiceAndMailStatus(force = false) {
+  if (isPolling || document.hidden || appState.windowHidden || (!force && appState.settings?.lowSpecMode)) return;
   isPolling = true;
   try {
     const status = await tauriInvoke("get_service_status");
@@ -549,6 +553,8 @@ function populateGeneralSettingsForm() {
   document.getElementById("cfgMinimizeToTray").checked = s.minimizeToTray !== false;
   document.getElementById("cfgAutoOptimizePhp").checked = s.autoOptimizePhp !== false;
   document.getElementById("cfgAdminVhostMode").checked = !!s.adminVhostMode;
+  const chkLowSpec = document.getElementById("cfgLowSpecMode");
+  if (chkLowSpec) chkLowSpec.checked = !!s.lowSpecMode;
 
   refreshColorPickerStatusUI();
   loadProSettingsToForm();
@@ -1105,6 +1111,7 @@ function bindGeneralEvents() {
       minimizeToTray: document.getElementById("cfgMinimizeToTray").checked,
       autoOptimizePhp: document.getElementById("cfgAutoOptimizePhp").checked,
       adminVhostMode: document.getElementById("cfgAdminVhostMode").checked,
+      lowSpecMode: !!document.getElementById("cfgLowSpecMode")?.checked,
       activePhpVersion: document.getElementById("selPhpVersion")?.value || appState.settings.activePhpVersion || "",
       activeApacheVersion: appState.settings.activeApacheVersion || "",
       activeNginxVersion: appState.settings.activeNginxVersion || "",
@@ -1187,6 +1194,7 @@ function bindGeneralEvents() {
       if (frame && frame.contentWindow) {
         try {
           frame.contentWindow.postMessage({ type: "rbw-settings-updated" }, "*");
+          frame.contentWindow.postMessage({ type: "RBW_SET_LOW_SPEC_MODE", enabled: !!newSettings.lowSpecMode }, "*");
         } catch (_) {}
       }
 
@@ -2397,15 +2405,70 @@ async function refreshProSuite() {
 
 function initProSuiteEvents() {
   const frame = document.getElementById("rbwProFrame");
+  window.__pendingStudioDeployName = null;
+
+  const setAppWindowVisibility = (visible) => {
+    const isHidden = !visible || document.hidden;
+    appState.windowHidden = isHidden;
+    document.body.classList.toggle("window-hidden", isHidden);
+    const targetFrame = document.getElementById("rbwProFrame");
+    if (targetFrame) {
+      targetFrame.style.display = isHidden ? "none" : "";
+      try {
+        targetFrame.contentWindow?.postMessage({ type: "RBW_WINDOW_VISIBILITY", visible: !isHidden }, "*");
+      } catch (_) {}
+    }
+    if (!isHidden && !appState.settings?.lowSpecMode) {
+      pollServiceAndMailStatus();
+    }
+  };
+
+  const deliverPendingDeployToFrame = (targetFrame, pName) => {
+    setAppWindowVisibility(true);
+    document.querySelector('.nav-item[data-tab="pro"]')?.click();
+    if (targetFrame && targetFrame.contentWindow) {
+      try {
+        targetFrame.contentWindow.postMessage({ type: "RBW_TRIGGER_DEPLOY_MODAL", projectName: pName }, "*");
+        return true;
+      } catch (_) {}
+    }
+    return false;
+  };
+
   if (frame) {
     frame.addEventListener("load", () => {
       const currentMode = document.documentElement.getAttribute("data-theme") || "dark";
       try {
         frame.contentDocument?.documentElement?.setAttribute("data-mode", currentMode);
         frame.contentWindow?.postMessage({ type: "rbw-theme-sync", mode: currentMode }, "*");
+        frame.contentWindow?.postMessage({ type: "RBW_WINDOW_VISIBILITY", visible: !appState.windowHidden && !document.hidden }, "*");
+        if (window.__pendingStudioDeployName !== null) {
+          const pendingName = window.__pendingStudioDeployName;
+          window.__pendingStudioDeployName = null;
+          deliverPendingDeployToFrame(frame, pendingName);
+        }
       } catch (_) {}
     });
   }
+
+  tauriListen("window-visibility", (event) => {
+    setAppWindowVisibility(!!(event && event.payload && event.payload.visible));
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    setAppWindowVisibility(!document.hidden);
+  });
+
+  tauriListen("studio-open-deploy", (event) => {
+    const pName = (event && event.payload && event.payload.projectName)
+      ? String(event.payload.projectName)
+      : "";
+    const targetFrame = document.getElementById("rbwProFrame");
+    if (!deliverPendingDeployToFrame(targetFrame, pName)) {
+      window.__pendingStudioDeployName = pName;
+    }
+  });
+
   window.addEventListener("message", (event) => {
     if (event.data && event.data.type === "rbw-open-url" && event.data.url) {
       tauriInvoke("open_browser", { url: event.data.url });

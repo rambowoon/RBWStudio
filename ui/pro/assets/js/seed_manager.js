@@ -12,25 +12,33 @@ const SeedManager = {
 	_folderCache: {},
 	_renderedFolderKey: '',
 
-	async init(projectName) {
+	async init(projectName, force = false) {
 		const proj = projectName || (typeof App !== 'undefined' ? App.currentProject : '') || document.getElementById('d_current-project')?.value || document.getElementById('detail-project-name')?.innerText?.trim() || '';
 		if (!proj) return;
-		if (this.currentProject !== proj) {
-			this.selectedImages = {};
-			this.subTypes = {};
-			this.allImages = [];
-			this.designImage = null;
+		if (this.currentProject !== proj || force) {
+			if (this.currentProject !== proj) {
+				this.selectedImages = {};
+				this.subTypes = {};
+				this.allImages = [];
+				this.designImage = null;
+			}
 			this._renderedFolderKey = '';
+			if (force) {
+				this._typesCache = {};
+				this._folderCache = {};
+			}
 		}
 		this.currentProject = proj;
 		this.bindEvents();
-		await this.loadTypes(this.currentMainKey);
+		await this.loadTypes(this.currentMainKey, force);
 	},
 
 	bindEvents() {
 		// Nút làm mới / quét lại Types
 		document.getElementById('btn-seed-refresh-types')?.addEventListener('click', async () => {
 			this._typesCache = {};
+			this._folderCache = {};
+			this._renderedFolderKey = '';
 			await this.loadTypes(this.currentMainKey, true);
 			if (typeof UI !== 'undefined' && UI.notify) UI.notify('Đã làm mới danh sách Type!', 'success');
 		});
@@ -42,13 +50,14 @@ const SeedManager = {
 		wrap.addEventListener('click', async (e) => {
 			const btn = e.target.closest('[data-main-key]');
 			if (!btn) return;
-			await this.loadTypes(btn.dataset.mainKey);
+			await this.loadTypes(btn.dataset.mainKey, true);
 		});
 
 		// Folder selector
 		document.getElementById('seed-folder-select')?.addEventListener('change', async (e) => {
 			this.currentFolder = e.target.value;
-			await this.scanFolder();
+			this.currentSubdir = '';
+			await this.scanFolder('', true);
 		});
 
 		// Seed run button
@@ -191,7 +200,7 @@ const SeedManager = {
 			});
 
 		// Render grid ảnh ngay lập tức khi scan xong, không bị block bởi mysql load_types
-		const scanPromise = this.scanFolder(this.currentSubdir || '', false);
+		const scanPromise = this.scanFolder(this.currentSubdir || '', force);
 		await Promise.all([typesPromise, scanPromise]);
 	},
 

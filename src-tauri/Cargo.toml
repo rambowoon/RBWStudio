@@ -25,6 +25,7 @@ chrono = "0.4"
 rcgen = "0.13"
 dirs = "5.0"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+webp = { version = "0.3", default-features = false }
 md5 = "0.7"
 rand = "0.8"
 rusqlite = { version = "0.31", features = ["bundled"] }

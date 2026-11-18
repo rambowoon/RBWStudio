@@ -12,6 +12,8 @@ pub struct AppSettings {
     pub minimize_to_tray: bool,
     pub auto_optimize_php: bool,
     pub admin_vhost_mode: bool,
+    #[serde(default)]
+    pub low_spec_mode: bool,
     pub web_port: u16,
     pub vhost_suffix: String,
     pub mysql_port: u16,
@@ -32,6 +34,7 @@ impl Default for AppSettings {
             minimize_to_tray: true,
             auto_optimize_php: true,
             admin_vhost_mode: false,
+            low_spec_mode: false,
             web_port: 80,
             vhost_suffix: ".local".to_string(),
             mysql_port: 3306,
@@ -223,6 +226,45 @@ pub fn ensure_directories() {
             let _ = fs::write(&dest, bytes);
         }
     }
+}
+
+pub fn sync_embedded_extension_assets() -> Result<usize, String> {
+    let base = get_base_dir();
+    let legacy_ext_dir = base.join("www").join("RBWManager").join("extensions").join("nasani-sync");
+    let has_legacy_dir = legacy_ext_dir.is_dir();
+    let mut updated = 0usize;
+
+    for (rel_path, bytes) in EMBEDDED_ASSETS {
+        if !rel_path.starts_with("extensions/nasani-sync/") {
+            continue;
+        }
+        let dest = base.join(rel_path);
+        let needs_write = match fs::read(&dest) {
+            Ok(existing) => existing.as_slice() != *bytes,
+            Err(_) => true,
+        };
+        if needs_write {
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::write(&dest, bytes).map_err(|e| e.to_string())?;
+            updated += 1;
+        }
+        if has_legacy_dir {
+            if let Some(fname) = rel_path.strip_prefix("extensions/nasani-sync/") {
+                let legacy_dest = legacy_ext_dir.join(fname);
+                let legacy_needs = match fs::read(&legacy_dest) {
+                    Ok(existing) => existing.as_slice() != *bytes,
+                    Err(_) => true,
+                };
+                if legacy_needs {
+                    let _ = fs::write(&legacy_dest, bytes);
+                }
+            }
+        }
+    }
+
+    Ok(updated)
 }
 
 pub fn load_app_settings() -> AppSettings {

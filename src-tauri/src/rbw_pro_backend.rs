@@ -151,7 +151,7 @@ fn parse_body_as_json(req: &ProDispatchRequest) -> Value {
     }
 }
 
-fn urlencoding_decode(s: &str) -> String {
+pub fn urlencoding_decode(s: &str) -> String {
     let plus_replaced = s.replace('+', " ");
     let mut bytes = Vec::with_capacity(plus_replaced.len());
     let mut chars = plus_replaced.as_bytes().iter().copied();
@@ -1056,23 +1056,125 @@ pub fn get_image_dimensions_fast(path: &Path) -> (u32, u32) {
     (0, 0)
 }
 
-pub fn save_dynamic_image_as_webp(img: &DynamicImage, out_path: &Path) -> Result<(), String> {
+pub fn save_dynamic_image_as_webp_with_options(
+    img: &DynamicImage,
+    out_path: &Path,
+    quality: u8,
+    deep: bool,
+) -> Result<(), String> {
     if let Some(parent) = out_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    img.save_with_format(out_path, ImageFormat::WebP)
-        .map_err(|e| format!("Lỗi lưu WebP: {}", e))
+
+    let work_img = if deep && quality <= 100 {
+        img.blur(0.45)
+    } else {
+        img.clone()
+    };
+
+    let rgba = work_img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    if w == 0 || h == 0 {
+        return Err("Ảnh có kích thước không hợp lệ".to_string());
+    }
+    let has_alpha = rgba.pixels().any(|p| p[3] < 255);
+
+    let encoded = if quality > 100 {
+        if has_alpha {
+            webp::Encoder::from_rgba(rgba.as_raw(), w, h).encode_lossless()
+        } else {
+            let rgb = work_img.to_rgb8();
+            webp::Encoder::from_rgb(rgb.as_raw(), w, h).encode_lossless()
+        }
+    } else {
+        let q = if deep { quality.min(80) } else { quality };
+        let q_f32 = q.clamp(1, 100) as f32;
+        if has_alpha {
+            webp::Encoder::from_rgba(rgba.as_raw(), w, h).encode(q_f32)
+        } else {
+            let rgb = work_img.to_rgb8();
+            webp::Encoder::from_rgb(rgb.as_raw(), w, h).encode(q_f32)
+        }
+    };
+
+    fs::write(out_path, &*encoded).map_err(|e| format!("Lỗi lưu WebP: {}", e))
+}
+
+pub fn save_dynamic_image_as_webp(img: &DynamicImage, out_path: &Path) -> Result<(), String> {
+    save_dynamic_image_as_webp_with_options(img, out_path, 90, false)
 }
 
 pub fn save_dynamic_image_by_ext(img: &DynamicImage, out_path: &Path, ext: &str) -> Result<(), String> {
-    let fmt = match ext.to_lowercase().as_str() {
+    let ext_lower = ext.to_lowercase();
+    let fmt = match ext_lower.as_str() {
         "png" => ImageFormat::Png,
         "jpg" | "jpeg" => ImageFormat::Jpeg,
         "gif" => ImageFormat::Gif,
-        _ => ImageFormat::WebP,
+        _ => return save_dynamic_image_as_webp_with_options(img, out_path, 95, false),
     };
     img.save_with_format(out_path, fmt)
         .map_err(|e| format!("Lỗi lưu ảnh: {}", e))
+}
+
+fn has_existing_favicon(images_dir: &Path) -> bool {
+    if let Ok(entries) = fs::read_dir(images_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if !p.is_file() {
+                continue;
+            }
+            let fname_lower = entry.file_name().to_string_lossy().to_lowercase();
+            let stem_lower = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if stem_lower == "favicon" || fname_lower.contains("favicon") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn generate_square_favicon_from_logo(img: &DynamicImage, images_dir: &Path) -> Result<(), String> {
+    let (src_w, src_h) = img.dimensions();
+    if src_w == 0 || src_h == 0 {
+        return Err("Ảnh logo có kích thước không hợp lệ".to_string());
+    }
+    let target_size = src_w.max(src_h).clamp(1, 180);
+    let (dst_w, dst_h) = if src_w > src_h {
+        let h = ((target_size as f64) * (src_h as f64) / (src_w as f64))
+            .round()
+            .max(1.0) as u32;
+        (target_size, h.min(target_size))
+    } else {
+        let w = ((target_size as f64) * (src_w as f64) / (src_h as f64))
+            .round()
+            .max(1.0) as u32;
+        (w.min(target_size), target_size)
+    };
+
+    let dst_x = ((target_size.saturating_sub(dst_w)) / 2) as i64;
+    let dst_y = ((target_size.saturating_sub(dst_h)) / 2) as i64;
+
+    let resized = image::imageops::resize(
+        img,
+        dst_w,
+        dst_h,
+        image::imageops::FilterType::Lanczos3,
+    );
+    let mut canvas = image::RgbaImage::from_pixel(
+        target_size,
+        target_size,
+        image::Rgba([0, 0, 0, 0]),
+    );
+    image::imageops::overlay(&mut canvas, &resized, dst_x, dst_y);
+
+    let favicon_path = images_dir.join("favicon.png");
+    DynamicImage::ImageRgba8(canvas)
+        .save_with_format(&favicon_path, ImageFormat::Png)
+        .map_err(|e| format!("Lỗi lưu favicon.png: {}", e))
 }
 
 pub fn trim_dynamic_image(img: &DynamicImage, tolerance: i32) -> (DynamicImage, u32, u32, u32, u32, bool) {
@@ -1221,6 +1323,7 @@ pub fn handle_list_project_images(project_name: &str, category: &str) -> Value {
                 "size": size,
                 "width": w,
                 "height": h,
+                "mtime": file_mtime_secs(&p),
                 "hasBackup": has_backup,
                 "timeLeft": time_left
             }));
@@ -1229,7 +1332,13 @@ pub fn handle_list_project_images(project_name: &str, category: &str) -> Value {
     json!({ "status": "success", "data": list })
 }
 
-pub fn handle_convert_single_image(project_name: &str, category: &str, file_name: &str) -> Value {
+pub fn handle_convert_single_image(
+    project_name: &str,
+    category: &str,
+    file_name: &str,
+    quality: u8,
+    deep: bool,
+) -> Value {
     let proj = match find_project(project_name, Some(category)) {
         Some(p) => p,
         None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
@@ -1249,7 +1358,12 @@ pub fn handle_convert_single_image(project_name: &str, category: &str, file_name
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_lowercase();
-    if ext == "webp" {
+    let stem_lower = stem.to_lowercase();
+    let is_logo = stem_lower == "logo";
+    let is_favicon = stem_lower == "favicon" || file_name.to_lowercase().contains("favicon");
+    let has_favicon = has_existing_favicon(&images_dir);
+
+    if ext == "webp" && (!is_logo || has_favicon) {
         return json!({ "status": "error", "message": "Ảnh đã là định dạng WebP" });
     }
 
@@ -1258,30 +1372,49 @@ pub fn handle_convert_single_image(project_name: &str, category: &str, file_name
         Err(e) => return json!({ "status": "error", "message": format!("Không thể đọc ảnh: {}", e) }),
     };
 
-    let backup_dir = get_webp_backup_dir(&proj);
-    let backup_path = backup_dir.join(file_name);
-    if let Ok(bytes) = fs::read(&src_path) {
-        let _ = fs::write(&backup_path, bytes);
+    let created_favicon = if is_logo && !has_favicon {
+        generate_square_favicon_from_logo(&img, &images_dir).is_ok()
+    } else {
+        false
+    };
+
+    if ext != "webp" {
+        let backup_dir = get_webp_backup_dir(&proj);
+        let backup_path = backup_dir.join(file_name);
+        if let Ok(bytes) = fs::read(&src_path) {
+            let _ = fs::write(&backup_path, bytes);
+        }
+
+        let out_path = images_dir.join(format!("{}.webp", stem));
+        if let Err(e) = save_dynamic_image_as_webp_with_options(&img, &out_path, quality, deep) {
+            return json!({ "status": "error", "message": e });
+        }
+
+        if !is_logo && !is_favicon {
+            let _ = fs::remove_file(&src_path);
+        }
     }
 
-    let out_path = images_dir.join(format!("{}.webp", stem));
-    if let Err(e) = save_dynamic_image_as_webp(&img, &out_path) {
-        return json!({ "status": "error", "message": e });
-    }
-
-    // Keep original if exact "logo" or "favicon"
-    let stem_lower = stem.to_lowercase();
-    if stem_lower != "logo" && !stem_lower.contains("favicon") {
-        let _ = fs::remove_file(&src_path);
-    }
+    let message = if ext == "webp" && created_favicon {
+        format!("Đã tạo favicon.png vuông từ {}!", file_name)
+    } else if created_favicon {
+        format!("Đã chuyển đổi {} sang WebP và tạo favicon.png vuông!", file_name)
+    } else {
+        format!("Đã chuyển đổi {} sang WebP!", file_name)
+    };
 
     json!({
         "status": "success",
-        "message": format!("Đã chuyển đổi {} sang WebP!", file_name)
+        "message": message
     })
 }
 
-pub fn handle_convert_project_images(project_name: &str, category: &str) -> Value {
+pub fn handle_convert_project_images(
+    project_name: &str,
+    category: &str,
+    quality: u8,
+    deep: bool,
+) -> Value {
     let proj = match find_project(project_name, Some(category)) {
         Some(p) => p,
         None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
@@ -1291,25 +1424,39 @@ pub fn handle_convert_project_images(project_name: &str, category: &str) -> Valu
         return json!({ "status": "error", "message": "Thư mục assets/images/images không tồn tại" });
     }
     let backup_dir = get_webp_backup_dir(&proj);
+    let mut has_favicon = has_existing_favicon(&images_dir);
     let mut converted = 0;
+    let mut created_favicon = false;
     let mut errors = Vec::new();
 
     if let Ok(entries) = fs::read_dir(&images_dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if !p.is_file() {
-                continue;
-            }
-            let fname = entry.file_name().to_string_lossy().to_string();
+        let mut paths: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .collect();
+        // Process non-webp logos before webp logos so source logo is preferred for favicon generation
+        paths.sort_by_key(|p| {
             let ext = p
                 .extension()
                 .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .to_lowercase();
-            if !matches!(ext.as_str(), "jpg" | "jpeg" | "png") {
-                continue;
-            }
-            if fname.to_lowercase().contains("favicon") {
+            if ext == "webp" { 1 } else { 0 }
+        });
+
+        for p in paths {
+            let fname = p
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let ext = p
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if !matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp") {
                 continue;
             }
             let stem = p
@@ -1317,19 +1464,42 @@ pub fn handle_convert_project_images(project_name: &str, category: &str) -> Valu
                 .and_then(|s| s.to_str())
                 .unwrap_or("img")
                 .to_string();
+            let stem_lower = stem.to_lowercase();
+            let is_logo = stem_lower == "logo";
+            if stem_lower == "favicon" || fname.to_lowercase().contains("favicon") {
+                continue;
+            }
+            if ext == "webp" && (!is_logo || has_favicon) {
+                continue;
+            }
+
             match image::open(&p) {
                 Ok(img) => {
-                    if let Ok(bytes) = fs::read(&p) {
-                        let _ = fs::write(backup_dir.join(&fname), bytes);
-                    }
-                    let out = images_dir.join(format!("{}.webp", stem));
-                    if save_dynamic_image_as_webp(&img, &out).is_ok() {
-                        converted += 1;
-                        if stem.to_lowercase() != "logo" {
-                            let _ = fs::remove_file(&p);
+                    if is_logo && !has_favicon {
+                        if let Err(e) = generate_square_favicon_from_logo(&img, &images_dir) {
+                            errors.push(e);
+                        } else {
+                            has_favicon = true;
+                            created_favicon = true;
                         }
-                    } else {
-                        errors.push(format!("Lỗi lưu WebP cho {}", fname));
+                    }
+
+                    if ext != "webp" {
+                        if let Ok(bytes) = fs::read(&p) {
+                            let _ = fs::write(backup_dir.join(&fname), bytes);
+                        }
+                        let out = images_dir.join(format!("{}.webp", stem));
+                        if save_dynamic_image_as_webp_with_options(&img, &out, quality, deep).is_ok()
+                        {
+                            converted += 1;
+                            if !is_logo {
+                                let _ = fs::remove_file(&p);
+                            }
+                        } else {
+                            errors.push(format!("Lỗi lưu WebP cho {}", fname));
+                        }
+                    } else if is_logo && created_favicon {
+                        converted += 1;
                     }
                 }
                 Err(e) => errors.push(format!("{}: {}", fname, e)),
@@ -1337,9 +1507,20 @@ pub fn handle_convert_project_images(project_name: &str, category: &str) -> Valu
         }
     }
 
+    let message = if created_favicon && converted > 0 {
+        format!(
+            "Đã chuyển đổi thành công {} hình ảnh sang WebP và tạo favicon.png vuông!",
+            converted
+        )
+    } else if created_favicon {
+        "Đã tạo favicon.png vuông từ logo!".to_string()
+    } else {
+        format!("Đã chuyển đổi thành công {} hình ảnh sang WebP!", converted)
+    };
+
     json!({
         "status": "success",
-        "message": format!("Đã chuyển đổi thành công {} hình ảnh sang WebP!", converted),
+        "message": message,
         "errors": errors
     })
 }
@@ -3471,9 +3652,11 @@ pub fn handle_scan_images_endpoint(project_name: &str, category: &str, main_key:
 
         for (idx, match_source) in matched_indices {
             let sub_key = &subtypes[idx].sub_type;
+            let mtime = file_mtime_secs(Path::new(&sf.abs_path));
             let preview_url = format!(
-                "seed_images.php?action=serve_image&path={}",
-                urlencoding_encode(&sf.abs_path)
+                "seed_images.php?action=serve_image&path={}&v={}",
+                urlencoding_encode(&sf.abs_path),
+                mtime
             );
             let item = json!({
                 "file": sf.fname,
@@ -3498,9 +3681,11 @@ pub fn handle_scan_images_endpoint(project_name: &str, category: &str, main_key:
             let stem = Path::new(&sf.fname).file_stem().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
             if matches!(ext.as_str(), "png" | "ico") && stem == "logo" {
                 if !fav_arr.iter().any(|v| v.get("file").and_then(|f| f.as_str()) == Some(&sf.fname)) {
+                    let mtime = file_mtime_secs(Path::new(&sf.abs_path));
                     let preview_url = format!(
-                        "seed_images.php?action=serve_image&path={}",
-                        urlencoding_encode(&sf.abs_path)
+                        "seed_images.php?action=serve_image&path={}&v={}",
+                        urlencoding_encode(&sf.abs_path),
+                        mtime
                     );
                     fav_arr.push(json!({
                         "file": sf.fname,
@@ -4994,9 +5179,11 @@ pub fn handle_seed_images_endpoint(query: &HashMap<String, String>, body_obj: &M
                             let (w, h) = get_image_dimensions_fast(&p);
                             let size = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
                             let abs_path = p.to_string_lossy().to_string();
+                            let mtime = file_mtime_secs(&p);
                             let preview_url = format!(
-                                "seed_images.php?action=serve_image&path={}",
-                                urlencoding_encode(&abs_path)
+                                "seed_images.php?action=serve_image&path={}&v={}",
+                                urlencoding_encode(&abs_path),
+                                mtime
                             );
                             files.push(json!({
                                 "name": name,
@@ -5915,22 +6102,159 @@ pub fn handle_clear_project_cache(project_name: &str, category: &str) -> Value {
     })
 }
 
-pub fn handle_auto_login_admin(project_name: &str, category: &str) -> Value {
-    let proj = match find_project(project_name, Some(category)) {
+pub fn handle_auto_login_admin(project_name: &str, category: &str, env: &str) -> Value {
+    use rand::Rng;
+
+    let cat_opt = if category.is_empty() { None } else { Some(category) };
+    let proj = match find_project(project_name, cat_opt) {
         Some(p) => p,
         None => return json!({ "status": "error", "message": "Dự án không tồn tại" }),
     };
-    let p_root = Path::new(&proj.path);
-    let tpl_path = get_manager_data_root().join("rbw_autologin.template.php");
-    if tpl_path.is_file() {
-        let _ = fs::copy(&tpl_path, p_root.join("rbw_autologin.php"));
+
+    let tpl_content = include_str!("../../config/rbwmanager/rbw_autologin.template.php");
+    let tpl_disk = get_manager_data_root().join("rbw_autologin.template.php");
+    let _ = fs::write(&tpl_disk, tpl_content);
+
+    let mut rng = rand::thread_rng();
+    let mut auth_bytes = [0u8; 24];
+    rng.fill(&mut auth_bytes);
+    let auth_key: String = auth_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    let expire_time = now_unix() + 120;
+
+    let rendered = tpl_content
+        .replace("{{AUTH_KEY}}", &auth_key)
+        .replace("{{EXPIRE_TIME}}", &expire_time.to_string());
+    let helper_name = format!("rbw_login_{}.php", &auth_key[..12]);
+
+    let env_lower = env.trim().to_lowercase();
+    if env_lower == "demo" || env_lower == "prod" || env_lower == "production" {
+        let target_env = if env_lower.starts_with("prod") { "prod" } else { "demo" };
+        let env_label = if target_env == "prod" { "Production" } else { "Demo" };
+
+        let (srv, _) = match resolve_fm_target(project_name, category, target_env) {
+            Ok(v) => v,
+            Err(e) => return json!({ "status": "error", "message": e }),
+        };
+
+        let proj_cfg = get_project_config_entry(project_name, category);
+        let sub_path = if target_env == "prod" {
+            String::new()
+        } else {
+            proj_cfg
+                .get("deployed")
+                .and_then(|d| d.get("demo"))
+                .and_then(|d| d.get("demo_path"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().trim_matches('/').to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| proj.rel_path.replace('\\', "/").trim_matches('/').to_string())
+        };
+
+        let temp_file = std::env::temp_dir().join(&helper_name);
+        if let Err(e) = fs::write(&temp_file, &rendered) {
+            return json!({
+                "status": "error",
+                "message": format!("Không thể tạo file tạm đăng nhập: {}", e)
+            });
+        }
+        let upload_res = ftp_upload_file_to_rel(&srv, &sub_path, &temp_file, &helper_name);
+        let _ = fs::remove_file(&temp_file);
+        if let Err(e) = upload_res {
+            return json!({
+                "status": "error",
+                "message": format!("Không thể tải tệp đăng nhập lên {}: {}", env_label, e)
+            });
+        }
+
+        let clean_host = if !srv.web_domain.is_empty() {
+            srv.web_domain
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .trim_end_matches('/')
+                .to_string()
+        } else {
+            srv.ftp_host
+                .trim_start_matches("ftp.")
+                .trim_start_matches("www.")
+                .trim_end_matches('/')
+                .to_string()
+        };
+        let web_sub = get_web_sub_path(&srv.ftp_root);
+        let full_web_sub = match (web_sub.trim_matches('/').is_empty(), sub_path.trim_matches('/').is_empty()) {
+            (true, true) => String::new(),
+            (false, true) => web_sub.trim_matches('/').to_string(),
+            (true, false) => sub_path.trim_matches('/').to_string(),
+            (false, false) => format!("{}/{}", web_sub.trim_matches('/'), sub_path.trim_matches('/')),
+        };
+        let use_ssl = srv.ssl
+            || srv.web_domain.starts_with("https://")
+            || clean_host.contains("nasanivietnam.net");
+        let scheme = if use_ssl { "https://" } else { "http://" };
+        let login_url = if full_web_sub.is_empty() {
+            format!("{}{}/{}?key={}", scheme, clean_host, helper_name, auth_key)
+        } else {
+            format!("{}{}/{}/{}?key={}", scheme, clean_host, full_web_sub, helper_name, auth_key)
+        };
+
+        return json!({
+            "status": "success",
+            "login_url": login_url,
+            "url": login_url,
+            "username": "admin",
+            "env": target_env,
+            "type": "standalone_self_destruct",
+            "message": format!("Đang chuyển hướng vào trang Admin {}...", env_label)
+        });
     }
-    let rel_fwd = proj.rel_path.replace('\\', "/");
-    let url = format!("http://localhost/{}/rbw_autologin.php", rel_fwd.trim_matches('/'));
+
+    let p_root = Path::new(&proj.path);
+    if let Ok(entries) = fs::read_dir(p_root) {
+        for entry in entries.flatten() {
+            let fname = entry.file_name().to_string_lossy().to_string();
+            if (fname.starts_with("rbw_login_") && fname.ends_with(".php"))
+                || fname == "rbw_autologin.php"
+            {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    let helper_path = p_root.join(&helper_name);
+    if let Err(e) = fs::write(&helper_path, &rendered) {
+        return json!({
+            "status": "error",
+            "message": format!("Không thể tạo file đăng nhập trong dự án local: {}", e)
+        });
+    }
+
+    let www_root = get_www_base_dir();
+    let rel_fwd = p_root
+        .strip_prefix(&www_root)
+        .ok()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|| proj.rel_path.replace('\\', "/"));
+    let rel_clean = rel_fwd.trim_matches('/');
+
+    let web_port = config::load_app_settings().web_port;
+    let port_part = if web_port == 80 {
+        String::new()
+    } else {
+        format!(":{}", web_port)
+    };
+    let login_url = if rel_clean.is_empty() {
+        format!("http://localhost{}/{}?key={}", port_part, helper_name, auth_key)
+    } else {
+        format!("http://localhost{}/{}/{}?key={}", port_part, rel_clean, helper_name, auth_key)
+    };
+
     json!({
         "status": "success",
-        "url": url,
-        "message": "Đang chuyển hướng vào trang Admin..."
+        "login_url": login_url,
+        "url": login_url,
+        "username": "admin",
+        "env": "local",
+        "type": "standalone_self_destruct",
+        "message": "Đang chuyển hướng vào trang Admin Local..."
     })
 }
 
@@ -6748,8 +7072,50 @@ pub fn handle_deploy_new_project(
         }
     };
 
-    // 1. Copy or extract template to target_dir
-    if final_source_folder.is_dir() {
+    // 1. Copy or extract template to target_dir (prioritize ZIP if available)
+    if final_source_zip.is_file() {
+        write_job_log(
+            job_id,
+            json!({
+                "status": "info",
+                "step": 1,
+                "progress": 20,
+                "log": format!("Tìm thấy file ZIP mẫu ({}). Đang giải nén...", final_source_zip.display())
+            }),
+        );
+        let tmp_extract = parent_dir.join(format!(".__tmp_extract_{}", project_name));
+        if tmp_extract.exists() {
+            let _ = fs::remove_dir_all(&tmp_extract);
+        }
+        if let Err(e) = extract_zip_to_dir(&final_source_zip, &tmp_extract) {
+            let _ = fs::remove_dir_all(&tmp_extract);
+            write_job_log(job_id, json!({ "status": "error", "step": 1, "message": e }));
+            return json!({ "status": "error", "message": e });
+        }
+
+        let mut top_entries: Vec<PathBuf> = Vec::new();
+        if let Ok(entries) = fs::read_dir(&tmp_extract) {
+            for entry in entries.flatten() {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if fname != "__MACOSX" {
+                    top_entries.push(entry.path());
+                }
+            }
+        }
+        let move_res = if top_entries.len() == 1 && top_entries[0].is_dir() {
+            let r = fs::rename(&top_entries[0], &target_dir);
+            let _ = fs::remove_dir_all(&tmp_extract);
+            r
+        } else {
+            fs::rename(&tmp_extract, &target_dir)
+        };
+        if let Err(e) = move_res {
+            let _ = fs::remove_dir_all(&tmp_extract);
+            let msg = format!("Lỗi di chuyển thư mục sau khi giải nén ZIP: {}", e);
+            write_job_log(job_id, json!({ "status": "error", "step": 1, "message": msg }));
+            return json!({ "status": "error", "message": msg });
+        }
+    } else if final_source_folder.is_dir() {
         write_job_log(
             job_id,
             json!({
@@ -6763,27 +7129,10 @@ pub fn handle_deploy_new_project(
             write_job_log(job_id, json!({ "status": "error", "step": 1, "message": e }));
             return json!({ "status": "error", "message": e });
         }
-    } else if final_source_zip.is_file() {
-        write_job_log(
-            job_id,
-            json!({
-                "status": "info",
-                "step": 1,
-                "progress": 20,
-                "log": "Tìm thấy file ZIP mẫu. Đang giải nén..."
-            }),
-        );
-        if let Err(e) = extract_zip_to_dir(&final_source_zip, &parent_dir) {
-            write_job_log(job_id, json!({ "status": "error", "step": 1, "message": e }));
-            return json!({ "status": "error", "message": e });
-        }
-        let extracted = parent_dir.join(&source_base_name);
-        if extracted.is_dir() && extracted != target_dir {
-            let _ = fs::rename(&extracted, &target_dir);
-        }
     } else {
         let msg = format!(
-            "Không tìm thấy source mẫu tại '{}'. Vui lòng kiểm tra cấu hình Đường dẫn Source mẫu.",
+            "Không tìm thấy source mẫu tại '{}' hoặc '{}'. Vui lòng kiểm tra cấu hình Đường dẫn Source mẫu.",
+            final_source_zip.display(),
             final_source_folder.display()
         );
         write_job_log(job_id, json!({ "status": "error", "step": 1, "message": msg }));
@@ -7230,6 +7579,7 @@ pub fn get_settings_data() -> Value {
         merged.insert("db_naming_mode".to_string(), json!(global_demo.db_naming_mode));
     }
     merged.insert("vhost_suffix".to_string(), Value::String(global_app.vhost_suffix.clone()));
+    merged.insert("low_spec_mode".to_string(), Value::Bool(global_app.low_spec_mode));
 
     let existing_demo_list = merged
         .get("demo_list")
@@ -10899,9 +11249,14 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
     match action.as_str() {
         "getCategories" | "listCategories" => {
             let strict = get_param("strict") == "true" || get_param("strict") == "1";
+            let low_spec = config::load_app_settings().low_spec_mode;
             let categories = scan_categories(strict);
             let mut stats = serde_json::Map::new();
-            let sizes_cache = load_sizes_cache();
+            let sizes_cache = if low_spec {
+                HashMap::new()
+            } else {
+                load_sizes_cache()
+            };
             let base_dir = get_www_base_dir();
 
             for cat in &categories {
@@ -10918,9 +11273,11 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
                             continue;
                         }
                         count += 1;
-                        let p = entry.path();
-                        if let Some(sz) = get_cached_dir_size(&p, &sizes_cache) {
-                            total_sz += sz;
+                        if !low_spec {
+                            let p = entry.path();
+                            if let Some(sz) = get_cached_dir_size(&p, &sizes_cache) {
+                                total_sz += sz;
+                            }
                         }
                     }
                 }
@@ -10928,21 +11285,27 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
                     cat.clone(),
                     json!({
                         "count": count,
-                        "size": total_sz,
-                        "size_formatted": format_bytes(total_sz, 1)
+                        "size": if low_spec { 0.0 } else { total_sz },
+                        "size_formatted": if low_spec { String::new() } else { format_bytes(total_sz, 1) }
                     }),
                 );
             }
             json!({
                 "status": "success",
                 "data": categories,
-                "stats": stats
+                "stats": stats,
+                "low_spec_mode": low_spec
             })
         }
         "getProjects" | "listProjects" => {
             let force_refresh = get_param("refresh") == "1" || get_param("refresh") == "true";
+            let low_spec = config::load_app_settings().low_spec_mode;
             let cat_str = if category.is_empty() { "all" } else { category.as_str() };
-            let mut sizes_cache = load_sizes_cache();
+            let mut sizes_cache = if low_spec {
+                HashMap::new()
+            } else {
+                load_sizes_cache()
+            };
             let projects = scan_projects_with_cache(cat_str, &sizes_cache);
             let all_configs = crate::db::get_all_projects_config_map();
             let sites_php_map = crate::db::get_all_projects_php_map();
@@ -10977,7 +11340,9 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
                     }
                 }
 
-                let size_opt = if force_refresh {
+                let size_opt = if low_spec {
+                    None
+                } else if force_refresh {
                     Some(get_directory_size_with_cache(Path::new(&p.path), true, &mut sizes_cache))
                 } else {
                     p.size
@@ -11025,7 +11390,7 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
                     "php_mode": if is_custom_php { "custom" } else { "inherit" }
                 }));
             }
-            if force_refresh {
+            if force_refresh && !low_spec {
                 save_sizes_cache(&sizes_cache);
             }
             let proj_count = result.len();
@@ -11033,12 +11398,24 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
                 "status": "success",
                 "data": result,
                 "system_php": sys_php,
-                "category_total_size": total_bytes,
-                "category_total_size_formatted": format_bytes(total_bytes, 1),
+                "low_spec_mode": low_spec,
+                "category_total_size": if low_spec { 0.0 } else { total_bytes },
+                "category_total_size_formatted": if low_spec { String::new() } else { format_bytes(total_bytes, 1) },
                 "category_project_count": proj_count
             })
         }
         "calculateCategorySizes" => {
+            if config::load_app_settings().low_spec_mode {
+                return json!({
+                    "status": "success",
+                    "low_spec_mode": true,
+                    "category": category,
+                    "projects": {},
+                    "project_sizes": {},
+                    "total_bytes": 0,
+                    "category_total_size_formatted": ""
+                });
+            }
             let cat = category.clone();
             let cat_str = if cat.is_empty() { "all" } else { cat.as_str() };
             let mut sizes_cache = load_sizes_cache();
@@ -11197,9 +11574,17 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
         "listProjectImages" => handle_list_project_images(&project, &category),
         "convertSingleImage" => {
             let file = get_param("file");
-            handle_convert_single_image(&project, &category, &file)
+            let quality = get_param("quality").parse::<u8>().unwrap_or(100);
+            let deep_str = get_param("deep").to_lowercase();
+            let deep = matches!(deep_str.as_str(), "1" | "true" | "yes" | "on");
+            handle_convert_single_image(&project, &category, &file, quality, deep)
         }
-        "convertProjectImages" => handle_convert_project_images(&project, &category),
+        "convertProjectImages" => {
+            let quality = get_param("quality").parse::<u8>().unwrap_or(100);
+            let deep_str = get_param("deep").to_lowercase();
+            let deep = matches!(deep_str.as_str(), "1" | "true" | "yes" | "on");
+            handle_convert_project_images(&project, &category, quality, deep)
+        }
         "undoSingleImage" => {
             let file = get_param("file");
             handle_undo_single_image(&project, &category, &file)
@@ -11314,7 +11699,10 @@ pub fn dispatch(req: ProDispatchRequest) -> Value {
             handle_open_project(&path, &app_type)
         }
         "clearProjectCache" | "fmClearCompiledCache" => handle_clear_project_cache(&project, &category),
-        "autoLoginAdmin" => handle_auto_login_admin(&project, &category),
+        "autoLoginAdmin" => {
+            let env = get_param("env");
+            handle_auto_login_admin(&project, &category, &env)
+        }
         "changeDatabaseType" => {
             let mut module = get_param("module");
             if module.is_empty() {
@@ -12070,5 +12458,101 @@ mod media_pipeline_tests {
         .expect("recreate clean db");
         run_mysql_import_file(&db, &snap).expect("restore snapshot");
         let _ = fs::remove_file(&snap);
+    }
+
+    #[test]
+    fn test_webp_and_square_favicon() {
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "rbw_webp_favicon_test_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(1)
+        ));
+        let _ = fs::create_dir_all(&tmp_dir);
+
+        // 1. Test WebP compression sizes (lossy Q=100 vs deep vs lossless Q=101)
+        let mut rgb = image::RgbImage::new(400, 300);
+        for y in 0..300u32 {
+            for x in 0..400u32 {
+                let n = ((x.wrapping_mul(37) ^ y.wrapping_mul(91) ^ (x * y)) & 0x3f) as u8;
+                let r = (((x * 255) / 400) as u8).saturating_add(n / 2);
+                let g = (((y * 255) / 300) as u8).saturating_add(n / 3);
+                let b = (((x + y) % 255) as u8).wrapping_add(n);
+                rgb.put_pixel(x, y, image::Rgb([r, g, b]));
+            }
+        }
+        let src_rgb = DynamicImage::ImageRgb8(rgb);
+
+        let p_q100 = tmp_dir.join("out_q100.webp");
+        let p_deep = tmp_dir.join("out_deep.webp");
+        let p_lossless = tmp_dir.join("out_lossless.webp");
+
+        save_dynamic_image_as_webp_with_options(&src_rgb, &p_q100, 100, false).unwrap();
+        save_dynamic_image_as_webp_with_options(&src_rgb, &p_deep, 100, true).unwrap();
+        save_dynamic_image_as_webp_with_options(&src_rgb, &p_lossless, 101, false).unwrap();
+
+        let sz_q100 = fs::metadata(&p_q100).unwrap().len();
+        let sz_deep = fs::metadata(&p_deep).unwrap().len();
+        let sz_lossless = fs::metadata(&p_lossless).unwrap().len();
+
+        assert_eq!(image::open(&p_q100).unwrap().dimensions(), (400, 300));
+        assert_eq!(image::open(&p_deep).unwrap().dimensions(), (400, 300));
+        assert!(
+            sz_q100 < sz_lossless,
+            "Expected lossy Q=100 ({}) < lossless Q=101 ({})",
+            sz_q100,
+            sz_lossless
+        );
+        assert!(
+            sz_deep < sz_q100,
+            "Expected deep Q=100 ({}) < normal Q=100 ({})",
+            sz_deep,
+            sz_q100
+        );
+
+        // Alpha WebP test
+        let mut rgba = image::RgbaImage::from_pixel(120, 120, image::Rgba([0, 0, 0, 0]));
+        for y in 20..100u32 {
+            for x in 20..100u32 {
+                rgba.put_pixel(x, y, image::Rgba([220, 40, 80, 255]));
+            }
+        }
+        let p_alpha = tmp_dir.join("out_alpha.webp");
+        save_dynamic_image_as_webp_with_options(&DynamicImage::ImageRgba8(rgba), &p_alpha, 85, false)
+            .unwrap();
+        let decoded_alpha = image::open(&p_alpha).unwrap().to_rgba8();
+        assert_eq!(decoded_alpha.dimensions(), (120, 120));
+        assert_eq!(decoded_alpha.get_pixel(0, 0)[3], 0);
+        assert!(decoded_alpha.get_pixel(60, 60)[3] > 200);
+
+        // 2. Test square favicon generation from wide & small tall logos
+        let wide_dir = tmp_dir.join("wide");
+        let _ = fs::create_dir_all(&wide_dir);
+        let wide_logo = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            320,
+            80,
+            image::Rgba([30, 120, 240, 255]),
+        ));
+        generate_square_favicon_from_logo(&wide_logo, &wide_dir).unwrap();
+        let wide_fav = image::open(wide_dir.join("favicon.png")).unwrap().to_rgba8();
+        assert_eq!(wide_fav.dimensions(), (180, 180));
+        assert_eq!(wide_fav.get_pixel(0, 0)[3], 0);
+        assert_eq!(wide_fav.get_pixel(90, 90)[3], 255);
+
+        let tall_dir = tmp_dir.join("tall");
+        let _ = fs::create_dir_all(&tall_dir);
+        let tall_logo = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            40,
+            100,
+            image::Rgba([200, 60, 20, 255]),
+        ));
+        generate_square_favicon_from_logo(&tall_logo, &tall_dir).unwrap();
+        let tall_fav = image::open(tall_dir.join("favicon.png")).unwrap().to_rgba8();
+        assert_eq!(tall_fav.dimensions(), (100, 100));
+        assert_eq!(tall_fav.get_pixel(0, 0)[3], 0);
+        assert_eq!(tall_fav.get_pixel(50, 50)[3], 255);
+
+        let _ = fs::remove_dir_all(&tmp_dir);
     }
 }

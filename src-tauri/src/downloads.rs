@@ -969,11 +969,17 @@ pub fn install_store_item(app: AppHandle, item_id: String) {
         let base = config::get_base_dir();
 
         if item.id == "nasani-extension" {
-            emit(50, "Đang mở Chrome & thư mục Extension...", false, "");
+            emit(50, "Đang kiểm tra bản Extension mới nhất & mở Chrome...", false, "");
             let res = crate::sites::install_or_open_chrome_extension("install");
             match res {
-                Ok(_) => {
-                    emit(100, "Đã mở Chrome & thư mục Extension để cài đặt!", true, "");
+                Ok(v) => {
+                    let updated = v.get("updated_files").and_then(|u| u.as_u64()).unwrap_or(0);
+                    let msg = if updated > 0 {
+                        format!("Đã cập nhật {} file Extension mới nhất & mở Chrome để nạp lại!", updated)
+                    } else {
+                        "Extension đã là bản mới nhất! Đã mở Chrome & thư mục Extension.".to_string()
+                    };
+                    emit(100, &msg, true, "");
                 }
                 Err(e) => {
                     emit(0, "Lỗi cài đặt tiện ích Chrome", true, &e);

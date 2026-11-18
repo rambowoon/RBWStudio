@@ -1101,11 +1101,25 @@
             if (qIdx >= 0) {
                 const sp = new URLSearchParams(rawSrc.slice(qIdx + 1));
                 const p = sp.get("path");
-                if (p) return "path:" + p.toLowerCase();
+                const ver = sp.get("v") || sp.get("t") || sp.get("_") || "";
+                if (p) return "path:" + p.toLowerCase() + (ver ? "?v=" + ver : "");
             }
         }
         return "url:" + rawSrc;
     }
+
+    window.__rbwClearImageCache = function (prefix) {
+        const normPrefix = prefix ? String(prefix).toLowerCase() : "";
+        for (const [k, val] of imageCache.entries()) {
+            if (!normPrefix || String(k).toLowerCase().includes(normPrefix)) {
+                imageCache.delete(k);
+                if (val && typeof val === "string" && val.startsWith("blob:")) {
+                    try { URL.revokeObjectURL(val); } catch (_) {}
+                }
+            }
+        }
+        inFlightLoads.clear();
+    };
 
     function dataUrlToFastSrc(dataUrl) {
         try {
@@ -1360,5 +1374,22 @@
             }
         }
     }, true);
+    // Intercept external window.open calls so browser tabs open outside WebView2
+    const origWindowOpen = window.open ? window.open.bind(window) : null;
+    window.open = function (url, target, features) {
+        const strUrl = url ? String(url) : "";
+        if (strUrl.startsWith("http://") || strUrl.startsWith("https://")) {
+            const inv = getInvoke();
+            if (inv) {
+                inv("open_browser", { url: strUrl }).catch(() => {});
+                return { closed: false, close() {}, focus() {} };
+            }
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({ type: "rbw-open-url", url: strUrl }, "*");
+                return { closed: false, close() {}, focus() {} };
+            }
+        }
+        return origWindowOpen ? origWindowOpen(url, target, features) : null;
+    };
 })();
 
