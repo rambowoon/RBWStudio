@@ -85,10 +85,10 @@ const FontManager = {
                     <div class="font-card-header">
                         <div class="font-card-header-left">
                             <div class="font-family-title" style="font-family: '${displayFamily}', sans-serif; color: #0F172A !important; font-weight: 800; font-size: 1.25rem;">${displayFamily}</div>
-                            <div class="font-path-badge">${isGoogle ? '☁️ Google Web Fonts' : '📁 ' + font.family}</div>
+                            <div class="font-path-badge" style="display:inline-flex;align-items:center;gap:5px;">${isGoogle ? `${fi("cloud", 12)} Google Web Fonts` : `${fi("folder", 12)} ${font.family}`}</div>
                         </div>
-                        <div class="font-source-tag ${isGoogle ? 'google' : 'local'}">
-                            ${isGoogle ? '☁️ Google' : '⚡ Local WOFF'}
+                        <div class="font-source-tag ${isGoogle ? 'google' : 'local'}" style="display:inline-flex;align-items:center;gap:4px;">
+                            ${isGoogle ? `${fi("cloud", 12)} Google` : `${fi("zap", 12)} Local WOFF`}
                         </div>
                     </div>
                     
@@ -132,10 +132,10 @@ const FontManager = {
                     <div>
                         ${isGoogle ? 
                             `<div style="display:flex; flex-direction:column; gap:8px;">
-                                <button class="font-action-btn-local" style="width:100%; background:linear-gradient(135deg, #10b981, #059669); box-shadow: 0 4px 12px rgba(16,185,129,0.25);" onclick="FontManager.downloadGoogle('${font.family}')" title="Tải các biến thể font đã chọn về lưu trữ trực tiếp trong assets/fonts/ và tạo @font-face local">📥 Tải font về Website</button>
-                                <button class="font-action-btn-google" style="width:100%; background:linear-gradient(135deg, #6366f1, #8b5cf6); box-shadow: 0 4px 12px rgba(99,102,241,0.25); border:none;" onclick="FontManager.quickAddGoogle('${font.family}')" title="Chèn dòng @import Google Fonts online vào fonts.css">⚡ Nhúng @import Online</button>
+                                <button class="font-action-btn-local" style="width:100%; background:linear-gradient(135deg, #10b981, #059669); box-shadow: 0 4px 12px rgba(16,185,129,0.25); display:inline-flex; align-items:center; justify-content:center; gap:6px;" onclick="FontManager.downloadGoogle('${font.family}')" title="Tải các biến thể font đã chọn về lưu trữ trực tiếp trong assets/fonts/ và tạo @font-face local">${fi("download", 14)} Tải font về Website</button>
+                                <button class="font-action-btn-google" style="width:100%; background:linear-gradient(135deg, #6366f1, #8b5cf6); box-shadow: 0 4px 12px rgba(99,102,241,0.25); border:none; display:inline-flex; align-items:center; justify-content:center; gap:6px;" onclick="FontManager.quickAddGoogle('${font.family}')" title="Chèn dòng @import Google Fonts online vào fonts.css">${fi("zap", 14)} Nhúng @import Online</button>
                             </div>` :
-                            `<button class="font-action-btn-local" onclick="FontManager.install('${font.id}', '${font.family}')">💾 Install Local Font</button>`
+                            `<button class="font-action-btn-local" style="display:inline-flex; align-items:center; justify-content:center; gap:6px;" onclick="FontManager.install('${font.id}', '${font.family}')">${fi("save", 14)} Install Local Font</button>`
                         }
                     </div>
                 `;
@@ -173,10 +173,10 @@ const FontManager = {
                     <div class="font-card-header">
                         <div class="font-card-header-left">
                             <div class="font-family-title" style="font-family: '${displayFamily}', sans-serif; color: #0F172A !important; font-weight: 800; font-size: 1.25rem;">${displayFamily}</div>
-                            <div class="font-path-badge">📁 ${font.family}</div>
+                            <div class="font-path-badge" style="display:inline-flex;align-items:center;gap:5px;">${fi("folder", 12)} ${font.family}</div>
                         </div>
-                        <div class="font-source-tag convertible">
-                            ⚙️ Convertible
+                        <div class="font-source-tag convertible" style="display:inline-flex;align-items:center;gap:4px;">
+                            ${fi("settings", 12)} Convertible
                         </div>
                     </div>
                     
@@ -196,7 +196,7 @@ const FontManager = {
                     </div>
 
                     <div>
-                        <button class="font-action-btn-convert" onclick="FontManager.convertAndInstall('${font.id}', '${font.family}')">⚡ Convert & Install Font</button>
+                        <button class="font-action-btn-convert" style="display:inline-flex;align-items:center;justify-content:center;gap:6px;" onclick="FontManager.convertAndInstall('${font.id}', '${font.family}')">${fi("zap", 14)} Convert & Install Font</button>
                     </div>
                 `;
                 
@@ -677,7 +677,7 @@ const FontManager = {
                 <span style="color:#fff; font-weight:600; margin-right:10px;">${font}</span>
                 <span style="display:flex; align-items:center; gap:8px;">
                     <span style="font-size:0.6rem; color:var(--muted);">Installed</span>
-                    <button class="btn btn-ghost" style="padding:2px; height:auto; color:var(--danger); font-size:0.75rem; border:none; background:none; cursor:pointer;" onclick="FontManager.remove('${font.replace(/'/g, "\\'")}')" title="Gỡ bỏ font">❌</button>
+                    <button class="btn btn-ghost" style="padding:2px; height:auto; color:var(--danger); font-size:0.75rem; border:none; background:none; cursor:pointer; display:inline-flex; align-items:center;" onclick="FontManager.remove('${font.replace(/'/g, "\\'")}')" title="Gỡ bỏ font">${fi("x", 13)}</button>
                 </span>
             `;
             listContainer.appendChild(item);

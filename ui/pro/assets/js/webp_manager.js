@@ -37,7 +37,7 @@ const WebpManager = {
 		listContainer.innerHTML = `
 			<tr>
 				<td colspan="6" style="text-align:center; padding:30px; color:var(--muted);">
-					<span style="display:inline-block; animation: spin 1s linear infinite; margin-right: 8px;">⏳</span> Đang quét thư mục hình ảnh...
+					<span style="display:inline-flex; vertical-align:middle; margin-right: 6px;">${fi("loader", 14)}</span> Đang quét thư mục hình ảnh...
 				</td>
 			</tr>
 		`;
@@ -126,14 +126,14 @@ const WebpManager = {
 			if (isWebp) {
 				if (img.hasBackup) {
 					anyBackup = true;
-					statusHtml = `<span style="color: var(--success); background: rgba(16, 185, 129, 0.1); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">✓ Sẵn sàng (WebP)</span> <span style="color: #fbbf24; font-size: 0.75rem; margin-left: 5px;">(${this.formatTimeLeft(img.timeLeft)})</span>`;
+					statusHtml = `<span style="color: var(--success); background: rgba(16, 185, 129, 0.1); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; display:inline-flex; align-items:center; gap:4px;">${fi("check", 12)} Sẵn sàng (WebP)</span> <span style="color: #fbbf24; font-size: 0.75rem; margin-left: 5px;">(${this.formatTimeLeft(img.timeLeft)})</span>`;
 				} else {
-					statusHtml = `<span style="color: var(--success); background: rgba(16, 185, 129, 0.1); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">✓ Sẵn sàng (WebP)</span>`;
+					statusHtml = `<span style="color: var(--success); background: rgba(16, 185, 129, 0.1); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; display:inline-flex; align-items:center; gap:4px;">${fi("check", 12)} Sẵn sàng (WebP)</span>`;
 				}
 			} else if (isLogoOrFavicon) {
-				statusHtml = `<span style="color: var(--warning); background: rgba(245, 158, 11, 0.1); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">🛡️ Giữ lại bản gốc</span>`;
+				statusHtml = `<span style="color: var(--warning); background: rgba(245, 158, 11, 0.1); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; display:inline-flex; align-items:center; gap:4px;">${fi("shield", 12)} Giữ lại bản gốc</span>`;
 			} else {
-				statusHtml = `<span style="color: var(--muted); background: rgba(255, 255, 255, 0.05); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">⏳ Đợi convert</span>`;
+				statusHtml = `<span style="color: var(--muted); background: rgba(255, 255, 255, 0.05); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; display:inline-flex; align-items:center; gap:4px;">${fi("clock", 12)} Đợi convert</span>`;
 			}
 
 			const sizeFormatted = (img.size / 1024).toFixed(1) + ' KB';
@@ -145,10 +145,10 @@ const WebpManager = {
 			if (isWebp) {
 				const buttons = [];
 				if (isExactLogo && !hasFavicon) {
-					buttons.push(`<button class="btn btn-sm btn-primary" onclick="WebpManager.convertSingle('${safeName}', this)" style="padding: 4px 10px; font-size: 0.7rem; border-radius: 4px;">🎯 Tạo Favicon</button>`);
+					buttons.push(`<button class="btn btn-sm btn-primary" onclick="WebpManager.convertSingle('${safeName}', this)" style="padding: 4px 10px; font-size: 0.7rem; border-radius: 4px; display:inline-flex; align-items:center; gap:4px;">${fi("target", 12)} Tạo Favicon</button>`);
 				}
 				if (img.hasBackup) {
-					buttons.push(`<button class="btn btn-sm" onclick="WebpManager.undoSingle('${safeName}', this)" style="padding: 4px 10px; font-size: 0.7rem; color: #f59e0b; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 4px;">↩️ Hoàn tác</button>`);
+					buttons.push(`<button class="btn btn-sm" onclick="WebpManager.undoSingle('${safeName}', this)" style="padding: 4px 10px; font-size: 0.7rem; color: #f59e0b; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 4px; display:inline-flex; align-items:center; gap:4px;">${fi("undo", 12)} Hoàn tác</button>`);
 				}
 				if (buttons.length > 0) {
 					actionsHtml = `<div style="display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">${buttons.join('')}</div>`;
@@ -169,7 +169,7 @@ const WebpManager = {
 				} else {
 					actionsHtml = `
 						<div style="display:flex; justify-content:center;">
-							<button class="btn btn-sm btn-primary" onclick="WebpManager.convertSingle('${safeName}', this)" style="padding: 4px 10px; font-size: 0.7rem; border-radius: 4px;">🖼️ Sang WebP</button>
+							<button class="btn btn-sm btn-primary" onclick="WebpManager.convertSingle('${safeName}', this)" style="padding: 4px 10px; font-size: 0.7rem; border-radius: 4px; display:inline-flex; align-items:center; gap:4px;">${fi("image", 12)} Sang WebP</button>
 						</div>
 					`;
 				}
@@ -208,7 +208,7 @@ const WebpManager = {
 		if (btnElement) {
 			originalBtnHtml = btnElement.innerHTML;
 			btnElement.disabled = true;
-			btnElement.innerHTML = `⏳`;
+			btnElement.innerHTML = fi("loader", 13);
 		}
 
 		try {
@@ -259,7 +259,7 @@ const WebpManager = {
 		if (btnElement) {
 			originalBtnHtml = btnElement.innerHTML;
 			btnElement.disabled = true;
-			btnElement.innerHTML = `⏳`;
+			btnElement.innerHTML = fi("loader", 13);
 		}
 
 		try {
@@ -313,7 +313,7 @@ const WebpManager = {
 		if (btn) {
 			originalBtnHtml = btn.innerHTML;
 			btn.disabled = true;
-			btn.innerHTML = `⏳ Đang hoàn tác...`;
+			btn.innerHTML = `${fi("loader", 13)} Đang hoàn tác...`;
 		}
 
 		try {
@@ -359,7 +359,7 @@ const WebpManager = {
 		const btn = document.getElementById('btn-project-webp-convert');
 		if (btn) {
 			btn.disabled = true;
-			btn.innerHTML = `<span style="display:inline-block; animation: spin 1s linear infinite; margin-right: 8px;">⏳</span> Đang convert...`;
+			btn.innerHTML = `${fi("loader", 14)} Đang convert...`;
 		}
 
 		const statusBox = document.getElementById('project-webp-status');
@@ -419,7 +419,7 @@ const WebpManager = {
 		} finally {
 			if (btn) {
 				btn.disabled = false;
-				btn.innerHTML = `🚀 Bắt đầu Convert`;
+				btn.innerHTML = `${fi("rocket", 14)} Bắt đầu Convert`;
 			}
 			this.loadImages(true);
 		}

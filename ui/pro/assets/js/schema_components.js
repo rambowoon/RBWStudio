@@ -24,15 +24,15 @@ const SchemaComponents = {
 			.toUpperCase();
 
 		let icon = "";
-		if (fieldKey.includes("comment")) icon = "💬 ";
-		if (fieldKey.includes("copy")) icon = "📋 ";
-		if (fieldKey.includes("tags")) icon = "🏷️ ";
-		if (fieldKey.includes("view")) icon = "👁️ ";
-		if (fieldKey.includes("slug")) icon = "🔗 ";
+		if (fieldKey.includes("comment")) icon = fi("message", 13);
+		if (fieldKey.includes("copy")) icon = fi("clipboard", 13);
+		if (fieldKey.includes("tags")) icon = fi("tag", 13);
+		if (fieldKey.includes("view")) icon = fi("eye", 13);
+		if (fieldKey.includes("slug")) icon = fi("link", 13);
 
 		div.innerHTML = `
-            <label class="sb-label" for="${id}">
-                ${icon ? `<span>${icon}</span>` : ""}
+            <label class="sb-label" for="${id}" style="display:inline-flex;align-items:center;gap:6px;">
+                ${icon ? `<span style="display:inline-flex;opacity:0.75">${icon}</span>` : ""}
                 <span>${label}</span>
             </label>
             <div class="sb-field-actions">
@@ -210,7 +210,7 @@ const SchemaComponents = {
 					? ""
 					: `
             <div class="sb-section-title" style="justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:8px 12px; border-radius:8px; margin:-5px -5px 15px -5px;">
-                <span>🖼️ ${reallyGallery ? "Gallery Image" : "Image"}: ${key}</span>
+                <span style="display:inline-flex;align-items:center;gap:6px;">${fi("image", 14)} ${reallyGallery ? "Gallery Image" : "Image"}: ${key}</span>
                 <button class="btn-del-opt" onclick="SchemaBuilder.deleteOption('${path.join(".")}')">×</button>
             </div>`
 			}
@@ -219,7 +219,7 @@ const SchemaComponents = {
 					? `
             <div style="display:flex; align-items:center; gap:10px; background:rgba(16, 185, 129, 0.1); padding:6px 12px; border-radius:10px; border:1px solid rgba(16, 185, 129, 0.2); margin-bottom:15px;">
                 <div style="flex:1;">
-                    <div style="font-size:0.65rem; color:#10b981; font-weight:800; letter-spacing:0.5px;">🔗 ĐỒNG BỘ KÍCH THƯỚC</div>
+                    <div style="font-size:0.65rem; color:#10b981; font-weight:800; letter-spacing:0.5px; display:inline-flex; align-items:center; gap:4px;">${fi("link", 11)} ĐỒNG BỘ KÍCH THƯỚC</div>
                     <div style="font-size:0.6rem; color:rgba(16, 185, 129, 0.7);">Tự động lấy thông số từ ảnh chính</div>
                 </div>
                 <label class="sb-switch">
@@ -236,7 +236,7 @@ const SchemaComponents = {
 			info.className = "alert alert-success";
 			info.style.fontSize = "0.75rem";
 			info.style.marginTop = "10px";
-			info.innerHTML = "✨ Đang đồng bộ thông số từ ảnh chính...";
+			info.innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px">${fi("sparkles", 13)} Đang đồng bộ thông số từ ảnh chính...</span>`;
 			div.appendChild(info);
 			return div;
 		}
@@ -478,8 +478,8 @@ const SchemaComponents = {
 		const div = document.createElement("div");
 		div.className = "sb-nested";
 		div.innerHTML = `<div class="sb-section-title" style="font-size:0.8rem; color:var(--success); display:flex; justify-content:space-between; align-items:center;">
-            <span>⚡ Status Flags (${key})</span>
-            <span style="font-size:0.68rem; color:var(--muted); font-weight:normal;">Key (DB/Code) ➔ Value (Label/Lang)</span>
+            <span style="display:inline-flex;align-items:center;gap:6px;">${fi("zap", 13)} Status Flags (${key})</span>
+            <span style="font-size:0.68rem; color:var(--muted); font-weight:normal;">Key (DB/Code) → Value (Label/Lang)</span>
         </div>`;
 
 		const getTargetObj = () => {
@@ -660,21 +660,21 @@ const SchemaComponents = {
 		div.className = "sb-nested";
 
 		// Improve title based on path (check if it's a category)
-		let displayTitle = `📸 Gallery Manager: ${key}`;
+		let displayTitle = `${fi("camera", 13)} Gallery Manager: ${key}`;
 		if (key === "gallery" || key === "gallery_categories") {
 			if (path.includes("list"))
-				displayTitle = `📸 Gallery: Danh mục cấp 1`;
+				displayTitle = `${fi("camera", 13)} Gallery: Danh mục cấp 1`;
 			else if (path.includes("cat"))
-				displayTitle = `📸 Gallery: Danh mục cấp 2`;
+				displayTitle = `${fi("camera", 13)} Gallery: Danh mục cấp 2`;
 			else if (path.includes("item"))
-				displayTitle = `📸 Gallery: Danh mục cấp 3`;
+				displayTitle = `${fi("camera", 13)} Gallery: Danh mục cấp 3`;
 			else if (path.includes("sub"))
-				displayTitle = `📸 Gallery: Danh mục cấp 4`;
+				displayTitle = `${fi("camera", 13)} Gallery: Danh mục cấp 4`;
 			else if (path.includes("brand"))
-				displayTitle = `📸 Gallery: Danh mục Hãng`;
+				displayTitle = `${fi("camera", 13)} Gallery: Danh mục Hãng`;
 		}
 
-		div.innerHTML = `<div class="sb-section-title" style="font-size:0.8rem; color:var(--success);"><span>${displayTitle}</span></div>`;
+		div.innerHTML = `<div class="sb-section-title" style="font-size:0.8rem; color:var(--success);"><span style="display:inline-flex;align-items:center;gap:6px;">${displayTitle}</span></div>`;
 
 		const container = document.createElement("div");
 		container.style.display = "flex";
@@ -688,7 +688,7 @@ const SchemaComponents = {
 			box.className = "sb-album-box";
 
 			box.innerHTML = `<div class="sb-album-head">
-                <span style="display:flex; align-items:center; gap:8px;">🖼️ Album: <code class="sb-code-pill">${gKey}</code></span>
+                <span style="display:flex; align-items:center; gap:6px;">${fi("image", 13)} Album: <code class="sb-code-pill">${gKey}</code></span>
                 <button type="button" class="btn-del-opt" onclick="SchemaBuilder.deleteOption('${path.join(".")}.${gKey}')">×</button>
             </div>`;
 
@@ -779,7 +779,7 @@ const SchemaComponents = {
 		div.className = "sb-nested sb-cat-manager";
 
 		div.innerHTML = `<div class="sb-nested-head">
-            <span class="sb-nested-title" style="color:#8b5cf6;">📂 QUẢN LÝ PHÂN CẤP DANH MỤC</span>
+            <span class="sb-nested-title" style="color:#8b5cf6;display:inline-flex;align-items:center;gap:6px;">${fi("folderOpen", 14)} QUẢN LÝ PHÂN CẤP DANH MỤC</span>
         </div>`;
 
 		let levels = [
@@ -818,7 +818,7 @@ const SchemaComponents = {
 				? `${path[0]}.brand`
 				: `${path.join(".")}.${lv.id}`;
 			box.innerHTML = `<div class="sb-cat-level-head" style="color:${lv.color};">
-                <span>📂 ${lv.name}</span>
+                <span style="display:inline-flex;align-items:center;gap:6px;">${fi("folderOpen", 13)} ${lv.name}</span>
                 <button type="button" class="btn-del-opt" onclick="SchemaBuilder.deleteOption('${delPath}')">×</button>
             </div>`;
 
@@ -939,7 +939,7 @@ const SchemaComponents = {
 	createOptions2Editor(key, data, path) {
 		const div = document.createElement("div");
 		div.className = "sb-nested";
-		div.innerHTML = `<div class="sb-section-title" style="font-size:0.8rem; color:var(--purple);"><span>🛠️ Options2 Manager: ${key}</span></div>`;
+		div.innerHTML = `<div class="sb-section-title" style="font-size:0.8rem; color:var(--purple);"><span style="display:inline-flex;align-items:center;gap:6px;">${fi("sliders", 13)} Options2 Manager: ${key}</span></div>`;
 
 		const table = document.createElement("table");
 		table.style.width = "100%";
@@ -1027,7 +1027,7 @@ const SchemaComponents = {
 		const div = document.createElement("div");
 		div.className = "sb-nested";
 		div.innerHTML = `<div class="sb-section-title" style="color:var(--primary); justify-content:space-between; align-items:center;">
-            <span>📸 Image Manager: ${key.toUpperCase()}</span>
+            <span style="display:inline-flex;align-items:center;gap:6px;">${fi("camera", 14)} Image Manager: ${key.toUpperCase()}</span>
             <button class="btn btn-ghost btn-sm" onclick="SchemaBuilder.addImage('${path.join(".")}')">+ Add Image</button>
         </div>`;
 

@@ -171,7 +171,7 @@ const AIChecker = {
 				</tbody>
 			</table>
 			<div style="margin-top:20px; padding:15px; background:rgba(99,102,241,0.05); border-radius:12px; border:1px solid rgba(99,102,241,0.1); font-size:0.75rem; color:var(--muted);">
-				<strong>⚡ GIẢI PHÁP KIỂM TRA THỰC TẾ:</strong> 
+				<strong style="display:inline-flex;align-items:center;gap:5px;">${fi("zap", 13)} GIẢI PHÁP KIỂM TRA THỰC TẾ:</strong> 
 				- Nhấn <strong>"Test Live"</strong>: Hệ thống sẽ gửi một yêu cầu thực tế đến Google/Anthropic để trích xuất <strong>Rate Limit Headers</strong>. 
 				- Bạn sẽ thấy chính xác số <strong>Requests</strong> và <strong>Tokens</strong> còn lại trong phút hiện tại mà API cho phép. Đây là thông số "sống" duy nhất mà API cung cấp.
 			</div>

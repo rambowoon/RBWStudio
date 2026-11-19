@@ -236,16 +236,16 @@ const UI = {
 			);
 
 			let badgeClass = "badge-pending";
-			let badgeText = "⏳ Local";
+			let badgeText = `${fi("clock", 11)} <span>Local</span>`;
 			let cardStatusClass = "card-status-pending";
 
 			if (hasProd) {
 				badgeClass = "badge-prod";
-				badgeText = "🚀 Production";
+				badgeText = `${fi("rocket", 11)} <span>Production</span>`;
 				cardStatusClass = "card-status-prod";
 			} else if (hasDemo) {
 				badgeClass = "badge-ok";
-				badgeText = "🌿 Demo";
+				badgeText = `${fi("globe", 11)} <span>Demo</span>`;
 				cardStatusClass = "card-status-demo";
 			}
 
@@ -311,7 +311,7 @@ const UI = {
 
 				const designLinkHtml = ni.design_url
 					? `<a href="${ni.design_url}" target="_blank" onclick="event.stopPropagation();" class="card-dl-design-btn" title="Mở link Design (Figma / Nasani): ${ni.design_url}">
-						<span>🎨</span>
+						${fi("palette", 13)}
 					</a>`
 					: "";
 
@@ -327,8 +327,8 @@ const UI = {
 						safeCat,
 					);
 					badgeHtml = `
-						<div class="card-dl-badge ${rem.className}" data-deadline="${ni.deadline}" data-shortdate="${shortDate}" data-contract-code="${ni.contract_code || ""}" data-project-name="${safeName}" data-project-cat="${safeCat}" data-demo-url="${demoUrl}" title="⚡ ĐANG LÀM - Hạn chót: ${ni.deadline}\nKhách hàng: ${ni.contract_name || ""}\nMã HĐ: ${ni.contract_code || ""}\nLập trình: ${ni.dev_name || ""}">
-							<span class="dl-icon">${rem.icon}</span>
+						<div class="card-dl-badge ${rem.className}" data-deadline="${ni.deadline}" data-shortdate="${shortDate}" data-contract-code="${ni.contract_code || ""}" data-project-name="${safeName}" data-project-cat="${safeCat}" data-demo-url="${demoUrl}" title="ĐANG LÀM - Hạn chót: ${ni.deadline}\nKhách hàng: ${ni.contract_name || ""}\nMã HĐ: ${ni.contract_code || ""}\nLập trình: ${ni.dev_name || ""}">
+							<span class="dl-icon" data-icon-key="${rem.iconKey || ""}">${rem.icon}</span>
 							<span class="dl-text">${rem.text}</span>
 						</div>
 					`;
@@ -346,8 +346,8 @@ const UI = {
 						}
 					}
 					badgeHtml = `
-						<div class="card-dl-badge dl-done" title="✓ Dự án đã hoàn thành ${ni.completed_at ? "ngày " + ni.completed_at : ""}\nKhách hàng: ${ni.contract_name || ""}\nMã HĐ: ${ni.contract_code || ""}\nLập trình: ${ni.dev_name || ""}">
-							<span class="dl-icon">✓</span>
+						<div class="card-dl-badge dl-done" title="Dự án đã hoàn thành ${ni.completed_at ? "ngày " + ni.completed_at : ""}\nKhách hàng: ${ni.contract_name || ""}\nMã HĐ: ${ni.contract_code || ""}\nLập trình: ${ni.dev_name || ""}">
+							<span class="dl-icon">${fi("check", 11)}</span>
 							<span class="dl-text">${cDate || "Hoàn thành"}</span>
 						</div>
 					`;
@@ -432,7 +432,8 @@ const UI = {
 			return {
 				text: shortDate || "",
 				className: "dl-normal",
-				icon: "⚡",
+				iconKey: "zap",
+				icon: fi("zap", 11),
 				diffMs: 0,
 			};
 		const diffMs = targetDate.getTime() - Date.now();
@@ -455,7 +456,8 @@ const UI = {
 			return {
 				text: `Trễ ${timeStr} (${shortDate})`,
 				className: "dl-overdue",
-				icon: "🚨",
+				iconKey: "alert",
+				icon: fi("alert", 11),
 				diffMs: diffMs,
 			};
 		}
@@ -474,7 +476,8 @@ const UI = {
 			return {
 				text: `Còn ${timeStr}! (${shortDate})`,
 				className: "dl-critical-10m",
-				icon: "🔥",
+				iconKey: "flame",
+				icon: fi("flame", 11),
 				diffMs: diffMs,
 			};
 		}
@@ -485,7 +488,8 @@ const UI = {
 			return {
 				text: `Còn ${timeStr} (${shortDate})`,
 				className: "dl-urgent",
-				icon: "⚠️",
+				iconKey: "clock",
+				icon: fi("clock", 11),
 				diffMs: diffMs,
 			};
 		}
@@ -495,7 +499,8 @@ const UI = {
 		return {
 			text: `Còn ${timeStr} (${shortDate})`,
 			className: "dl-normal",
-			icon: "⚡",
+			iconKey: "zap",
+			icon: fi("zap", 11),
 			diffMs: diffMs,
 		};
 	},
@@ -530,8 +535,10 @@ const UI = {
 			}
 			const iconEl = badge.querySelector(".dl-icon");
 			const textEl = badge.querySelector(".dl-text");
-			if (iconEl && iconEl.textContent !== res.icon)
-				iconEl.textContent = res.icon;
+			if (iconEl && iconEl.dataset.iconKey !== (res.iconKey || "")) {
+				iconEl.dataset.iconKey = res.iconKey || "";
+				iconEl.innerHTML = res.icon;
+			}
 			if (textEl && textEl.textContent !== res.text)
 				textEl.textContent = res.text;
 
@@ -951,21 +958,21 @@ const UI = {
 			<div style="background: #1e222d; border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 16px; width: 100%; max-width: 520px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); overflow: hidden; font-family: inherit; color: #f1f5f9;">
 				<div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 18px 24px; display: flex; align-items: center; justify-content: space-between;">
 					<div style="display: flex; align-items: center; gap: 10px;">
-						<span style="font-size: 24px;">⚡</span>
+						<span style="display: inline-flex; color: #ffffff;">${fi("zap", 22)}</span>
 						<div>
 							<div style="font-weight: 700; font-size: 16px; color: #ffffff;">${info.isAutoTriggered ? "Cảnh báo 5 Phút: Tự động Báo Cáo Dự Án" : "Báo Cáo Hoàn Thành Dự Án"}</div>
 							<div style="font-size: 12px; color: rgba(255,255,255,0.85);">Hợp đồng: <b>${info.contractCode}</b> (${info.projectName})</div>
 						</div>
 					</div>
-					<button onclick="document.getElementById('rbw-autoreport-modal').remove()" style="background: rgba(0,0,0,0.2); border: none; color: #fff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;">✕</button>
+					<button onclick="document.getElementById('rbw-autoreport-modal').remove()" style="background: rgba(0,0,0,0.2); border: none; color: #fff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center;">${fi("x", 15)}</button>
 				</div>
 				<div style="padding: 20px 24px;">
 					<div style="margin-bottom: 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 14px;">
 						<div style="margin-bottom: 10px;">
 							<div style="font-size: 11px; text-transform: uppercase; color: #94a3b8; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
 								<span>Link quản trị (/admin)</span>
-								<span style="font-size: 10px; padding: 1px 6px; border-radius: 4px; ${info.isDeployed ? "background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4);" : "background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);"}">
-									${info.isDeployed ? "✓ Đã lấy đúng link Demo đã deploy" : "⚡ Link Demo dự kiến"}
+								<span style="font-size: 10px; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; ${info.isDeployed ? "background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4);" : "background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);"}">
+									${info.isDeployed ? `${fi("check", 10)} Đã lấy đúng link Demo đã deploy` : `${fi("zap", 10)} Link Demo dự kiến`}
 								</span>
 							</div>
 							<div style="font-size: 13px; font-weight: 600; color: #38bdf8; word-break: break-all;">${info.adminUrl}</div>
@@ -986,13 +993,13 @@ const UI = {
 					</div>
 
 					<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 18px; font-size: 13px; color: ${info.autoOpened ? "#34d399" : "#fbbf24"};">
-						<span>${info.autoOpened ? "✓" : "⚠️"}</span>
+						<span style="display: inline-flex;">${info.autoOpened ? fi("checkCircle", 15) : fi("alert", 15)}</span>
 						<span>${info.autoOpened ? "Đã gửi lệnh qua Extension và tự động điền form trên Nasani." : "Trình duyệt có thể đã chặn popup, vui lòng bấm nút bên dưới để mở ngay:"}</span>
 					</div>
 
 					<div style="display: flex; gap: 12px;">
 						<button type="button" onclick="UI.onAutoReportModalOpenBtnClick('${info.contractCode}', '${info.adminUrl.replace(/'/g, "\\'")}', '${info.adminPass}')" style="flex: 1; text-align: center; background: #10b981; color: #ffffff; border: none; padding: 12px; border-radius: 10px; font-weight: 700; font-size: 14px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35); display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">
-							<span>🚀</span> Mở Trang Báo Cáo Nasani
+							${fi("rocket", 15)} <span>Mở Trang Báo Cáo Nasani</span>
 						</button>
 						<button type="button" onclick="document.getElementById('rbw-autoreport-modal').remove()" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #94a3b8; border-radius: 10px; padding: 12px 18px; font-size: 13px; font-weight: 600; cursor: pointer;">Đóng</button>
 					</div>
@@ -1045,13 +1052,13 @@ const UI = {
 			<div style="background: #1e222d; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 16px; width: 100%; max-width: 560px; box-shadow: 0 24px 64px rgba(0,0,0,0.65); overflow: hidden; font-family: inherit; color: #f1f5f9;">
 				<div style="background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%); padding: 18px 24px; display: flex; align-items: center; justify-content: space-between;">
 					<div style="display: flex; align-items: center; gap: 10px;">
-						<span style="font-size: 24px;">🧩</span>
+						<span style="display: inline-flex; color: #ffffff;">${fi("puzzle", 22)}</span>
 						<div>
 							<div style="font-weight: 700; font-size: 16px; color: #ffffff;">Chrome Extension — Nasani Projects Sync</div>
 							<div style="font-size: 12px; color: rgba(255,255,255,0.85);">Đồng bộ Deadline &amp; Tự động điền form Báo cáo Nasani</div>
 						</div>
 					</div>
-					<button type="button" id="rbw-ext-close-top" style="background: rgba(0,0,0,0.2); border: none; color: #fff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;">✕</button>
+					<button type="button" id="rbw-ext-close-top" style="background: rgba(0,0,0,0.2); border: none; color: #fff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center;">${fi("x", 15)}</button>
 				</div>
 				<div style="padding: 20px 24px;">
 					<div style="display: flex; gap: 12px; margin-bottom: 14px;">
@@ -1069,19 +1076,19 @@ const UI = {
 						<div style="font-size: 11px; text-transform: uppercase; color: #94a3b8; font-weight: 600; margin-bottom: 6px;">Đường dẫn thư mục Extension (Đã tự động copy)</div>
 						<div style="display: flex; gap: 8px; align-items: center;">
 							<input type="text" id="rbw-ext-path-input" readonly value="${escHtml(extPath)}" style="flex: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.12); color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12.5px; font-family: monospace; outline: none;">
-							<button type="button" id="rbw-ext-copy-btn" style="background: rgba(56, 189, 248, 0.16); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;">📋 Copy đường dẫn</button>
+							<button type="button" id="rbw-ext-copy-btn" style="background: rgba(56, 189, 248, 0.16); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px;">${fi("clipboard", 13)} Copy đường dẫn</button>
 						</div>
 					</div>
 
 					<div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px;">
 						<button type="button" id="rbw-ext-btn-install" style="width: 100%; background: linear-gradient(135deg, #0ea5e9, #2563eb); color: #ffffff; border: none; padding: 12px 16px; border-radius: 10px; font-weight: 700; font-size: 13.5px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(14, 165, 233, 0.35);">
-							<span>🧩</span> Cài vào Chrome (Mở chrome://extensions &amp; Thư mục Extension)
+							${fi("puzzle", 15)} <span>Cài vào Chrome (Mở chrome://extensions &amp; Thư mục Extension)</span>
 						</button>
 						<button type="button" id="rbw-ext-btn-launch" style="width: 100%; background: rgba(16, 185, 129, 0.14); border: 1px solid rgba(16, 185, 129, 0.35); color: #34d399; padding: 11px 16px; border-radius: 10px; font-weight: 600; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
-							<span>🚀</span> Khởi chạy Chrome nạp sẵn Extension &amp; Mở Nasani
+							${fi("rocket", 15)} <span>Khởi chạy Chrome nạp sẵn Extension &amp; Mở Nasani</span>
 						</button>
 						<button type="button" id="rbw-ext-btn-open-nasani" style="width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #e2e8f0; padding: 10px 16px; border-radius: 10px; font-weight: 600; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
-							<span>🌐</span> Mở danh sách kỹ thuật Nasani (projects.nasani.vn)
+							${fi("globe", 15)} <span>Mở danh sách kỹ thuật Nasani (projects.nasani.vn)</span>
 						</button>
 					</div>
 
@@ -1183,7 +1190,7 @@ const UI = {
 					? `
             <button class="action-menu-item" style="color: #10b981; font-weight: 600;" onclick="UI.closePortalMenu(); UI.triggerAutoReport('${safeName}','${safeCat}')">
                 <span class="menu-icon mi-green"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
-                ⚡ Báo cáo hoàn thành (Nasani)
+                Báo cáo hoàn thành (Nasani)
             </button>
             `
 					: ""
@@ -1204,11 +1211,11 @@ const UI = {
             </button>
             <button class="action-menu-item ${isLockedDemo ? "disabled" : ""}" onclick="UI.closePortalMenu(); App.deployDemo('${safeName}','${safeCat}')">
                 <span class="menu-icon mi-green"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
-                Deploy Demo ${isLockedDemo ? "🔒" : ""}
+                Deploy Demo ${isLockedDemo ? fi("lock", 12) : ""}
             </button>
             <button class="action-menu-item ${isLockedDemo ? "disabled" : ""}" onclick="UI.closePortalMenu(); App.deployDbDemo('${safeName}','${safeCat}')">
                 <span class="menu-icon mi-green portal-db-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-2.239 10-5V7c0-2.761-4.477-5-10-5S2 4.239 2 7v10c0 2.761 4.477 5 10 5z"/><path d="M2 7c0 2.761 4.477 5 10 5s10-2.239 10-5"/><path d="M2 12c0 2.761 4.477 5 10 5s10-2.239 10-5"/></svg></span>
-                Deploy DB Demo ${isLockedDemo ? "🔒" : ""}
+                Deploy DB Demo ${isLockedDemo ? fi("lock", 12) : ""}
             </button>
             <button class="action-menu-item" onclick="UI.closePortalMenu(); App.pushTools('${safeName}','${safeCat}')">
                 <span class="menu-icon mi-cyan"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg></span>
@@ -1348,9 +1355,9 @@ const UI = {
 		const toast = document.createElement("div");
 		toast.className = `toast toast-${type}`;
 
-		let icon = "ℹ️";
-		if (type === "success") icon = "✔️";
-		if (type === "error") icon = "❌";
+		let icon = fi("alert", 15);
+		if (type === "success") icon = fi("checkCircle", 15);
+		if (type === "error") icon = fi("xCircle", 15);
 
 		toast.innerHTML = `
             <div class="toast-icon">${icon}</div>
@@ -2218,7 +2225,7 @@ const UI = {
 		if (deployed.demo) {
 			html += `
                 <div class="info-box info-box-demo">
-                    <div class="info-box-header">🌿 Demo</div>
+                    <div class="info-box-header" style="display:inline-flex;align-items:center;gap:6px">${fi("globe", 14)} Demo</div>
                     <div class="info-box-grid">
                         <div class="info-box-row"><span class="info-box-row-label-demo">Database</span><code class="code-neutral">${deployed.demo.db_name}</code></div>
                         <div class="info-box-row"><span class="info-box-row-label-demo">Username</span><code class="code-neutral">${deployed.demo.db_user}</code></div>
@@ -2229,7 +2236,7 @@ const UI = {
 		if (deployed.production) {
 			html += `
                 <div class="info-box info-box-prod">
-                    <div class="info-box-header">🚀 Production</div>
+                    <div class="info-box-header" style="display:inline-flex;align-items:center;gap:6px">${fi("rocket", 14)} Production</div>
                     <div class="info-box-grid">
                         <div class="info-box-row"><span class="info-box-row-label-prod">Database</span><code class="code-neutral">${deployed.production.db_name}</code></div>
                         <div class="info-box-row"><span class="info-box-row-label-prod">Username</span><code class="code-neutral">${deployed.production.db_user}</code></div>
@@ -2253,17 +2260,17 @@ const UI = {
 	formatDuration(totalSec) {
 		const mins = String(Math.floor(totalSec / 60)).padStart(2, "0");
 		const secs = String(totalSec % 60).padStart(2, "0");
-		return `⏱️ ${mins}:${secs}`;
+		return `${fi("clock", 12)} ${mins}:${secs}`;
 	},
 
 	startDeployTimer() {
 		this.stopDeployTimer();
 		const timerEl = document.getElementById("deploy-timer");
 		let sec = 0;
-		if (timerEl) timerEl.innerText = "⏱️ 00:00";
+		if (timerEl) timerEl.innerHTML = `${fi("clock", 12)} 00:00`;
 		this._deployTimerInterval = setInterval(() => {
 			sec++;
-			if (timerEl) timerEl.innerText = this.formatDuration(sec);
+			if (timerEl) timerEl.innerHTML = this.formatDuration(sec);
 		}, 1000);
 	},
 
@@ -2279,7 +2286,7 @@ const UI = {
 	setupDeployModal(opts = {}) {
 		this._deployModalConfigured = true;
 		const {
-			icon = "🚀",
+			icon = "rocket",
 			title = "Đang triển khai...",
 			project = "",
 			category = "",
@@ -2301,7 +2308,12 @@ const UI = {
 		const statusEl = document.getElementById("status-text");
 		const footerEl = document.getElementById("deploy-footer");
 
-		if (iconEl) iconEl.innerText = icon;
+		if (iconEl) {
+			iconEl.innerHTML =
+				typeof icon === "string" && icon.trim().startsWith("<")
+					? icon
+					: fi(window.FlatIcons?.PATHS?.[icon] ? icon : "rocket", 18);
+		}
 		if (titleEl) titleEl.innerText = title;
 		if (projEl) projEl.innerText = project || "--";
 		if (catEl) {
@@ -2342,10 +2354,10 @@ const UI = {
 				.map(
 					(s, idx) => `
                 <div id="deploy-step-${idx + 1}" class="shot-step" style="display:flex; align-items:center; gap:10px; color:${idx === 0 ? "#38bdf8" : "var(--muted)"}; opacity:${idx === 0 ? "1" : "0.55"}; transition:all .25s">
-                    <span class="shot-step-icon" style="width:22px; text-align:center; flex-shrink:0">${
+                    <span class="shot-step-icon" style="width:22px; display:inline-flex; justify-content:center; flex-shrink:0">${
 						idx === 0
 							? '<span class="spinner-small" style="width:13px; height:13px; border:2px solid rgba(255,255,255,0.2); border-top-color:#38bdf8; border-radius:50%; animation:spin 0.8s linear infinite; display:inline-block;"></span>'
-							: "⚪"
+							: fi("circle", 13)
 					}</span>
                     <div style="flex:1; min-width:0">
                         <div style="font-weight:600" class="shot-step-title">${s.title}</div>
@@ -2377,15 +2389,15 @@ const UI = {
 		} else if (state === "done") {
 			stepEl.style.opacity = "1";
 			stepEl.style.color = "#34d399";
-			if (iconEl) iconEl.innerHTML = "✅";
+			if (iconEl) iconEl.innerHTML = fi("checkCircle", 15);
 		} else if (state === "error") {
 			stepEl.style.opacity = "1";
 			stepEl.style.color = "#f87171";
-			if (iconEl) iconEl.innerHTML = "❌";
+			if (iconEl) iconEl.innerHTML = fi("xCircle", 15);
 		} else {
 			stepEl.style.opacity = "0.55";
 			stepEl.style.color = "var(--muted)";
-			if (iconEl) iconEl.innerHTML = "⚪";
+			if (iconEl) iconEl.innerHTML = fi("circle", 13);
 		}
 	},
 
@@ -2457,10 +2469,10 @@ const UI = {
 				const msgHtml = logText || status;
 				if (isSuccess) {
 					bannerEl.style.display = "block";
-					bannerEl.innerHTML = `<div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius:10px; padding:12px 14px; display:flex; align-items:center; gap:10px"><span style="font-size:1.35rem">🎉</span><div style="flex:1; font-size:0.85rem; color:#34d399; font-weight:600; line-height:1.45">${msgHtml}</div></div>`;
+					bannerEl.innerHTML = `<div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius:10px; padding:12px 14px; display:flex; align-items:center; gap:10px"><span style="display:inline-flex;color:#10b981">${fi("checkCircle", 20)}</span><div style="flex:1; font-size:0.85rem; color:#34d399; font-weight:600; line-height:1.45">${msgHtml}</div></div>`;
 				} else {
 					bannerEl.style.display = "block";
-					bannerEl.innerHTML = `<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius:10px; padding:12px 14px; display:flex; align-items:center; gap:10px"><span style="font-size:1.35rem">⚠️</span><div style="flex:1; font-size:0.84rem; color:#fca5a5; font-weight:600; line-height:1.45">${msgHtml}</div></div>`;
+					bannerEl.innerHTML = `<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius:10px; padding:12px 14px; display:flex; align-items:center; gap:10px"><span style="display:inline-flex;color:#ef4444">${fi("alert", 20)}</span><div style="flex:1; font-size:0.84rem; color:#fca5a5; font-weight:600; line-height:1.45">${msgHtml}</div></div>`;
 				}
 			}
 		}

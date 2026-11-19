@@ -47,6 +47,16 @@ const ICONS = {
   pipette: `<path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/>`,
   alert: `<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`,
   info: `<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>`,
+  star: `<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>`,
+  clipboard: `<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>`,
+  plug: `<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>`,
+  clock: `<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>`,
+  link: `<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>`,
+  circle: `<circle cx="12" cy="12" r="7"/>`,
+  checkCircle: `<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>`,
+  xCircle: `<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>`,
+  list: `<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>`,
+  alertTriangle: `<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>`,
 };
 
 function svgIcon(name, size = 16) {
@@ -845,13 +855,13 @@ function renderDemoServersSettingsList() {
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 10px;">
             <span class="srv-card-title" data-srv-id="${srv.id}" style="font-size: 15px; font-weight: 700; color: var(--text);">${escapeHtml(cardTitle)}</span>
-            ${isDefault ? '<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 11px; padding: 2px 7px; border-radius: 4px; font-weight: 700;">⭐ MẶC ĐỊNH</span>' : ''}
+            ${isDefault ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 11px; padding: 2px 7px; border-radius: 4px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">${svgIcon("star", 11)} MẶC ĐỊNH</span>` : ''}
           </div>
           <div style="display: flex; gap: 6px;">
-            ${!isDefault ? `<button type="button" class="btn btn-ghost btn-xs btn-set-default" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px;">⭐ Đặt mặc định</button>` : ''}
-            <button type="button" class="btn btn-ghost btn-xs btn-quick-paste-srv" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px;">📋 Dán nhanh</button>
-            <button type="button" class="btn btn-ghost btn-xs btn-test-conn" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px;">🔌 Test kết nối</button>
-            <button type="button" class="btn btn-ghost btn-xs btn-del-srv" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px; color: #ef4444;">🗑️ Xóa</button>
+            ${!isDefault ? `<button type="button" class="btn btn-ghost btn-xs btn-set-default" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">${svgIcon("star", 12)} Đặt mặc định</button>` : ''}
+            <button type="button" class="btn btn-ghost btn-xs btn-quick-paste-srv" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">${svgIcon("clipboard", 12)} Dán nhanh</button>
+            <button type="button" class="btn btn-ghost btn-xs btn-test-conn" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">${svgIcon("plug", 12)} Test kết nối</button>
+            <button type="button" class="btn btn-ghost btn-xs btn-del-srv" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px; color: #ef4444; display: inline-flex; align-items: center; gap: 4px;">${svgIcon("trash", 12)} Xóa</button>
           </div>
         </div>
 
@@ -991,7 +1001,7 @@ function renderDemoServersSettingsList() {
       }
 
       btn.disabled = true;
-      btn.textContent = "⏳ Đang kết nối...";
+      btn.innerHTML = `${svgIcon("refresh", 12)} Đang kết nối...`;
       try {
         const res = await tauriInvoke("rbw_pro_dispatch", {
           req: {
@@ -1009,15 +1019,15 @@ function renderDemoServersSettingsList() {
         });
 
         if (res && res.status === "success") {
-          showToast(`✅ [${srv.name || srv.ftp_host}] ${res.message || "Kết nối thành công!"}`, "success");
+          showToast(`[${srv.name || srv.ftp_host}] ${res.message || "Kết nối thành công!"}`, "success");
         } else {
-          showToast(`❌ [${srv.name || srv.ftp_host}] ${res?.message || "Không thể kết nối đến máy chủ demo!"}`, "error");
+          showToast(`[${srv.name || srv.ftp_host}] ${res?.message || "Không thể kết nối đến máy chủ demo!"}`, "error");
         }
       } catch (err) {
         showToast("Lỗi kiểm tra kết nối: " + String(err), "error");
       } finally {
         btn.disabled = false;
-        btn.textContent = "🔌 Test kết nối";
+        btn.innerHTML = `${svgIcon("plug", 12)} Test kết nối`;
       }
     });
   });
@@ -1698,10 +1708,10 @@ function renderStoreItems(category) {
       <div class="store-head">
         <span class="tile sm tile-violet">${svgIcon("terminal", 16)}</span>
         <div class="store-meta">
-          <div class="store-title" style="color: var(--accent);">⚡ Cài đặt trọn bộ dịch vụ macOS qua Homebrew</div>
+          <div class="store-title" style="color: var(--accent); display: inline-flex; align-items: center; gap: 6px;">${svgIcon("zap", 14)} Cài đặt trọn bộ dịch vụ macOS qua Homebrew</div>
           <div class="store-desc">Cài đặt tự động PHP, MariaDB và Nginx bằng lệnh: <code>brew install php mariadb nginx</code></div>
         </div>
-        <button class="btn btn-primary btn-sm" id="btnBrewInstallQuick" style="white-space: nowrap;">💻 Mở Terminal cài đặt</button>
+        <button class="btn btn-primary btn-sm" id="btnBrewInstallQuick" style="white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;">${svgIcon("terminal", 14)} Mở Terminal cài đặt</button>
       </div>
     </div>`;
   }
@@ -2018,12 +2028,12 @@ function startMainDeployTimer() {
   stopMainDeployTimer();
   const timerEl = document.getElementById("mainDeployTimer");
   let sec = 0;
-  if (timerEl) timerEl.textContent = "⏱️ 00:00";
+  if (timerEl) timerEl.innerHTML = `${svgIcon("clock", 12)} 00:00`;
   mainDeployTimerId = setInterval(() => {
     sec++;
     const mins = String(Math.floor(sec / 60)).padStart(2, "0");
     const secs = String(sec % 60).padStart(2, "0");
-    if (timerEl) timerEl.textContent = `⏱️ ${mins}:${secs}`;
+    if (timerEl) timerEl.innerHTML = `${svgIcon("clock", 12)} ${mins}:${secs}`;
   }, 1000);
 }
 
@@ -2046,9 +2056,9 @@ function setMainDeployStep(stepNum, state, subText = null) {
   if (subText && subEl) subEl.textContent = subText;
   if (iconEl) {
     if (state === "active") iconEl.innerHTML = '<span class="step-spinner"></span>';
-    else if (state === "done") iconEl.textContent = "✅";
-    else if (state === "error") iconEl.textContent = "❌";
-    else iconEl.textContent = "⚪";
+    else if (state === "done") iconEl.innerHTML = `<span style="color:#10b981;display:inline-flex">${svgIcon("checkCircle", 15)}</span>`;
+    else if (state === "error") iconEl.innerHTML = `<span style="color:#ef4444;display:inline-flex">${svgIcon("xCircle", 15)}</span>`;
+    else iconEl.innerHTML = `<span style="color:var(--text-3);opacity:0.5;display:inline-flex">${svgIcon("circle", 13)}</span>`;
   }
 }
 
@@ -2069,7 +2079,7 @@ function resetMainDeployStatus(statusText, ready = true) {
     st.style.color = ready ? "var(--text-3)" : "#f87171";
   }
   if (sp) sp.style.display = "none";
-  if (timerEl) timerEl.textContent = "⏱️ 00:00s";
+  if (timerEl) timerEl.innerHTML = `${svgIcon("clock", 12)} 00:00s`;
   if (banner) {
     banner.style.display = "none";
     banner.innerHTML = "";
@@ -2088,7 +2098,7 @@ function resetMainDeployStatus(statusText, ready = true) {
 async function openDeployModal(siteName) {
   appState.activeDeploySite = siteName;
   const info = await tauriInvoke("get_deploy_data", { siteName });
-  document.getElementById("deployModalTitle").textContent = `🚀 Deploy Demo — ${siteName}`;
+  document.getElementById("deployModalTitle").innerHTML = `${svgIcon("rocket", 15)} <span>Deploy Demo — ${escapeHtml(siteName)}</span>`;
   document.getElementById("lblDeployTargetUrl").textContent = info.targetUrl;
   document.getElementById("lblDeployLocalDb").textContent = info.localDbName || "(Không có)";
   document.getElementById("lblDeployTargetDb").textContent = info.targetDbName;
@@ -2281,7 +2291,7 @@ function bindRealtimeListeners() {
         if (st) st.style.color = "#34d399";
         if (banner) {
           banner.style.display = "block";
-          banner.innerHTML = `<div style="margin-top:8px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:10px 12px;color:#34d399;font-size:12.5px;font-weight:600">🎉 ${payload.message}</div>`;
+          banner.innerHTML = `<div style="margin-top:8px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:10px 12px;color:#34d399;font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:8px">${svgIcon("checkCircle", 15)}<span>${payload.message}</span></div>`;
         }
       } else {
         const errStep = p >= 85 ? 5 : p >= 70 ? 4 : p >= 55 ? 3 : p >= 30 ? 2 : 1;
@@ -2291,7 +2301,7 @@ function bindRealtimeListeners() {
         if (bar) bar.style.background = "linear-gradient(90deg, #ef4444, #f87171)";
         if (banner) {
           banner.style.display = "block";
-          banner.innerHTML = `<div style="margin-top:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 12px;color:#fca5a5;font-size:12.5px;font-weight:600">⚠️ ${payload.message}</div>`;
+          banner.innerHTML = `<div style="margin-top:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 12px;color:#fca5a5;font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:8px">${svgIcon("alertTriangle", 15)}<span>${payload.message}</span></div>`;
         }
       }
       await refreshSitesList();
@@ -2367,7 +2377,7 @@ function bindRealtimeListeners() {
   tauriListen("color-picked", (event) => {
     const payload = event.payload || {};
     if (payload.value) {
-      showToast(`🎨 Đã copy mã màu: ${payload.value}`, "success");
+      showToast(`Đã copy mã màu: ${payload.value}`, "success");
       setHeaderStatus(`Đã copy màu ${payload.value}`);
     }
   });

@@ -68,7 +68,7 @@ const ConverterUI = {
     async process() {
         const btn = document.getElementById('start-convert-btn');
         const originalText = btn.innerText;
-        btn.innerText = '⏳ Đang xử lý...';
+        btn.innerHTML = `${fi("loader", 14)} Đang xử lý...`;
         btn.disabled = true;
 
         const deep = document.getElementById('conv-deep')?.checked ? 1 : 0;

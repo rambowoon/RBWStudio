@@ -932,14 +932,14 @@ const App = {
 
 			card.innerHTML = `
 				<div class="flex-between-center-mb20">
-					<h3 class="card-title-sm">${isDefault ? "⭐ " : ""} <input type="text" style="background:transparent; border:none; border-bottom:1px solid #555; color:#fff; font-size:1rem; width:150px; outline:none;" value="${demo.name || ""}" onchange="App.updateDemoField('${demo.id}', 'name', this.value)" placeholder="Tên Server"></h3>
+					<h3 class="card-title-sm" style="display:inline-flex;align-items:center;gap:6px;">${isDefault ? `<span style="color:#f59e0b;display:inline-flex;">${fi("star", 14)}</span>` : ""}<input type="text" style="background:transparent; border:none; border-bottom:1px solid #555; color:#fff; font-size:1rem; width:150px; outline:none;" value="${demo.name || ""}" onchange="App.updateDemoField('${demo.id}', 'name', this.value)" placeholder="Tên Server"></h3>
 					<div class="flex-align-center-gap10">
 						${!isDefault ? `<button class="btn btn-ghost" style="padding:4px 8px; font-size:0.75rem;" onclick="App.setDefaultDemoGrid('${demo.id}')">Làm mặc định</button>` : ""}
 						<button class="btn btn-ghost" style="padding:4px 8px; font-size:0.75rem; color:var(--danger);" onclick="App.deleteDemoGrid('${demo.id}')">Xóa</button>
 					</div>
 				</div>
 				<div style="margin-bottom:15px;">
-					<button class="btn btn-ghost" style="width: 100%; border: 1px dashed var(--border); color: var(--primary);" onclick="App.showDemoQuickPaste('${demo.id}')">⚡ Dán nhanh cấu hình</button>
+					<button class="btn btn-ghost" style="width: 100%; border: 1px dashed var(--border); color: var(--primary);" onclick="App.showDemoQuickPaste('${demo.id}')">${fi("zap", 13)} Dán nhanh cấu hình</button>
 				</div>
 				<div class="form-group" style="margin-bottom:10px;">
 					<label style="font-size:0.7rem;">Host / IP</label>
@@ -974,7 +974,7 @@ const App = {
 		const saveDiv = document.createElement("div");
 		saveDiv.style.gridColumn = "1 / -1";
 		saveDiv.style.textAlign = "right";
-		saveDiv.innerHTML = `<button class="btn btn-primary btn-submit-large" onclick="App.saveDemoListConfig()">💾 Lưu Danh sách Demo</button>`;
+		saveDiv.innerHTML = `<button class="btn btn-primary btn-submit-large" onclick="App.saveDemoListConfig()">${fi("save", 14)} Lưu Danh sách Demo</button>`;
 		list.appendChild(saveDiv);
 	},
 
@@ -1436,7 +1436,7 @@ const App = {
 
 	async setupLocalSource(name, category, forceOverwriteDb = null) {
 		UI.setupDeployModal({
-			icon: "🗄️",
+			icon: "db",
 			title: "Cấu hình Source Local & Database",
 			project: name,
 			category: category || "",
@@ -1653,7 +1653,7 @@ const App = {
 		this._isDeploying = true;
 
 		UI.setupDeployModal({
-			icon: "🔎",
+			icon: "search",
 			title: "Kiểm tra & Deploy Demo",
 			project: name,
 			category: category || "",
@@ -1988,7 +1988,7 @@ const App = {
 		if (!confirmed) return;
 
 		UI.setupDeployModal({
-			icon: "⚡",
+			icon: "zap",
 			title: "Tích hợp AMP NASANI",
 			project: name,
 			category: category || "",
@@ -2150,15 +2150,15 @@ const App = {
 			} else if (state === "done") {
 				el.style.opacity = "1";
 				el.style.color = "#34d399";
-				if (ic) ic.innerHTML = "✅";
+				if (ic) ic.innerHTML = fi("checkCircle", 15);
 			} else if (state === "error") {
 				el.style.opacity = "1";
 				el.style.color = "#f87171";
-				if (ic) ic.innerHTML = "❌";
+				if (ic) ic.innerHTML = fi("xCircle", 15);
 			} else {
 				el.style.opacity = "0.55";
 				el.style.color = "var(--muted)";
-				if (ic) ic.innerHTML = "⚪";
+				if (ic) ic.innerHTML = fi("circle", 13);
 			}
 		};
 		setSslStep(1, "waiting");
@@ -2195,7 +2195,7 @@ const App = {
 					if (bar) bar.style.width = "100%";
 					document.getElementById("ssl-status-text").innerText =
 						"Cài đặt thành công!";
-					logOutput.innerHTML = `<div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:10px 12px;color:#34d399;font-weight:600">🎉 ${res.message}</div>`;
+					logOutput.innerHTML = `<div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:10px 12px;color:#34d399;font-weight:600;display:flex;align-items:center;gap:8px;">${fi("checkCircle", 16)} ${res.message}</div>`;
 					confetti({
 						particleCount: 100,
 						spread: 70,
@@ -2205,7 +2205,7 @@ const App = {
 					setSslStep(2, "error");
 					document.getElementById("ssl-status-text").innerText =
 						"Cài đặt thất bại";
-					logOutput.innerHTML = `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 12px;color:#fca5a5;font-weight:600">⚠️ ${res.message}</div>`;
+					logOutput.innerHTML = `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 12px;color:#fca5a5;font-weight:600;display:flex;align-items:center;gap:8px;">${fi("alert", 16)} ${res.message}</div>`;
 				}
 				document.getElementById("ssl-status-icon").style.display = "none";
 				document.getElementById("ssl-footer").style.display = "flex";
@@ -2302,7 +2302,7 @@ const App = {
 		const jobId = "job_" + Date.now();
 		const presets = {
 			deployNewProject: {
-				icon: "🚀",
+				icon: "rocket",
 				title: "Đúc dự án mới",
 				targetDesc: customInitiator || "Copy Source mẫu & khởi tạo Database tự động",
 				steps: [
@@ -2314,7 +2314,7 @@ const App = {
 				],
 			},
 			deployDemo: {
-				icon: "☁️",
+				icon: "cloud",
 				title: "Deploy lên Server Demo",
 				targetDesc: customInitiator,
 				steps: [
@@ -2324,7 +2324,7 @@ const App = {
 				],
 			},
 			publishToProduction: {
-				icon: "🌐",
+				icon: "globe",
 				title: "Xuất bản lên Production",
 				targetDesc: customInitiator,
 				steps: [
@@ -2335,7 +2335,7 @@ const App = {
 			},
 		};
 		const preset = presets[action] || {
-			icon: "⚙️",
+			icon: "settings",
 			title: "Đang triển khai...",
 			targetDesc: customInitiator,
 			steps: null,
@@ -2887,10 +2887,10 @@ const App = {
 				<div class="modal-card modal-screenshot-preview" onclick="event.stopPropagation();">
 					<div class="modal-header">
 						<div class="modal-title-wrap">
-							<span style="font-size: 1.2rem;">📸</span>
+							<span style="display:inline-flex;align-items:center;color:var(--primary);">${fi("camera", 16)}</span>
 							<h3 class="modal-title" id="modal-screenshot-title">Ảnh Website</h3>
 						</div>
-						<button class="modal-close-btn" onclick="App.closeScreenshotModal()">✕</button>
+						<button class="modal-close-btn" onclick="App.closeScreenshotModal()">${fi("x", 15)}</button>
 					</div>
 					<div class="modal-body" style="padding: 14px; text-align: center;">
 						<div class="screenshot-img-frame">
@@ -3048,6 +3048,7 @@ const App = {
 			const stepEl = document.getElementById(`step-single-${stepNum}`);
 			if (!stepEl) return;
 			const iconEl = stepEl.querySelector(".shot-step-icon");
+			stepEl.dataset.stepState = state;
 			if (state === "active") {
 				stepEl.style.opacity = "1";
 				stepEl.style.color = "#38bdf8";
@@ -3057,15 +3058,15 @@ const App = {
 			} else if (state === "done") {
 				stepEl.style.opacity = "1";
 				stepEl.style.color = "#34d399";
-				if (iconEl) iconEl.innerHTML = "✅";
+				if (iconEl) iconEl.innerHTML = fi("checkCircle", 15);
 			} else if (state === "error") {
 				stepEl.style.opacity = "1";
 				stepEl.style.color = "#f87171";
-				if (iconEl) iconEl.innerHTML = "❌";
+				if (iconEl) iconEl.innerHTML = fi("xCircle", 15);
 			} else {
 				stepEl.style.opacity = "0.5";
 				stepEl.style.color = "var(--muted)";
-				if (iconEl) iconEl.innerHTML = "⚪";
+				if (iconEl) iconEl.innerHTML = fi("circle", 13);
 			}
 		};
 
@@ -3075,10 +3076,10 @@ const App = {
 
 		// Timer bắt đầu chạy
 		let elapsedSeconds = 0;
-		if (timerEl) timerEl.innerText = "⏱️ 00:00";
+		if (timerEl) timerEl.innerHTML = `${fi("clock", 12)} 00:00`;
 		const timerInterval = setInterval(() => {
 			elapsedSeconds++;
-			if (timerEl) timerEl.innerText = UI.formatDuration(elapsedSeconds);
+			if (timerEl) timerEl.innerHTML = UI.formatDuration(elapsedSeconds);
 		}, 1000);
 
 		// Animation tuần tự giả lập các giai đoạn backend đang thực thi
@@ -3215,7 +3216,7 @@ const App = {
 					if (
 						el &&
 						el.style.opacity === "1" &&
-						!el.innerText.includes("✅")
+						el.dataset.stepState !== "done"
 					) {
 						setStepState(s, "error");
 						break;
@@ -3305,7 +3306,7 @@ const App = {
 		const doneBtn = document.getElementById("btn-batch-screenshot-done");
 
 		if (titleEl)
-			titleEl.innerHTML = `<span>📸</span> Tiến trình chụp ảnh danh mục [${targetCat}]`;
+			titleEl.innerHTML = `<span style="display:inline-flex;align-items:center;">${fi("camera", 16)}</span> Tiến trình chụp ảnh danh mục [${targetCat}]`;
 		if (closeX) closeX.style.display = "none";
 		if (currentProjEl)
 			currentProjEl.innerText = "Đang lấy danh sách dự án...";
@@ -3366,7 +3367,7 @@ const App = {
 			};
 
 			addLog(
-				"🚀",
+				fi("rocket", 13),
 				`Bắt đầu chụp ảnh tự động cho ${total} website...`,
 				"#38bdf8",
 			);
@@ -3374,7 +3375,7 @@ const App = {
 			for (let i = 0; i < total; i++) {
 				if (!this.isBatchCapturing) {
 					addLog(
-						"⏹️",
+						fi("stop", 13),
 						"Tiến trình đã được dừng lại theo yêu cầu.",
 						"#fbbf24",
 					);
@@ -3386,7 +3387,7 @@ const App = {
 				const pCat = p.category || targetCat;
 				const stepNum = i + 1;
 
-				if (currentProjEl) currentProjEl.innerText = `📂 ${pName}`;
+				if (currentProjEl) currentProjEl.innerHTML = `${fi("folderOpen", 14)} ${pName}`;
 				if (countEl) countEl.innerText = `${stepNum} / ${total}`;
 				const pct = Math.round((i / total) * 100);
 				if (progressFill) progressFill.style.width = `${pct}%`;
@@ -3396,7 +3397,7 @@ const App = {
 				const itemLog = document.createElement("div");
 				itemLog.style.color = "#94a3b8";
 				itemLog.style.lineHeight = "1.4";
-				itemLog.innerHTML = `⏳ [${stepNum}/${total}] <strong>${pName}</strong>: Đang xử lý...`;
+				itemLog.innerHTML = `${fi("loader", 13, "rbw-spin")} [${stepNum}/${total}] <strong>${pName}</strong>: Đang xử lý...`;
 				logBox.appendChild(itemLog);
 				logBox.scrollTop = logBox.scrollHeight;
 
@@ -3408,7 +3409,7 @@ const App = {
 							? ` (${Math.round(res.size / 1024)} KB)`
 							: "";
 						itemLog.style.color = "#34d399";
-						itemLog.innerHTML = `✅ [${stepNum}/${total}] <strong>${pName}</strong>: Chụp thành công${sizeKb}`;
+						itemLog.innerHTML = `${fi("checkCircle", 13)} [${stepNum}/${total}] <strong>${pName}</strong>: Chụp thành công${sizeKb}`;
 
 						// Cập nhật realtime ảnh thumbnail trên card nếu đang mở
 						const safeName = pName.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -3452,12 +3453,12 @@ const App = {
 								? res.message
 								: "Không thể chụp ảnh";
 						itemLog.style.color = "#fb7185";
-						itemLog.innerHTML = `⚠️ [${stepNum}/${total}] <strong>${pName}</strong>: ${errMsg}`;
+						itemLog.innerHTML = `${fi("alert", 13)} [${stepNum}/${total}] <strong>${pName}</strong>: ${errMsg}`;
 					}
 				} catch (err) {
 					failCount++;
 					itemLog.style.color = "#fb7185";
-					itemLog.innerHTML = `❌ [${stepNum}/${total}] <strong>${pName}</strong>: Lỗi kết nối API`;
+					itemLog.innerHTML = `${fi("xCircle", 13)} [${stepNum}/${total}] <strong>${pName}</strong>: Lỗi kết nối API`;
 				}
 
 				if (progressFill)
@@ -3474,7 +3475,7 @@ const App = {
 			if (statusMsg)
 				statusMsg.innerText = `Đã xử lý xong: ${successCount} thành công, ${failCount} thất bại / bỏ qua (Tổng ${total} dự án).`;
 			addLog(
-				"🏁",
+				fi("flag", 13),
 				`Hoàn tất tiến trình chụp ảnh! Thành công: ${successCount}/${total}`,
 				"#38bdf8",
 			);
@@ -3554,13 +3555,13 @@ const App = {
 
 				let rowsHtml = "";
 				results.forEach((item, idx) => {
-					let badge = `<span class="badge badge-pending" style="font-size:0.75rem;">⏳ Local</span>`;
+					let badge = `<span class="badge badge-pending" style="font-size:0.75rem;">${fi("laptop", 12)} Local</span>`;
 					let statusColor = "#94a3b8";
 					if (item.status === "production") {
-						badge = `<span class="badge badge-prod" style="font-size:0.75rem;">🚀 Production</span>`;
+						badge = `<span class="badge badge-prod" style="font-size:0.75rem;">${fi("rocket", 12)} Production</span>`;
 						statusColor = "#fb7185";
 					} else if (item.status === "demo") {
-						badge = `<span class="badge badge-ok" style="font-size:0.75rem;">🌿 Demo</span>`;
+						badge = `<span class="badge badge-ok" style="font-size:0.75rem;">${fi("globe", 12)} Demo</span>`;
 						statusColor = "#5FF0BE";
 					}
 
@@ -3590,15 +3591,15 @@ const App = {
 								<div style="font-size: 1.25rem; font-weight: 700; color: var(--text);">${res.total}</div>
 							</div>
 							<div style="background: rgba(95, 240, 190, 0.06); border: 1px solid rgba(95, 240, 190, 0.25); border-radius: 8px; padding: 10px 12px; text-align: center;">
-								<div style="font-size: 0.72rem; color: #5FF0BE; margin-bottom: 4px;">🌿 Đã Up Demo</div>
+								<div style="font-size: 0.72rem; color: #5FF0BE; margin-bottom: 4px; display:inline-flex; align-items:center; gap:4px;">${fi("globe", 12)} Đã Up Demo</div>
 								<div style="font-size: 1.25rem; font-weight: 700; color: #5FF0BE;">${counts.demo}</div>
 							</div>
 							<div style="background: rgba(251, 113, 133, 0.06); border: 1px solid rgba(251, 113, 133, 0.25); border-radius: 8px; padding: 10px 12px; text-align: center;">
-								<div style="font-size: 0.72rem; color: #fb7185; margin-bottom: 4px;">🚀 Đã Up Production</div>
+								<div style="font-size: 0.72rem; color: #fb7185; margin-bottom: 4px; display:inline-flex; align-items:center; gap:4px;">${fi("rocket", 12)} Đã Up Production</div>
 								<div style="font-size: 1.25rem; font-weight: 700; color: #fb7185;">${counts.production}</div>
 							</div>
 							<div style="background: rgba(148, 163, 184, 0.06); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 8px; padding: 10px 12px; text-align: center;">
-								<div style="font-size: 0.72rem; color: #94a3b8; margin-bottom: 4px;">⏳ Đang ở Local</div>
+								<div style="font-size: 0.72rem; color: #94a3b8; margin-bottom: 4px; display:inline-flex; align-items:center; gap:4px;">${fi("laptop", 12)} Đang ở Local</div>
 								<div style="font-size: 1.25rem; font-weight: 700; color: #94a3b8;">${counts.local}</div>
 							</div>
 						</div>
@@ -3890,7 +3891,7 @@ const App = {
 						resBox.style.background = "rgba(255, 183, 77, 0.1)";
 						resBox.style.border = "1px solid rgba(255, 183, 77, 0.3)";
 						resBox.style.color = "#FFCB7A";
-						resBox.innerHTML = `<strong>⚠️ KẾT NỐI SERVER OK:</strong> ${res.message}<br><small style="color:var(--text-muted);">Đường dẫn: <code>${res.target_path}</code></small>`;
+						resBox.innerHTML = `<strong style="display:inline-flex;align-items:center;gap:4px;">${fi("alert", 13)} KẾT NỐI SERVER OK:</strong> ${res.message}<br><small style="color:var(--text-muted);">Đường dẫn: <code>${res.target_path}</code></small>`;
 					}
 				} else {
 					resBox.style.background = "rgba(255, 94, 143, 0.1)";

@@ -2042,3 +2042,50 @@ html[data-mode="light"] .sb-structure-item:hover .sb-drag-handle {
     color: var(--primary, #8b5cf6) !important;
     background: #F1F5F9 !important;
 }
+
+/* ==========================================================================
+   Flat SVG Icon System (Uniform stroke-based icons across RBW Pro)
+   ========================================================================== */
+.rbw-flat-svg {
+    display: inline-block;
+    vertical-align: -0.14em;
+    flex-shrink: 0;
+}
+
+@keyframes rbwSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.rbw-spin {
+    animation: rbwSpin 0.9s linear infinite;
+}
+
+i[data-fi] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+    line-height: 1;
+    font-style: normal;
+}
+
+.badge,
+.card-dl-badge,
+.card-dl-badge .dl-icon,
+.toast-icon,
+.sb-group-title,
+.deploy-step-icon,
+.shot-step-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.btn > .rbw-flat-svg,
+.btn > i[data-fi],
+button > .rbw-flat-svg,
+button > i[data-fi] {
+    vertical-align: middle;
+}

@@ -544,7 +544,7 @@ const SchemaBuilder = {
 
 		toolbar.innerHTML = `
             <div class="sb-create-toolbar-head">
-                <span class="sb-create-toolbar-title">➕ Thêm Type / Module mới</span>
+                <span class="sb-create-toolbar-title" style="display:inline-flex;align-items:center;gap:6px">${fi("plus", 14)} Thêm Type / Module mới</span>
                 <span class="sb-create-toolbar-hint">Chọn khuôn mẫu có sẵn hoặc tạo mới từ đầu</span>
             </div>
             <div class="sb-create-toolbar-grid">
@@ -563,7 +563,7 @@ const SchemaBuilder = {
                     <input type="text" id="sb-type-title" class="form-control" placeholder="vd: Tin tức, Sản phẩm">
                 </div>
                 <div class="sb-create-action">
-                    <button class="btn btn-primary" id="sb-type-add">✨ Tạo Type</button>
+                    <button class="btn btn-primary" id="sb-type-add" style="display:inline-flex;align-items:center;gap:6px">${fi("sparkles", 14)} Tạo Type</button>
                 </div>
             </div>
         `;
@@ -586,7 +586,7 @@ const SchemaBuilder = {
 							: "";
 					return `
                     <button type="button" class="sb-type-tab ${isActive ? "active" : ""}" data-type-key="${k}" title="${subTitle ? `${subTitle} (${k})` : k}">
-                        <span class="sb-type-tab-icon">📦</span>
+                        <span class="sb-type-tab-icon">${fi("box", 13)}</span>
                         <span class="sb-type-tab-key">${k}</span>
                     </button>`;
 				})
@@ -595,13 +595,13 @@ const SchemaBuilder = {
 			const showAllBtn =
 				editableKeys.length > 1
 					? `<button type="button" class="sb-type-tab sb-type-tab-all ${this.currentActiveModule === "__ALL__" ? "active" : ""}" data-type-key="__ALL__">
-                        <span>📑 Xem tất cả (${editableKeys.length})</span>
+                        <span style="display:inline-flex;align-items:center;gap:5px">${fi("layers", 13)} Xem tất cả (${editableKeys.length})</span>
                        </button>`
 					: "";
 
 			summary.innerHTML = `
                 <div class="sb-type-switcher-label">
-                    <span>📚 Đã có <b>${editableKeys.length}</b> Type:</span>
+                    <span style="display:inline-flex;align-items:center;gap:5px">${fi("layers", 13)} Đã có <b>${editableKeys.length}</b> Type:</span>
                 </div>
                 <div class="sb-type-switcher-list">
                     ${typeTabsHtml}
@@ -773,18 +773,18 @@ const SchemaBuilder = {
 			blankState.style.textAlign = "center";
 			blankState.style.color = "var(--muted)";
 			let blankHtml =
-				"<h2>👆</h2><p>File cấu hình đang trống. Vui lòng <b>Thêm mới</b> một type để bắt đầu.</p>";
+				`<div style="margin-bottom:10px;opacity:0.6">${fi("arrowUp", 28)}</div><p>File cấu hình đang trống. Vui lòng <b>Thêm mới</b> một type để bắt đầu.</p>`;
 
 			if (this.currentFile.includes("newsletters")) {
-				blankHtml += `<button class="btn btn-outline-warning btn-sm" onclick="SchemaBuilder.initNewslettersSkeleton()">✨ Khởi tạo bộ khung Newsletters chuẩn</button>`;
+				blankHtml += `<button class="btn btn-outline-warning btn-sm" style="display:inline-flex;align-items:center;gap:6px" onclick="SchemaBuilder.initNewslettersSkeleton()">${fi("sparkles", 13)} Khởi tạo bộ khung Newsletters chuẩn</button>`;
 			} else if (this.currentFile.includes("news")) {
-				blankHtml += `<button class="btn btn-outline-primary btn-sm" onclick="SchemaBuilder.initNewsSkeleton()">✨ Khởi tạo bộ khung Tin tức chuẩn</button>`;
+				blankHtml += `<button class="btn btn-outline-primary btn-sm" style="display:inline-flex;align-items:center;gap:6px" onclick="SchemaBuilder.initNewsSkeleton()">${fi("sparkles", 13)} Khởi tạo bộ khung Tin tức chuẩn</button>`;
 			} else if (this.currentFile.includes("static")) {
-				blankHtml += `<button class="btn btn-outline-info btn-sm" onclick="SchemaBuilder.initStaticSkeleton()">✨ Khởi tạo bộ khung Trang tĩnh chuẩn</button>`;
+				blankHtml += `<button class="btn btn-outline-info btn-sm" style="display:inline-flex;align-items:center;gap:6px" onclick="SchemaBuilder.initStaticSkeleton()">${fi("sparkles", 13)} Khởi tạo bộ khung Trang tĩnh chuẩn</button>`;
 			} else if (this.currentFile.includes("product")) {
-				blankHtml += `<button class="btn btn-outline-primary btn-sm" onclick="SchemaBuilder.initProductsSkeleton()">✨ Khởi tạo bộ khung Sản phẩm chuẩn</button>`;
+				blankHtml += `<button class="btn btn-outline-primary btn-sm" style="display:inline-flex;align-items:center;gap:6px" onclick="SchemaBuilder.initProductsSkeleton()">${fi("sparkles", 13)} Khởi tạo bộ khung Sản phẩm chuẩn</button>`;
 			} else if (this.currentFile.includes("photo")) {
-				blankHtml += `<button class="btn btn-outline-info btn-sm" onclick="SchemaBuilder.initPhotosSkeleton()">✨ Khởi tạo bộ khung Hình ảnh chuẩn</button>`;
+				blankHtml += `<button class="btn btn-outline-info btn-sm" style="display:inline-flex;align-items:center;gap:6px" onclick="SchemaBuilder.initPhotosSkeleton()">${fi("sparkles", 13)} Khởi tạo bộ khung Hình ảnh chuẩn</button>`;
 			}
 
 			blankState.innerHTML = blankHtml;
@@ -974,15 +974,15 @@ const SchemaBuilder = {
 			section.innerHTML = `
                 <div class="sb-section-header">
                     <div class="sb-section-heading">
-                        <span class="sb-section-icon">📦</span>
+                        <span class="sb-section-icon">${fi("box", 18)}</span>
                         <div>
                             <div class="sb-section-key">Type: <code>${key}</code><span>${typeTitle}</span></div>
                             <div class="sb-section-sub">Cấu hình các trường dữ liệu, SEO, hình ảnh và phân cấp danh mục</div>
                         </div>
                     </div>
                     <div class="sb-section-actions">
-                        <button class="btn btn-ghost btn-sm sb-preset-btn" onclick="SchemaBuilder.showPresetMenu(event, '${key}')">⚡ Áp dụng Presets</button>
-                        <button class="btn btn-danger btn-sm sb-delete-type-btn" onclick="UI.confirm('Bạn có chắc chắn muốn xóa toàn bộ Type này?').then(res => { if(res) { delete SchemaBuilder.currentData['${key}']; SchemaBuilder.renderForm(); } })">🗑️ Xóa Type</button>
+                        <button class="btn btn-ghost btn-sm sb-preset-btn" style="display:inline-flex;align-items:center;gap:5px" onclick="SchemaBuilder.showPresetMenu(event, '${key}')">${fi("zap", 13)} Áp dụng Presets</button>
+                        <button class="btn btn-danger btn-sm sb-delete-type-btn" style="display:inline-flex;align-items:center;gap:5px" onclick="UI.confirm('Bạn có chắc chắn muốn xóa toàn bộ Type này?').then(res => { if(res) { delete SchemaBuilder.currentData['${key}']; SchemaBuilder.renderForm(); } })">${fi("trash", 13)} Xóa Type</button>
                     </div>
                 </div>
             `;
@@ -992,7 +992,7 @@ const SchemaBuilder = {
 
 			// 1. Group Logic
 			const logicBox = this.createGroupWrapper(
-				"⚙️ Logic & SEO",
+				`${fi("settings", 13)} Logic & SEO`,
 				"logic",
 				key,
 			);
@@ -1001,7 +1001,7 @@ const SchemaBuilder = {
 
 			// 2. Group Standard
 			const standardBox = this.createGroupWrapper(
-				"📝 Nội dung & Thông tin",
+				`${fi("edit", 13)} Nội dung & Thông tin`,
 				"standard",
 				key,
 			);
@@ -1012,7 +1012,7 @@ const SchemaBuilder = {
 
 			// 3. Group Images
 			const imageBox = this.createGroupWrapper(
-				"🖼️ Hình ảnh & Gallery",
+				`${fi("image", 13)} Hình ảnh & Gallery`,
 				"images",
 				key,
 			);
@@ -1021,7 +1021,7 @@ const SchemaBuilder = {
 
 			// 4. Categories
 			const catBox = this.createGroupWrapper(
-				"📂 Danh mục",
+				`${fi("folderOpen", 13)} Danh mục`,
 				"categories",
 				key,
 			);
@@ -1029,7 +1029,7 @@ const SchemaBuilder = {
 
 			// 5. Status & Options (Others)
 			const otherBox = this.createGroupWrapper(
-				"🛠️ Trạng thái & Tùy chọn khác",
+				`${fi("sliders", 13)} Trạng thái & Tùy chọn khác`,
 				"others",
 				key,
 			);
@@ -2164,9 +2164,9 @@ const SchemaBuilder = {
 			document.getElementById("sb-btn-save-top") ||
 			document.querySelector("#d_tab-schema .btn-primary") ||
 			document.querySelector(".btn-primary");
-		const originalText = btn ? btn.innerText : "💾 Lưu cấu hình";
+		const originalHtml = btn ? btn.innerHTML : `${fi("save", 14)} Lưu cấu hình`;
 		if (btn) {
-			btn.innerText = "⌛ Đang lưu...";
+			btn.innerHTML = `${fi("loader", 14)} Đang lưu...`;
 			btn.disabled = true;
 		}
 
@@ -2198,7 +2198,7 @@ const SchemaBuilder = {
 			UI.notify("Không thể kết nối Api.", "error");
 		} finally {
 			if (btn) {
-				btn.innerText = originalText;
+				btn.innerHTML = originalHtml;
 				btn.disabled = false;
 			}
 		}
@@ -2395,8 +2395,8 @@ const SchemaBuilder = {
 		}
 
 		container.innerHTML = `
-            <div style="margin-bottom:15px; font-size:0.8rem; color:var(--muted);">
-                ✨ Kéo thả hoặc sử dụng mũi tên để sắp xếp thứ tự xuất hiện của các Type trong file.
+            <div style="margin-bottom:15px; font-size:0.8rem; color:var(--muted); display:flex; align-items:center; gap:6px;">
+                ${fi("sparkles", 13)} <span>Kéo thả hoặc sử dụng mũi tên để sắp xếp thứ tự xuất hiện của các Type trong file.</span>
             </div>
             <div id="sb-structure-items" style="display:flex; flex-direction:column; gap:8px;">
                 ${keys

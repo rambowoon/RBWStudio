@@ -507,13 +507,13 @@
   <div class="modal-backdrop" id="modalDeployDemo">
     <div class="modal-dialog" style="max-width:560px">
       <div class="modal-header">
-        <span id="deployModalTitle">🚀 Deploy Demo</span>
+        <span id="deployModalTitle" style="display:inline-flex;align-items:center;gap:7px"><i data-icon="rocket" data-size="15"></i><span>Deploy Demo</span></span>
         <button class="icon-btn ghost" data-close="modalDeployDemo"><i data-icon="x" data-size="15"></i></button>
       </div>
       <div class="modal-body">
         <div class="info-box">
-          <div><span class="muted">🔗 URL đích</span><b class="link-text" id="lblDeployTargetUrl"></b></div>
-          <div><span class="muted">🗄️ Database</span><span><span id="lblDeployLocalDb"></span> → <b class="success-text" id="lblDeployTargetDb"></b></span></div>
+          <div><span class="muted" style="display:inline-flex;align-items:center;gap:5px"><i data-icon="link" data-size="13"></i>URL đích</span><b class="link-text" id="lblDeployTargetUrl"></b></div>
+          <div><span class="muted" style="display:inline-flex;align-items:center;gap:5px"><i data-icon="database" data-size="13"></i>Database</span><span><span id="lblDeployLocalDb"></span> → <b class="success-text" id="lblDeployTargetDb"></b></span></div>
         </div>
         <div class="toggle-list one" style="margin-top:10px">
           <label class="toggle-row">
@@ -533,35 +533,35 @@
         <!-- Step Tracker Box (đồng bộ UI với RBW Pro) -->
         <div class="step-tracker-box" id="mainDeploySteps">
           <div class="step-row is-waiting" data-step="1">
-            <span class="step-icon">⚪</span>
+            <span class="step-icon"><i data-icon="circle" data-size="14"></i></span>
             <div class="step-info">
               <div class="step-title">1. Trích xuất Database Local</div>
               <div class="step-sub">Export dữ liệu SQL từ máy trạm localhost</div>
             </div>
           </div>
           <div class="step-row is-waiting" data-step="2">
-            <span class="step-icon">⚪</span>
+            <span class="step-icon"><i data-icon="circle" data-size="14"></i></span>
             <div class="step-info">
               <div class="step-title">2. Đóng gói mã nguồn dự án</div>
               <div class="step-sub">Nén tệp mã nguồn &amp; cấu hình .env cho Hosting</div>
             </div>
           </div>
           <div class="step-row is-waiting" data-step="3">
-            <span class="step-icon">⚪</span>
+            <span class="step-icon"><i data-icon="circle" data-size="14"></i></span>
             <div class="step-info">
               <div class="step-title">3. Khởi tạo Database DirectAdmin</div>
               <div class="step-sub">Kiểm tra / tạo Database đích trên Hosting</div>
             </div>
           </div>
           <div class="step-row is-waiting" data-step="4">
-            <span class="step-icon">⚪</span>
+            <span class="step-icon"><i data-icon="circle" data-size="14"></i></span>
             <div class="step-info">
               <div class="step-title">4. Tải dữ liệu qua FTP</div>
               <div class="step-sub">Upload payload.zip &amp; bridge.php lên Server</div>
             </div>
           </div>
           <div class="step-row is-waiting" data-step="5">
-            <span class="step-icon">⚪</span>
+            <span class="step-icon"><i data-icon="circle" data-size="14"></i></span>
             <div class="step-info">
               <div class="step-title">5. Kích hoạt Bridge &amp; hoàn tất</div>
               <div class="step-sub">Giải nén, nạp Database &amp; dọn dẹp Bridge</div>
@@ -575,13 +575,13 @@
             <span class="step-spinner" id="mainDeploySpinner" style="display:none"></span>
             <span id="mainDeployStatusText">Sẵn sàng kết nối FTP &amp; DirectAdmin...</span>
           </span>
-          <span class="deploy-timer" id="mainDeployTimer">⏱️ 00:00s</span>
+          <span class="deploy-timer" id="mainDeployTimer" style="display:inline-flex;align-items:center;gap:4px"><i data-icon="clock" data-size="12"></i>00:00s</span>
         </div>
         <div class="progress mt12"><div class="progress-fill" id="deployProgressBar"></div></div>
         <div id="mainDeployBanner" style="display:none"></div>
 
         <details class="mt12">
-          <summary style="cursor:pointer;font-size:11.5px;color:var(--text-3);user-select:none">📋 Xem nhật ký chi tiết</summary>
+          <summary style="cursor:pointer;font-size:11.5px;color:var(--text-3);user-select:none;display:inline-flex;align-items:center;gap:5px"><i data-icon="list" data-size="13"></i>Xem nhật ký chi tiết</summary>
           <div class="console-box" id="deployConsoleLog" style="margin-top:8px;height:110px">Sẵn sàng...</div>
         </details>
       </div>

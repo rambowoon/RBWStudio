@@ -55,7 +55,7 @@ var FileManager = {
 		if (desc) {
 			desc.innerHTML =
 				env === "prod"
-					? '<b style="color:#f59e0b;">🚀 ĐANG KẾT NỐI PRODUCTION HOSTING</b> - Chỉnh sửa file trực tiếp trên Server thật'
+					? `<b style="color:#f59e0b;display:inline-flex;align-items:center;gap:4px;">${fi("server", 12)} ĐANG KẾT NỐI PRODUCTION HOSTING</b> - Chỉnh sửa file trực tiếp trên Server thật`
 					: "Duyệt, chỉnh sửa và quản lý file trực tiếp trên Server Demo";
 		}
 	},
@@ -1129,33 +1129,33 @@ var FileManager = {
 		if (count === 1) {
 			const firstItem = Array.from(this.selectedItems.values())[0];
 			if (firstItem.isDir) {
-				html += `<div class="fm-ctx-item" onclick="FileManager.navigateTo('${firstItem.path}')"><span>📂 Mở thư mục</span></div>`;
+				html += `<div class="fm-ctx-item" onclick="FileManager.navigateTo('${firstItem.path}')"><span style="display:inline-flex;align-items:center;gap:6px;">${fi("folderOpen", 13)} Mở thư mục</span></div>`;
 			} else {
 				if (this.isImage(firstItem.name) && this.baseUrl) {
 					const imgUrl =
 						this.baseUrl +
 						(firstItem.path.startsWith("/") ? "" : "/") +
 						encodeURIComponent(firstItem.name);
-					html += `<div class="fm-ctx-item" onclick="FileManager.previewImage('${imgUrl}', '${this.escapeHtml(firstItem.name)}')"><span>👁️ Xem ảnh</span></div>`;
+					html += `<div class="fm-ctx-item" onclick="FileManager.previewImage('${imgUrl}', '${this.escapeHtml(firstItem.name)}')"><span style="display:inline-flex;align-items:center;gap:6px;">${fi("eye", 13)} Xem ảnh</span></div>`;
 				}
 				if (this.isEditable(firstItem.name)) {
-					html += `<div class="fm-ctx-item" onclick="FileManager.editFile('${firstItem.path}')"><span>📝 Sửa nhanh</span></div>`;
-					html += `<div class="fm-ctx-item" onclick="FileManager.openInEditor('${firstItem.path}')"><span>⚡ Mở Antigravity IDE</span></div>`;
+					html += `<div class="fm-ctx-item" onclick="FileManager.editFile('${firstItem.path}')"><span style="display:inline-flex;align-items:center;gap:6px;">${fi("edit", 13)} Sửa nhanh</span></div>`;
+					html += `<div class="fm-ctx-item" onclick="FileManager.openInEditor('${firstItem.path}')"><span style="display:inline-flex;align-items:center;gap:6px;">${fi("zap", 13)} Mở Antigravity IDE</span></div>`;
 				}
 			}
-			html += `<div class="fm-ctx-item fm-ctx-danger" onclick="FileManager.deleteSelectedItems()"><span>🗑️ Xóa</span><span class="fm-ctx-key">Del</span></div>`;
+			html += `<div class="fm-ctx-item fm-ctx-danger" onclick="FileManager.deleteSelectedItems()"><span style="display:inline-flex;align-items:center;gap:6px;">${fi("trash", 13)} Xóa</span><span class="fm-ctx-key">Del</span></div>`;
 			html += `<div class="fm-ctx-divider"></div>`;
 		} else if (count > 1) {
-			html += `<div class="fm-ctx-item fm-ctx-danger" onclick="FileManager.deleteSelectedItems()"><span>🗑️ Xóa ${count} mục đã chọn</span><span class="fm-ctx-key">Del</span></div>`;
+			html += `<div class="fm-ctx-item fm-ctx-danger" onclick="FileManager.deleteSelectedItems()"><span style="display:inline-flex;align-items:center;gap:6px;">${fi("trash", 13)} Xóa ${count} mục đã chọn</span><span class="fm-ctx-key">Del</span></div>`;
 			html += `<div class="fm-ctx-divider"></div>`;
 		}
 
 		html += `
-            <div class="fm-ctx-item" onclick="FileManager.showCreateDirModal()"><span>📁 Tạo thư mục mới</span></div>
-            <div class="fm-ctx-item" onclick="FileManager.triggerUploadFiles()"><span>☁️ Tải lên tệp tin</span></div>
-            <div class="fm-ctx-item" onclick="FileManager.triggerUploadFolder()"><span>📁 Tải lên cả thư mục</span></div>
+            <div class="fm-ctx-item" onclick="FileManager.showCreateDirModal()"><span style="display:inline-flex;align-items:center;gap:6px;">${fi("folder", 13)} Tạo thư mục mới</span></div>
+            <div class="fm-ctx-item" onclick="FileManager.triggerUploadFiles()"><span style="display:inline-flex;align-items:center;gap:6px;">${fi("upload", 13)} Tải lên tệp tin</span></div>
+            <div class="fm-ctx-item" onclick="FileManager.triggerUploadFolder()"><span style="display:inline-flex;align-items:center;gap:6px;">${fi("folderOpen", 13)} Tải lên cả thư mục</span></div>
             <div class="fm-ctx-divider"></div>
-            <div class="fm-ctx-item" onclick="FileManager.loadCurrentPath(); FileManager.loadTree(true);"><span>🔄 Làm mới</span><span class="fm-ctx-key">F5</span></div>
+            <div class="fm-ctx-item" onclick="FileManager.loadCurrentPath(); FileManager.loadTree(true);"><span style="display:inline-flex;align-items:center;gap:6px;">${fi("refresh", 13)} Làm mới</span><span class="fm-ctx-key">F5</span></div>
         `;
 
 		menu.innerHTML = html;
@@ -1362,7 +1362,7 @@ var FileManager = {
                     <!-- Header -->
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 22px; background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.08);">
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(0,210,211,0.12); display: flex; align-items: center; justify-content: center; font-size: 16px;">☁️</div>
+                            <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(0,210,211,0.12); display: flex; align-items: center; justify-content: center; color: #00d2d3;">${fi("upload", 16)}</div>
                             <div>
                                 <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #f8fafc;">Tải lên Máy chủ</h3>
                                 <span style="font-size: 11.5px; color: #94a3b8;">Đích: <code style="color:var(--primary, #00d2d3); background:rgba(0,210,211,0.08); padding:1px 6px; border-radius:4px;">${this.escapeHtml(currentPathDisplay)}</code> (${envLabel})</span>
@@ -1378,7 +1378,7 @@ var FileManager = {
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
                             <!-- Card 1: Upload Files -->
                             <div onclick="FileManager.triggerUploadFiles()" style="cursor: pointer; padding: 20px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; text-align: center; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column; align-items: center; gap: 10px;" onmouseover="this.style.borderColor='var(--primary, #00d2d3)'; this.style.background='rgba(0,210,211,0.06)'; this.style.transform='translateY(-2px)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(255,255,255,0.03)'; this.style.transform='none'">
-                                <div style="width: 46px; height: 46px; border-radius: 12px; background: rgba(0,210,211,0.12); display: flex; align-items: center; justify-content: center; font-size: 24px; color: #00d2d3;">📄</div>
+                                <div style="width: 46px; height: 46px; border-radius: 12px; background: rgba(0,210,211,0.12); display: flex; align-items: center; justify-content: center; color: #00d2d3;">${fi("fileText", 22)}</div>
                                 <div>
                                     <div style="font-size: 14px; font-weight: 700; color: #f1f5f9; margin-bottom: 4px;">Tải lên Tệp tin</div>
                                     <div style="font-size: 11.5px; color: #94a3b8; line-height: 1.4;">Chọn 1 hoặc nhiều file từ máy tính</div>
@@ -1388,7 +1388,7 @@ var FileManager = {
 
                             <!-- Card 2: Upload Folder -->
                             <div onclick="FileManager.triggerUploadFolder()" style="cursor: pointer; padding: 20px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; text-align: center; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column; align-items: center; gap: 10px;" onmouseover="this.style.borderColor='#a29bfe'; this.style.background='rgba(162,155,254,0.08)'; this.style.transform='translateY(-2px)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(255,255,255,0.03)'; this.style.transform='none'">
-                                <div style="width: 46px; height: 46px; border-radius: 12px; background: rgba(162,155,254,0.15); display: flex; align-items: center; justify-content: center; font-size: 24px; color: #a29bfe;">📁</div>
+                                <div style="width: 46px; height: 46px; border-radius: 12px; background: rgba(162,155,254,0.15); display: flex; align-items: center; justify-content: center; color: #a29bfe;">${fi("folder", 22)}</div>
                                 <div>
                                     <div style="font-size: 14px; font-weight: 700; color: #f1f5f9; margin-bottom: 4px;">Tải lên Cả Thư mục</div>
                                     <div style="font-size: 11.5px; color: #94a3b8; line-height: 1.4;">Tải toàn bộ folder & cây thư mục con</div>
@@ -1399,7 +1399,7 @@ var FileManager = {
 
                         <!-- Drag and drop zone -->
                         <div id="fm-modal-dropzone" style="border: 2px dashed rgba(255,255,255,0.15); border-radius: 12px; padding: 18px 14px; text-align: center; color: #94a3b8; font-size: 12px; transition: all 0.2s ease; background: rgba(0,0,0,0.15);">
-                            💡 Hoặc kéo & thả file / thư mục vào đây để bắt đầu tải lên ngay
+                            ${fi("lightbulb", 13)} Hoặc kéo & thả file / thư mục vào đây để bắt đầu tải lên ngay
                         </div>
                     </div>
                 </div>
@@ -1635,7 +1635,7 @@ var FileManager = {
                 <div style="background:linear-gradient(145deg, #151b26, #0d1118); border:1px solid rgba(0,210,211,0.25); padding:26px 32px; border-radius:18px; box-shadow:0 24px 60px rgba(0,0,0,0.8), 0 0 35px rgba(0,210,211,0.12); width:440px; max-width:92%; display:flex; flex-direction:column; gap:16px;">
                     <div style="display:flex; align-items:center; justify-content:space-between;">
                         <div style="display:flex; align-items:center; gap:10px;">
-                            <div style="width:34px; height:34px; border-radius:8px; background:rgba(0,210,211,0.15); display:flex; align-items:center; justify-content:center; color:#00d2d3; font-size:16px;">☁️</div>
+                            <div style="width:34px; height:34px; border-radius:8px; background:rgba(0,210,211,0.15); display:flex; align-items:center; justify-content:center; color:#00d2d3;">${fi("upload", 16)}</div>
                             <div>
                                 <div style="font-size:14px; font-weight:700; color:#f8fafc;" id="fm-prog-title">${this.escapeHtml(title)}</div>
                                 <div style="font-size:11.5px; color:#94a3b8;" id="fm-prog-counter">Chuẩn bị tải lên ${total} tệp...</div>
@@ -1718,16 +1718,16 @@ var FileManager = {
                     <!-- Header -->
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: #1f1f26; border-bottom: 1px solid rgba(255,255,255,0.08);">
                         <div style="display:flex; align-items:center; gap:10px; overflow:hidden;">
-                            <div style="width:28px; height:28px; border-radius:6px; background:rgba(0,210,211,0.12); display:flex; align-items:center; justify-content:center; color:#00d2d3; font-size:14px;">📝</div>
+                            <div style="width:28px; height:28px; border-radius:6px; background:rgba(0,210,211,0.12); display:flex; align-items:center; justify-content:center; color:#00d2d3;">${fi("edit", 14)}</div>
                             <span style="font-size:13px; font-weight:600; color:#aaa;">Sửa file:</span>
                             <span style="color:#00d2d3; font-family:monospace; font-size:13px; background:rgba(0,210,211,0.08); padding:3px 10px; border-radius:6px; border:1px solid rgba(0,210,211,0.2); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${this.escapeHtml(path)}</span>
                         </div>
                         <div style="display:flex; align-items:center; gap:8px;">
-                            <button type="button" class="btn btn-ghost btn-sm" onclick="FileManager.openInEditor('${this.escapeHtml(path)}')" title="Mở file này bằng Antigravity IDE" style="padding:4px 10px; font-size:12px; border:1px solid rgba(162,155,254,0.3); border-radius:6px; color:#a29bfe; background:rgba(162,155,254,0.08);">
-                                ⚡ Mở Antigravity
+                            <button type="button" class="btn btn-ghost btn-sm" onclick="FileManager.openInEditor('${this.escapeHtml(path)}')" title="Mở file này bằng Antigravity IDE" style="padding:4px 10px; font-size:12px; border:1px solid rgba(162,155,254,0.3); border-radius:6px; color:#a29bfe; background:rgba(162,155,254,0.08); display:inline-flex; align-items:center; gap:5px;">
+                                ${fi("code", 13)} Mở Antigravity
                             </button>
-                            <button type="button" class="btn btn-ghost btn-sm" onclick="FileManager.toggleFindWidget()" title="Tìm kiếm (Ctrl + F)" style="padding:4px 10px; font-size:12px; border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:#ccc;">
-                                🔍 Tìm kiếm
+                            <button type="button" class="btn btn-ghost btn-sm" onclick="FileManager.toggleFindWidget()" title="Tìm kiếm (Ctrl + F)" style="padding:4px 10px; font-size:12px; border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:#ccc; display:inline-flex; align-items:center; gap:5px;">
+                                ${fi("search", 13)} Tìm kiếm
                             </button>
                             <button type="button" onclick="document.getElementById('fm-editor-modal').remove()" style="background:none; border:none; color:#71717a; font-size:22px; cursor:pointer; line-height:1; padding:2px 8px; border-radius:6px; transition:all 0.15s;" onmouseover="this.style.color='#fff'; this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.color='#71717a'; this.style.background='none'">×</button>
                         </div>
@@ -1757,12 +1757,12 @@ var FileManager = {
                     <!-- Footer -->
                     <div class="modal-footer" style="padding: 12px 20px; border-top: 1px solid rgba(255,255,255,0.08); background: #1f1f26; display:flex; justify-content:space-between; align-items:center;">
                         <div style="display:flex; align-items:center; gap:16px; font-size: 12px; color: #71717a;">
-                            <span>⌨️ <kbd style="background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:4px; font-family:monospace; color:#ccc;">Ctrl + S</kbd> Lưu nhanh</span>
-                            <span>🔍 <kbd style="background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:4px; font-family:monospace; color:#ccc;">Ctrl + F</kbd> Tìm kiếm</span>
+                            <span style="display:inline-flex;align-items:center;gap:5px;">${fi("keyboard", 13)} <kbd style="background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:4px; font-family:monospace; color:#ccc;">Ctrl + S</kbd> Lưu nhanh</span>
+                            <span style="display:inline-flex;align-items:center;gap:5px;">${fi("search", 13)} <kbd style="background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:4px; font-family:monospace; color:#ccc;">Ctrl + F</kbd> Tìm kiếm</span>
                         </div>
                         <div style="display:flex; gap:10px;">
                             <button type="button" class="btn btn-ghost" onclick="document.getElementById('fm-editor-modal').remove()" style="border: 1px solid rgba(255,255,255,0.1); border-radius:6px; font-size:13px; padding:6px 16px;">Hủy</button>
-                            <button type="button" class="btn btn-primary" onclick="FileManager.saveFile('${this.escapeHtml(path)}')" style="border-radius:6px; font-size:13px; font-weight:600; padding:6px 18px;">💾 Lưu Thay Đổi</button>
+                            <button type="button" class="btn btn-primary" onclick="FileManager.saveFile('${this.escapeHtml(path)}')" style="border-radius:6px; font-size:13px; font-weight:600; padding:6px 18px; display:inline-flex; align-items:center; gap:6px;">${fi("save", 14)} Lưu Thay Đổi</button>
                         </div>
                     </div>
                 </div>
@@ -2179,7 +2179,7 @@ var FileManager = {
             <div class="modal-overlay" id="fm-image-modal" style="display:flex; z-index:9999;" onclick="if(event.target===this) this.remove()">
                 <div class="modal-content" style="max-width: 800px; width: 90%; max-height: 90vh; display: flex; flex-direction: column; background: #1e1e24; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 10px 40px rgba(0,0,0,0.8);">
                     <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; padding: 12px 18px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                        <h4 style="margin:0; font-size:14px; color:#fff; word-break:break-all;">🖼️ ${this.escapeHtml(title)}</h4>
+                        <h4 style="margin:0; font-size:14px; color:#fff; word-break:break-all; display:inline-flex; align-items:center; gap:7px;">${fi("image", 15)} ${this.escapeHtml(title)}</h4>
                         <button class="modal-close" onclick="document.getElementById('fm-image-modal').remove()" style="background:none; border:none; color:#aaa; font-size:22px; cursor:pointer; line-height:1;">×</button>
                     </div>
                     <div class="modal-body" style="padding: 20px; display:flex; justify-content:center; align-items:center; background: repeating-conic-gradient(#18181b 0% 25%, #27272a 0% 50%) 50% / 20px 20px; min-height: 250px; overflow:auto;">
@@ -2188,7 +2188,7 @@ var FileManager = {
                     <div class="modal-footer" style="padding: 10px 18px; border-top: 1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center; background: #18181b;">
                         <span style="font-size:11px; color:#888; word-break:break-all; max-width:60%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${url}</span>
                         <div style="display:flex; gap:8px;">
-                            <a href="${url}" target="_blank" class="btn btn-ghost btn-sm" style="text-decoration:none; padding:4px 10px; font-size:12px;">🔗 Mở tab mới</a>
+                            <a href="${url}" target="_blank" class="btn btn-ghost btn-sm" style="text-decoration:none; padding:4px 10px; font-size:12px; display:inline-flex; align-items:center; gap:5px;">${fi("externalLink", 12)} Mở tab mới</a>
                             <button class="btn btn-primary btn-sm" onclick="document.getElementById('fm-image-modal').remove()" style="padding:4px 12px; font-size:12px;">Đóng</button>
                         </div>
                     </div>
@@ -2264,7 +2264,7 @@ const SyncCenter = {
 		if (desc) {
 			desc.innerHTML =
 				env === "prod"
-					? '<b style="color:#f59e0b;">🚀 CHẾ ĐỘ PRODUCTION</b> - Đối soát và đồng bộ trực tiếp với Hosting thật của khách hàng'
+					? `<b style="color:#f59e0b;display:inline-flex;align-items:center;gap:4px;">${fi("server", 12)} CHẾ ĐỘ PRODUCTION</b> - Đối soát và đồng bộ trực tiếp với Hosting thật của khách hàng`
 					: "Tự động đối soát và đồng bộ mã nguồn giữa Local Workspace và Demo Hosting";
 		}
 	},
@@ -2282,13 +2282,13 @@ const SyncCenter = {
 		if (container) {
 			container.innerHTML = `
                 <div style="padding: 60px 20px; text-align: center; background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.12); border-radius: 16px;">
-                    <div style="font-size: 32px; margin-bottom: 12px;">🔄</div>
+                    <div style="display:inline-flex;width:52px;height:52px;border-radius:14px;background:rgba(99,102,241,0.1);color:var(--primary,#6366f1);align-items:center;justify-content:center;margin-bottom:14px;">${fi("refresh", 24)}</div>
                     <h3 style="color: #fff; font-size: 16px; font-weight: 700; margin-bottom: 6px;">Sẵn sàng đối soát [${defEnv === "prod" ? "Production Server" : "Demo Server"}]</h3>
                     <p style="color: var(--text-muted, #94a3b8); font-size: 13px; max-width: 460px; margin: 0 auto 20px;">
                         Nhấn nút <b>"Quét & So Sánh"</b> để kiểm tra sự khác biệt giữa máy Local và ${defEnv === "prod" ? "Production Server" : "Demo Server"}.
                     </p>
-                    <button class="btn btn-primary" onclick="SyncCenter.scan()" style="padding: 10px 24px; font-weight: 700; border-radius: 8px;">
-                        🔍 Bắt đầu Quét & So sánh
+                    <button class="btn btn-primary" onclick="SyncCenter.scan()" style="padding: 10px 24px; font-weight: 700; border-radius: 8px; display: inline-flex; align-items: center; gap: 7px;">
+                        ${fi("search", 14)} Bắt đầu Quét &amp; So sánh
                     </button>
                 </div>
             `;
@@ -2465,7 +2465,7 @@ const SyncCenter = {
             <div class="modal-overlay" id="sc-bridge-confirm-modal" style="display:flex; z-index:10000; align-items:center; justify-content:center; position:fixed; inset:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px);">
                 <div class="modal-content" style="max-width:520px; width:92%; background:#18181c; border-radius:14px; overflow:hidden; border:1px solid rgba(255,255,255,0.12); box-shadow:0 20px 60px rgba(0,0,0,0.85);">
                     <div style="display:flex; align-items:center; gap:12px; padding:16px 20px; background:#1f1f26; border-bottom:1px solid rgba(255,255,255,0.08);">
-                        <div style="width:36px; height:36px; border-radius:10px; background:rgba(239,68,68,0.15); display:flex; align-items:center; justify-content:center; color:#f87171; font-size:18px;">🛡️</div>
+                        <div style="width:36px; height:36px; border-radius:10px; background:rgba(239,68,68,0.15); display:flex; align-items:center; justify-content:center; color:#f87171;">${fi("shield", 18)}</div>
                         <div>
                             <h3 style="margin:0; font-size:15px; font-weight:700; color:#fff;">Xác nhận tải tệp kết nối Bridge</h3>
                             <span style="font-size:12px; color:var(--text-muted, #94a3b8);">Môi trường: <b style="color:${envColor};">${this.escapeHtml(envLabel)}</b></span>
@@ -2488,7 +2488,7 @@ const SyncCenter = {
                             Hủy bỏ
                         </button>
                         <button type="button" class="btn btn-primary" onclick="SyncCenter.confirmBridgeUpload()" style="padding:8px 18px; font-size:13px; font-weight:600; border-radius:8px; background:linear-gradient(135deg, #00d2d3, #0984e3); border:none; color:#fff; display:flex; align-items:center; gap:6px;">
-                            <span>✓ Đồng ý tải lên & Quét</span>
+                            ${fi("check", 14)} <span>Đồng ý tải lên &amp; Quét</span>
                         </button>
                     </div>
                 </div>
@@ -2498,7 +2498,7 @@ const SyncCenter = {
 
 		document.getElementById("sync-center-content").innerHTML = `
             <div style="padding: 50px 20px; text-align: center; background: rgba(255,255,255,0.015); border: 1px dashed rgba(255,255,255,0.1); border-radius: 16px;">
-                <div style="font-size: 32px; margin-bottom: 12px;">🛡️</div>
+                <div style="display:inline-flex;width:52px;height:52px;border-radius:14px;background:rgba(245,158,11,0.12);color:#f59e0b;align-items:center;justify-content:center;margin-bottom:14px;">${fi("shield", 24)}</div>
                 <h4 style="color: #fff; font-size: 15px; margin-bottom: 6px; font-weight: 600;">Đang chờ xác nhận bảo mật</h4>
                 <p style="color: var(--text-muted, #94a3b8); font-size: 13px; max-width: 480px; margin: 0 auto 16px;">
                     Vui lòng xác nhận trên hộp thoại để cho phép tải tệp kết nối <code>bridge.php</code> lên máy chủ ${this.escapeHtml(envLabel)}.
@@ -2522,13 +2522,13 @@ const SyncCenter = {
 
 		document.getElementById("sync-center-content").innerHTML = `
             <div style="padding: 50px 20px; text-align: center; background: rgba(255,255,255,0.015); border: 1px dashed rgba(255,255,255,0.1); border-radius: 16px;">
-                <div style="font-size: 32px; margin-bottom: 12px;">🛡️</div>
+                <div style="display:inline-flex;width:52px;height:52px;border-radius:14px;background:rgba(148,163,184,0.12);color:#94a3b8;align-items:center;justify-content:center;margin-bottom:14px;">${fi("shield", 24)}</div>
                 <h4 style="color: #fff; font-size: 15px; margin-bottom: 6px; font-weight: 600;">Đã hủy tải tệp Bridge</h4>
                 <p style="color: var(--text-muted, #94a3b8); font-size: 13px; max-width: 480px; margin: 0 auto 16px;">
                     Tệp <code>bridge.php</code> chưa được tải lên máy chủ ${this.escapeHtml(envLabel || "")}. Thao tác so sánh tạm dừng để bảo vệ an toàn hệ thống.
                 </p>
-                <button class="btn btn-primary" onclick="SyncCenter.scan()" style="padding: 8px 20px; font-weight: 600; border-radius: 8px;">
-                    🔄 Quét lại
+                <button class="btn btn-primary" onclick="SyncCenter.scan()" style="padding: 8px 20px; font-weight: 600; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;">
+                    ${fi("refresh", 14)} Quét lại
                 </button>
             </div>
         `;
@@ -3684,7 +3684,7 @@ const SyncCenter = {
                     <div class="modal-content" style="max-width:680px; width:94%; max-height:85vh; background:#0e131d; border-radius:14px; overflow:hidden; border:1px solid rgba(0,210,211,0.3); box-shadow:0 24px 70px rgba(0,0,0,0.9); display:flex; flex-direction:column;">
                         <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; background:#141b29; border-bottom:1px solid rgba(255,255,255,0.08);">
                             <div style="display:flex; align-items:center; gap:10px;">
-                                <span style="font-size:20px;">🛡️</span>
+                                <span style="display:inline-flex;color:#10b981;">${fi("shield", 20)}</span>
                                 <div>
                                     <h3 style="margin:0; font-size:15px; font-weight:700; color:#fff;">Xác nhận danh sách tệp đồng bộ [${this.escapeHtml(envLabel)}]</h3>
                                     <span style="font-size:12px; color:var(--text-muted, #94a3b8);">Tổng số: <b style="color:#00d2d3;">${total} file</b> (Đẩy: ${uploadCount} • Kéo: ${downloadCount})</span>
@@ -3693,8 +3693,9 @@ const SyncCenter = {
                             <button type="button" id="sc-exec-modal-close" style="background:none; border:none; color:#71717a; font-size:22px; cursor:pointer; line-height:1; padding:4px 8px; border-radius:6px;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#71717a'">×</button>
                         </div>
                         <div style="padding:16px 20px; overflow-y:auto; flex:1; background:#080c14;">
-                            <div style="background:rgba(16,185,129,0.08); border-left:3px solid #10b981; border-radius:4px; padding:10px 14px; margin-bottom:14px; font-size:12.5px; color:#6ee7b7;">
-                                🛡️ <b>Cơ chế An toàn:</b> Hệ thống sẽ <b>tự động sao lưu (Backup snapshot)</b> các tệp đích trước khi tiến hành ghi đè. Bạn có thể khôi phục lại bất kỳ lúc nào tại tab Lịch sử Backup.
+                            <div style="background:rgba(16,185,129,0.08); border-left:3px solid #10b981; border-radius:4px; padding:10px 14px; margin-bottom:14px; font-size:12.5px; color:#6ee7b7; display:flex; align-items:flex-start; gap:8px;">
+                                <span style="display:inline-flex;margin-top:2px;">${fi("shield", 14)}</span>
+                                <span><b>Cơ chế An toàn:</b> Hệ thống sẽ <b>tự động sao lưu (Backup snapshot)</b> các tệp đích trước khi tiến hành ghi đè. Bạn có thể khôi phục lại bất kỳ lúc nào tại tab Lịch sử Backup.</span>
                             </div>
 
                             ${
@@ -3702,7 +3703,7 @@ const SyncCenter = {
 									? `
                                 <div style="margin-bottom:12px;">
                                     <div style="font-weight:700; font-size:12.5px; color:#f87171; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
-                                        <span>🛡️ Tệp thuộc Admin (${adminSelected.length}):</span>
+                                        ${fi("shield", 13)} <span>Tệp thuộc Admin (${adminSelected.length}):</span>
                                     </div>
                                     <div style="background:#05070a; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:8px 12px; font-family:var(--mono, monospace); font-size:11.5px; color:#cbd5e1; max-height:110px; overflow-y:auto; line-height:1.6;">
                                         ${adminSelected.map((p) => `<div>• ${this.escapeHtml(p)}</div>`).join("")}
@@ -3717,7 +3718,7 @@ const SyncCenter = {
 									? `
                                 <div style="margin-bottom:12px;">
                                     <div style="font-weight:700; font-size:12.5px; color:#38bdf8; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
-                                        <span>🌐 Tệp thuộc Web / Client (${webSelected.length}):</span>
+                                        ${fi("globe", 13)} <span>Tệp thuộc Web / Client (${webSelected.length}):</span>
                                     </div>
                                     <div style="background:#05070a; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:8px 12px; font-family:var(--mono, monospace); font-size:11.5px; color:#cbd5e1; max-height:110px; overflow-y:auto; line-height:1.6;">
                                         ${webSelected.map((p) => `<div>• ${this.escapeHtml(p)}</div>`).join("")}
@@ -3732,7 +3733,7 @@ const SyncCenter = {
 									? `
                                 <div style="margin-bottom:12px;">
                                     <div style="font-weight:700; font-size:12.5px; color:#c084fc; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
-                                        <span>📦 Tệp Model & Khác (${otherSelected.length}):</span>
+                                        ${fi("box", 13)} <span>Tệp Model &amp; Khác (${otherSelected.length}):</span>
                                     </div>
                                     <div style="background:#05070a; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:8px 12px; font-family:var(--mono, monospace); font-size:11.5px; color:#cbd5e1; max-height:90px; overflow-y:auto; line-height:1.6;">
                                         ${otherSelected.map((p) => `<div>• ${this.escapeHtml(p)}</div>`).join("")}
@@ -3747,7 +3748,7 @@ const SyncCenter = {
                                 Hủy bỏ
                             </button>
                             <button type="button" class="btn btn-primary" id="sc-exec-modal-confirm" style="padding:8px 20px; font-size:13px; font-weight:700; border-radius:8px; background:linear-gradient(135deg, #00d2d3, #0984e3); border:none; color:#fff; display:flex; align-items:center; gap:6px; box-shadow:0 4px 14px rgba(0,210,211,0.35);">
-                                <span>✓ Đồng ý Đồng Bộ</span>
+                                ${fi("check", 14)} <span>Đồng ý Đồng Bộ</span>
                             </button>
                         </div>
                     </div>
@@ -3913,7 +3914,7 @@ const SyncCenter = {
                 <div class="modal-content" style="max-width:760px; width:92%; max-height:85vh; background:#0f141c; border-radius:14px; overflow:hidden; border:1px solid rgba(255,255,255,0.14); box-shadow:0 24px 70px rgba(0,0,0,0.9); display:flex; flex-direction:column;">
                     <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; background:#161c28; border-bottom:1px solid rgba(255,255,255,0.08);">
                         <div style="display:flex; align-items:center; gap:10px;">
-                            <span style="font-size:20px;">🗄️</span>
+                            <span style="display:inline-flex;align-items:center;color:#38bdf8;">${fi("db", 18)}</span>
                             <div>
                                 <h3 style="margin:0; font-size:15px; font-weight:700; color:#fff;">${this.escapeHtml(title)}</h3>
                                 <span style="font-size:12px; color:var(--text-muted, #94a3b8);">Áp dụng lên: <b style="color:#38bdf8;">${this.escapeHtml(targetLabel)}</b> (${stmts.length} câu lệnh)</span>
@@ -3923,7 +3924,7 @@ const SyncCenter = {
                     </div>
                     <div style="padding:16px 20px; overflow-y:auto; flex:1; background:#090d14;">
                         <div style="background:rgba(16,185,129,0.08); border-left:3px solid #10b981; border-radius:4px; padding:10px 14px; margin-bottom:14px; font-size:12.5px; color:#6ee7b7;">
-                            🛡️ <b>Cơ chế An toàn:</b> Hệ thống sẽ <b>tự động sao lưu toàn bộ Database ${this.escapeHtml(targetLabel)}</b> thành tệp <code>.sql</code> trước khi chạy các câu lệnh bên dưới. Nếu sao lưu thất bại, hệ thống sẽ dừng ngay lập tức để bảo vệ dữ liệu.
+                            <span style="display:inline-flex;vertical-align:middle;margin-right:4px;">${fi("shield", 14)}</span><b>Cơ chế An toàn:</b> Hệ thống sẽ <b>tự động sao lưu toàn bộ Database ${this.escapeHtml(targetLabel)}</b> thành tệp <code>.sql</code> trước khi chạy các câu lệnh bên dưới. Nếu sao lưu thất bại, hệ thống sẽ dừng ngay lập tức để bảo vệ dữ liệu.
                         </div>
                         <pre style="margin:0; padding:14px; background:#05070a; border:1px solid rgba(255,255,255,0.08); border-radius:8px; color:#e2e8f0; font-family:var(--mono, monospace); font-size:12.5px; line-height:1.6; white-space:pre-wrap; word-break:break-all; max-height:400px; overflow-y:auto;">${this.escapeHtml(sqlText || "-- Không có câu lệnh nào")}</pre>
                     </div>
@@ -4136,7 +4137,7 @@ const SyncCenter = {
 		const remote = data.remote;
 		const envLabel = this.currentEnv === "prod" ? "Production" : "Demo";
 		const remoteColor = this.currentEnv === "prod" ? "#fbbf24" : "#c084fc";
-		const remoteIcon = this.currentEnv === "prod" ? "🚀" : "☁️";
+		const remoteIcon = this.currentEnv === "prod" ? fi("server", 13) : fi("cloud", 13);
 
 		const isLocalExists = local && local.exists;
 		const isRemoteExists = remote && remote.exists;
@@ -4232,10 +4233,10 @@ const SyncCenter = {
                     <thead style="background:#0d121d; position:sticky; top:0; z-index:10; border-bottom:1px solid rgba(255,255,255,0.08);">
                         <tr>
                             <th style="padding:8px 14px; text-align:left; color:#34d399; font-size:12px; font-weight:700; width:50%; border-right:1px solid rgba(255,255,255,0.08);">
-                                💻 BẢN LOCAL (DEV) ${isLocalExists ? `(${this.formatBytes(local.size)})` : '<span style="color:#f87171;">(Chưa có)</span>'}
+                                <span style="display:inline-flex;align-items:center;gap:5px;">${fi("laptop", 13)} BẢN LOCAL (DEV) ${isLocalExists ? `(${this.formatBytes(local.size)})` : '<span style="color:#f87171;">(Chưa có)</span>'}</span>
                             </th>
                             <th style="padding:8px 14px; text-align:left; color:${remoteColor}; font-size:12px; font-weight:700; width:50%;">
-                                ${remoteIcon} BẢN ${envLabel.toUpperCase()} (HOSTING) ${isRemoteExists ? `(${this.formatBytes(remote.size)})` : '<span style="color:#f87171;">(Chưa có)</span>'}
+                                <span style="display:inline-flex;align-items:center;gap:5px;">${remoteIcon} BẢN ${envLabel.toUpperCase()} (HOSTING) ${isRemoteExists ? `(${this.formatBytes(remote.size)})` : '<span style="color:#f87171;">(Chưa có)</span>'}</span>
                             </th>
                         </tr>
                     </thead>
@@ -4278,8 +4279,8 @@ const SyncCenter = {
 
 			diffBodyHtml = `
                 <div style="background:#0d121d; position:sticky; top:0; z-index:10; border-bottom:1px solid rgba(255,255,255,0.08); padding:8px 14px; font-size:12px; font-weight:700; display:flex; gap:20px;">
-                    <span style="color:#34d399;">💻 Local: ${isLocalExists ? this.formatBytes(local.size) : "Chưa có"}</span>
-                    <span style="color:${remoteColor};">${remoteIcon} ${envLabel}: ${isRemoteExists ? this.formatBytes(remote.size) : "Chưa có"}</span>
+                    <span style="color:#34d399;display:inline-flex;align-items:center;gap:5px;">${fi("laptop", 13)} Local: ${isLocalExists ? this.formatBytes(local.size) : "Chưa có"}</span>
+                    <span style="color:${remoteColor};display:inline-flex;align-items:center;gap:5px;">${remoteIcon} ${envLabel}: ${isRemoteExists ? this.formatBytes(remote.size) : "Chưa có"}</span>
                 </div>
                 <div>${linesHtml}</div>
             `;
@@ -4290,7 +4291,7 @@ const SyncCenter = {
                 <!-- Header -->
                 <div class="sc-diff-header">
                     <div style="display:flex; align-items:center; gap:10px; min-width:0;">
-                        <span style="font-size:18px;">🔍</span>
+                        <span style="display:inline-flex;color:var(--primary,#00d2d3);">${fi("search", 18)}</span>
                         <div>
                             <div style="display:flex; align-items:center; gap:8px; margin-bottom:3px; flex-wrap:wrap;">
                                 <span class="sc-tag" style="background:${this.getScopeMeta(path).bg}; color:${this.getScopeMeta(path).color}; border:1px solid ${this.getScopeMeta(path).border}; font-weight:700; font-size:11px;">
@@ -4904,10 +4905,10 @@ const SyncCenter = {
 				previewModal.innerHTML = `
                     <div class="sc-diff-dialog" style="max-width: 1100px; height: 80vh;">
                         <div class="sc-diff-header">
-                            <div style="font-size: 14px; font-weight: 700; color: #fff; font-family: var(--mono, monospace);">
-                                📄 Xem Snapshot [${envLabel}]: ${this.escapeHtml(path)}
+                            <div style="font-size: 14px; font-weight: 700; color: #fff; font-family: var(--mono, monospace); display:inline-flex; align-items:center; gap:7px;">
+                                ${fi("fileText", 15)} <span>Xem Snapshot [${envLabel}]: ${this.escapeHtml(path)}</span>
                             </div>
-                            <button class="btn btn-ghost" onclick="document.getElementById('sc-backup-preview-modal').remove()" style="height:30px; width:30px; padding:0; border-radius:8px;">✕</button>
+                            <button class="btn btn-ghost" onclick="document.getElementById('sc-backup-preview-modal').remove()" style="height:30px; width:30px; padding:0; border-radius:8px; display:inline-flex; align-items:center; justify-content:center;">${fi("x", 15)}</button>
                         </div>
                         <div class="sc-diff-body" style="padding: 10px 0;">
                             ${codeHtml}
@@ -4916,11 +4917,11 @@ const SyncCenter = {
                             <span style="font-size: 12px; color: #94a3b8;">${lines.length} dòng | ${this.formatBytes(res.content.length)}</span>
                             <div style="display:flex; gap:10px;">
                                 <button class="btn btn-ghost" onclick="document.getElementById('sc-backup-preview-modal').remove()">Đóng</button>
-                                <button class="btn btn-primary" onclick="SyncCenter.restoreBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}', 'local', '${env}'); document.getElementById('sc-backup-preview-modal').remove();">
-                                    ⏪ Khôi phục về Local
+                                <button class="btn btn-primary" style="display:inline-flex;align-items:center;gap:6px;" onclick="SyncCenter.restoreBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}', 'local', '${env}'); document.getElementById('sc-backup-preview-modal').remove();">
+                                    ${fi("download", 14)} Khôi phục về Local
                                 </button>
-                                <button class="btn" style="background:${remoteBtnBg}; color:#fff; font-weight:700;" onclick="SyncCenter.restoreBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}', 'remote', '${env}'); document.getElementById('sc-backup-preview-modal').remove();">
-                                    ⏫ Khôi phục lên ${envLabel}
+                                <button class="btn" style="background:${remoteBtnBg}; color:#fff; font-weight:700; display:inline-flex; align-items:center; gap:6px;" onclick="SyncCenter.restoreBackup('${this.escapeHtml(backupFile)}', '${this.escapeHtml(path)}', 'remote', '${env}'); document.getElementById('sc-backup-preview-modal').remove();">
+                                    ${fi("upload", 14)} Khôi phục lên ${envLabel}
                                 </button>
                             </div>
                         </div>
