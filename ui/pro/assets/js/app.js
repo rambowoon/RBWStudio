@@ -114,6 +114,15 @@ const App = {
 				}
 			} else if (e.data && e.data.type === "RBW_WINDOW_VISIBILITY") {
 				this.setWindowVisibility(!!e.data.visible);
+			} else if (e.data && e.data.type === "rbw-settings-updated") {
+				fetch("api.php?action=getGlobalConfig")
+					.then((r) => r.json())
+					.then((gRes) => {
+						if (gRes && gRes.status === "success" && gRes.data) {
+							this.globalData = gRes.data;
+						}
+					})
+					.catch(() => {});
 			}
 		});
 
@@ -793,7 +802,7 @@ const App = {
 		}
 		if (elStorageLabel) {
 			elStorageLabel.innerText = this.currentCategory
-				? "Dung lượng tháng"
+				? "Dung lượng"
 				: "Tổng dung lượng";
 		}
 	},
@@ -3713,16 +3722,14 @@ const App = {
 			resBox.innerHTML = "";
 		}
 
-		// Ensure globalData is loaded for demo_list
-		if (!this.globalData || !this.globalData.demo_list) {
-			try {
-				const gRes = await (await fetch("api.php?action=getGlobalConfig")).json();
-				if (gRes.status === "success") {
-					this.globalData = gRes.data;
-				}
-			} catch (e) {
-				console.error("Lỗi tải demo_config:", e);
+		// Always refresh globalData for latest demo_list (name/domain updates)
+		try {
+			const gRes = await (await fetch("api.php?action=getGlobalConfig")).json();
+			if (gRes.status === "success" && gRes.data) {
+				this.globalData = gRes.data;
 			}
+		} catch (e) {
+			console.error("Lỗi tải demo_config:", e);
 		}
 
 		// Populate demo server select

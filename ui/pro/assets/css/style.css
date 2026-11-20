@@ -1063,10 +1063,14 @@ header {
 
 .projects-split-view {
     display: grid;
-    grid-template-columns: 240px 1fr;
-    gap: 24px;
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 22px;
     align-items: start;
-    margin-top: 20px;
+    margin-top: 0;
+}
+
+.projects-content-area {
+    min-width: 0;
 }
 
 .category-sidebar-nav {
@@ -1074,8 +1078,8 @@ header {
     flex-direction: column;
     gap: 6px;
     position: sticky;
-    top: 24px;
-    max-height: calc(100vh - 210px);
+    top: 0;
+    max-height: calc(100vh - 96px);
     overflow-y: auto;
     padding-right: 6px;
 }
@@ -1690,9 +1694,9 @@ header {
     backdrop-filter: blur(10px);
     display: none;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
     z-index: 1000;
-    padding: 20px;
+    padding: 24px 20px;
     overflow-y: auto;
 }
 
@@ -1700,8 +1704,8 @@ header {
     background: var(--modal-bg);
     width: 100%;
     max-width: 500px;
-    max-height: calc(100vh - 40px);
-    overflow-y: auto;
+    max-height: none;
+    overflow-y: visible;
     margin: auto;
     border-radius: 16px;
     border: 1px solid var(--border);

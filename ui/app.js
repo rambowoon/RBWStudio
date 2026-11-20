@@ -849,13 +849,13 @@ function renderDemoServersSettingsList() {
   container.innerHTML = appState.demoServers.map((srv, idx) => {
     const isDefault = srv.id === appState.defaultDemoId || (!appState.defaultDemoId && idx === 0);
     const borderStyle = isDefault ? "border: 1px solid var(--accent); background: rgba(99, 102, 241, 0.04);" : "border: 1px solid var(--border); background: var(--surface);";
-    const cardTitle = srv.web_domain || srv.ftp_host || srv.name || ("Server Demo #" + (idx + 1));
+    const cardTitle = srv.name || srv.web_domain || srv.ftp_host || ("Server Demo #" + (idx + 1));
     return `
       <div class="demo-server-card" data-srv-id="${srv.id}" style="${borderStyle} border-radius: 10px; padding: 14px 16px; margin-bottom: 4px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 10px;">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <span class="srv-card-title" data-srv-id="${srv.id}" style="font-size: 15px; font-weight: 700; color: var(--text);">${escapeHtml(cardTitle)}</span>
-            ${isDefault ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 11px; padding: 2px 7px; border-radius: 4px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">${svgIcon("star", 11)} MẶC ĐỊNH</span>` : ''}
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 10px; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;">
+            <input type="text" class="srv-input srv-card-title" data-srv-id="${srv.id}" data-field="name" value="${escapeHtml(cardTitle)}" placeholder="Tên Server..." title="Nhấn để sửa tên server" style="font-size: 15px; font-weight: 700; color: var(--text); background: transparent; border: 1px solid transparent; border-bottom: 1px dashed var(--border); border-radius: 6px; padding: 3px 6px; width: 260px; max-width: 100%; outline: none; transition: border-color .15s, background .15s;" onfocus="this.style.borderColor='var(--accent)'; this.style.background='var(--surface-2, rgba(255,255,255,0.04))'" onblur="this.style.borderColor='transparent'; this.style.borderBottomColor='var(--border)'; this.style.background='transparent'" />
+            ${isDefault ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 11px; padding: 2px 7px; border-radius: 4px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">${svgIcon("star", 11)} MẶC ĐỊNH</span>` : ''}
           </div>
           <div style="display: flex; gap: 6px;">
             ${!isDefault ? `<button type="button" class="btn btn-ghost btn-xs btn-set-default" data-id="${srv.id}" style="font-size: 11px; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">${svgIcon("star", 12)} Đặt mặc định</button>` : ''}
@@ -912,11 +912,11 @@ function renderDemoServersSettingsList() {
         if (field === "ftp_user") {
           targetSrv.da_user = e.target.value;
         }
-        if (field === "web_domain" || field === "ftp_host") {
-          const nextTitle = targetSrv.web_domain || targetSrv.ftp_host || targetSrv.name || "Server Demo";
+        if ((field === "web_domain" || field === "ftp_host") && !targetSrv.name) {
+          const nextTitle = targetSrv.web_domain || targetSrv.ftp_host || "Server Demo";
           targetSrv.name = nextTitle;
           const titleEl = container.querySelector(`.srv-card-title[data-srv-id="${sId}"]`);
-          if (titleEl) titleEl.textContent = nextTitle;
+          if (titleEl) titleEl.value = nextTitle;
         }
       }
     });
@@ -1131,7 +1131,7 @@ function bindGeneralEvents() {
     const globalDbNamingMode = Number(document.getElementById("cfgGlobalDbNamingMode")?.value || 0);
     appState.demoServers = (appState.demoServers || []).map((s, idx) => ({
       ...s,
-      name: s.web_domain || s.ftp_host || s.name || `Server Demo #${idx + 1}`,
+      name: (s.name || "").trim() || s.web_domain || s.ftp_host || `Server Demo #${idx + 1}`,
       da_user: s.da_user || s.ftp_user || "",
       ftp_root: s.ftp_root || "/domains/{domain}/public_html",
       da_port: s.da_port || "2222",

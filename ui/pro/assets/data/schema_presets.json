@@ -16,8 +16,8 @@
                 "tags": false,
                 "slug": true,
                 "status": {
-                    "noibat": "noibat",
-                    "hienthi": "hienthi"
+                    "is_featured": "noibat",
+                    "is_show": "hienthi"
                 },
                 "images": {
                     "photo": {
@@ -33,7 +33,7 @@
                         "title_main_photo": "hinhanhsanpham",
                         "title_sub_photo": "hinhanh",
                         "status_photo": {
-                            "hienthi": "hienthi"
+                            "is_show": "hienthi"
                         },
                         "number_photo": 3,
                         "images_photo": true,
@@ -75,8 +75,8 @@
                         "show_images_categories": true,
                         "slug_categories": true,
                         "status_categories": {
-                            "noibat": "noibat",
-                            "hienthi": "hienthi"
+                            "is_featured": "noibat",
+                            "is_show": "hienthi"
                         },
                         "name_categories": true,
                         "desc_categories": false,
@@ -99,7 +99,7 @@
                         "show_images_categories": true,
                         "slug_categories": true,
                         "status_categories": {
-                            "hienthi": "hienthi"
+                            "is_show": "hienthi"
                         },
                         "gallery_categories": {},
                         "name_categories": true,
@@ -128,8 +128,8 @@
                 "tags": false,
                 "slug": true,
                 "status": {
-                    "noibat": "noibat",
-                    "hienthi": "hienthi"
+                    "is_featured": "noibat",
+                    "is_show": "hienthi"
                 },
                 "images": {
                     "photo": {
@@ -145,7 +145,7 @@
                         "title_main_photo": "hinhanhthucdon",
                         "title_sub_photo": "hinhanh",
                         "status_photo": {
-                            "hienthi": "hienthi"
+                            "is_show": "hienthi"
                         },
                         "number_photo": 3,
                         "images_photo": true,
@@ -187,7 +187,7 @@
                         "show_images_categories": true,
                         "slug_categories": true,
                         "status_categories": {
-                            "hienthi": "hienthi"
+                            "is_show": "hienthi"
                         },
                         "name_categories": true,
                         "desc_categories": false,
@@ -210,7 +210,7 @@
                         "show_images_categories": true,
                         "slug_categories": true,
                         "status_categories": {
-                            "hienthi": "hienthi"
+                            "is_show": "hienthi"
                         },
                         "gallery_categories": {},
                         "name_categories": true,
@@ -237,7 +237,7 @@
                     "title": "tintuc"
                 },
                 "status": {
-                    "hienthi": "hienthi"
+                    "is_show": "hienthi"
                 },
                 "slug": true,
                 "seo": true,
@@ -273,7 +273,7 @@
                     "view_page": "news.album"
                 },
                 "status": {
-                    "hienthi": "hienthi"
+                    "is_show": "hienthi"
                 },
                 "slug": false,
                 "show_images": true,
@@ -290,7 +290,7 @@
                         "title_main_photo": "hinhanh",
                         "title_sub_photo": "hinhanh",
                         "status_photo": {
-                            "hienthi": "hienthi"
+                            "is_show": "hienthi"
                         },
                         "number_photo": 3,
                         "images_photo": true,
@@ -308,7 +308,7 @@
             "data": {
                 "title_main": "tieuchi",
                 "status": {
-                    "hienthi": "hienthi"
+                    "is_show": "hienthi"
                 },
                 "show_images": true,
                 "images": {
@@ -342,7 +342,7 @@
                     }
                 },
                 "show_images": true,
-                "status": { "hienthi": "hienthi" },
+                "status": { "is_show": "hienthi" },
                 "name": true,
                 "desc": true,
                 "desc_cke": false,
